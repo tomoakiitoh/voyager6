@@ -1,0 +1,227 @@
+<!--
+title: 天文現象カレンダー
+description: 月ごとの天文現象。月相・惑星の見どころ・流星群・日食月食を、その夜の月明かり条件つきで。
+scripts: astro.js sky.js sites.js events.js
+-->
+<main class="doc calendar">
+
+<h1>天文現象カレンダー</h1>
+
+<div class="controls">
+  <button id="prev">◀ 前の月</button>
+  <span id="month-label"></span>
+  <button id="next">次の月 ▶</button>
+  <button id="this-month">今月</button>
+  <label>場所 <select id="site"></select></label>
+</div>
+
+<div id="events"></div>
+
+<p class="note">
+  流星群の極大は太陽黄経（λ☉）から計算しています。実際のピークは前後することがあります。
+  日食・月食の日付と最大食の時刻は
+  <a href="https://eclipse.gsfc.nasa.gov/">NASA Eclipse Web Site</a> のカタログによります。
+  <strong>日食の食分・接触時刻はこのサイトでは扱いません</strong>（計算精度が足りないため）。
+  日本での詳しい状況は
+  <a href="https://eco.mtk.nao.ac.jp/koyomi/">国立天文台 暦計算室</a> をご覧ください。
+</p>
+
+</main>
+
+<script>
+"use strict";
+
+const TZ_MIN = 9 * 60;
+const el = (id) => document.getElementById(id);
+const p2 = (n) => String(n).padStart(2, "0");
+
+let site = loadSite();
+let ym = thisMonth();
+
+function thisMonth() {
+  const now = new Date(Date.now() + TZ_MIN * 60000);
+  return { y: now.getUTCFullYear(), m: now.getUTCMonth() + 1 };
+}
+
+/** JST のその月の [開始, 終了) の絶対時刻。 */
+function monthRange({ y, m }) {
+  const from = Date.UTC(y, m - 1, 1) - TZ_MIN * 60000;
+  const to = Date.UTC(m === 12 ? y + 1 : y, m % 12, 1) - TZ_MIN * 60000;
+  return [from, to];
+}
+
+const jstD = (ms) => new Date(ms + TZ_MIN * 60000);
+const dateJa = (ms) => { const d = jstD(ms); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+const timeJa = (ms) => { const d = jstD(ms); return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
+const dayOfWeek = (ms) => "日月火水木金土"[jstD(ms).getUTCDay()];
+
+/** 早見盤へのリンク。 */
+function skyLink(ms, label) {
+  const d = jstD(ms);
+  const t = `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`
+    + `T${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+  return `<a href="../?t=${t}&lat=${site.lat}&lon=${site.lon}">${label}</a>`;
+}
+
+/** その日の 0:00 (JST)。 */
+function dayOf(ms) {
+  const d = jstD(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - TZ_MIN * 60000;
+}
+
+const MOON_ICON = { "新月": "●", "上弦": "◐", "満月": "○", "下弦": "◑" };
+
+function render() {
+  const [from, to] = monthRange(ym);
+  el("month-label").textContent = `${ym.y}年 ${ym.m}月`;
+
+  const items = [];
+
+  // 月相
+  for (const p of moonPhaseEvents(from, to)) {
+    items.push({
+      ms: p.ms, kind: "moon",
+      title: `${MOON_ICON[p.name]} ${p.name}`,
+      body: `${timeJa(p.ms)}`,
+    });
+  }
+
+  // 惑星の現象
+  for (const e of planetEvents(from, to)) {
+    items.push({
+      ms: e.ms, kind: "planet",
+      title: `${e.ja}が${e.label.split(" (")[0]}`,
+      body: e.label.includes("(") ? e.label.slice(e.label.indexOf("(")) : "",
+      link: e.label.startsWith("衝") || e.label.includes("最大離角")
+        ? skyLink(dayOf(e.ms) + 21 * 3600e3, "その夜の空を見る") : null,
+    });
+  }
+
+  // 流星群 (その年の極大がこの月に入るもの)
+  for (const m of meteorPeaks(ym.y)) {
+    if (m.peakMs < from || m.peakMs >= to) continue;
+    items.push({
+      ms: m.peakMs, kind: "meteor",
+      title: `${m.name} 極大`,
+      body: meteorConditions(m),
+      // 極大の瞬間は昼のこともあるので、リンクはその夜の深夜2時に向ける
+      link: skyLink(dayOf(m.peakMs) + 26 * 3600e3, "その夜（深夜2時）の空を見る"),
+    });
+  }
+
+  // 食
+  for (const e of ECLIPSES_LUNAR) {
+    const ms = eclipseMs(e);
+    if (ms < from || ms >= to) continue;
+    const local = lunarEclipseLocal(e, site.lat, site.lon);
+    items.push({
+      ms, kind: "eclipse",
+      title: `${e[2]}月食`,
+      body: local.visible
+        ? `最大食 ${timeJa(ms)}（${site.name}での月の高度 ${local.alt.toFixed(0)}°）`
+          + `<br><b>${site.name}から見えます。</b>`
+          + (e[3] ? ` 欠けている時間 ${e[3].replace("h", "時間").replace("m", "分")}` : "")
+          + (e[4] ? `、うち皆既は ${e[4].replace("h", "時間").replace("m", "分")}` : "")
+        : `最大食 ${timeJa(ms)} — このとき ${site.name} では月が地平線の下（見えません）`
+          + `<br>見られる地域: ${e[5]}`,
+      link: local.visible ? skyLink(ms, "そのときの空を見る") : null,
+    });
+  }
+  for (const e of ECLIPSES_SOLAR) {
+    const ms = eclipseMs(e);
+    if (ms < from || ms >= to) continue;
+    items.push({
+      ms, kind: "eclipse",
+      title: `${e[2]}日食`,
+      body: `最大食 ${timeJa(ms)}（日本時間）<br>見られる地域: ${e[3]}`,
+    });
+  }
+
+  items.sort((a, b) => a.ms - b.ms);
+
+  el("events").innerHTML = items.length
+    ? items.map((it) => `
+      <div class="event ${it.kind}">
+        <div class="when"><b>${dateJa(it.ms)}</b><span>(${dayOfWeek(it.ms)})</span></div>
+        <div class="what">
+          <div class="title">${it.title}</div>
+          <div class="body">${it.body || ""}</div>
+          ${it.link ? `<div class="link">${it.link}</div>` : ""}
+        </div>
+      </div>`).join("")
+    : `<p class="note">この月に目立った現象はありません。</p>`;
+}
+
+/** 食の最大の瞬間 (絶対時刻)。 */
+function eclipseMs(e) {
+  const [y, mo, d] = e[0].split("-").map(Number);
+  const [hh, mm, ss] = e[1].split(":").map(Number);
+  return Date.UTC(y, mo - 1, d, hh, mm, ss);
+}
+
+/**
+ * 流星群の観測条件。月明かりが最大の敵なので、極大の夜の月齢と
+ * 「月が出ていない時間帯」を出す。手作業の表にはない、計算ならではの情報。
+ */
+function meteorConditions(m) {
+  const night = dayOf(m.peakMs);
+  const age = moonAge(night + 24 * 3600e3);
+  const moon = riseSet("moon", night, site.lat, site.lon);
+  const tw = twilightTimes(night, site.lat, site.lon);
+  const nextTw = twilightTimes(night + 86400000, site.lat, site.lon);
+
+  // 輻射点が高いほどよく流れる。日本の深夜 (2時ごろ) の高度を目安に出す
+  const jd = jdFromDate(new Date(night + 26 * 3600e3));
+  const rad = eqToHorizon(m.ra, m.dec, jd, site.lat, site.lon);
+
+  let moonText;
+  const illum = Math.round(age.illum * 100);
+  if (illum < 15) moonText = `<b>月明かりの影響はほぼなし</b>（月齢 ${age.age.toFixed(0)}・輝面比 ${illum}%）`;
+  else if (illum > 70) moonText = `<b>月明かりが強い</b>（月齢 ${age.age.toFixed(0)}・輝面比 ${illum}%）`;
+  else moonText = `月明かりは中くらい（月齢 ${age.age.toFixed(0)}・輝面比 ${illum}%）`;
+
+  const moonWindow = moon.set && moon.rise
+    ? (moon.set < moon.rise
+      ? `月は ${timeJa(moon.set)} に沈みます`
+      : `月は ${timeJa(moon.rise)} に昇ります`)
+    : "";
+
+  // 極大が昼にあたる場合は、その前後の夜が狙い目になる
+  const peakJd = jdFromDate(new Date(m.peakMs));
+  const sun = sunPosition(peakJd);
+  const peakSunAlt = eqToHorizon(sun.ra, sun.dec, peakJd, site.lat, site.lon, false).alt;
+  const daylight = peakSunAlt > -6
+    ? "（日本では極大が昼にあたるので、その前後の夜が狙い目）" : "";
+
+  return `極大 ${timeJa(m.peakMs)} ごろ${daylight}・ZHR 最大 ${m.zhr} 前後<br>`
+    + `${moonText}${moonWindow ? "。" + moonWindow : ""}<br>`
+    + `暗くなるのは ${timeJa(tw.astronomical.dusk)}、明るくなるのは ${timeJa(nextTw.astronomical.dawn)}。`
+    + `深夜2時の輻射点の高度は ${rad.alt.toFixed(0)}°`
+    + (rad.alt < 10 ? "（低いので条件は厳しい）" : "") + "。"
+    + `<br><span class="dim">${m.note}</span>`;
+}
+
+// ---------------- コントロール ----------------
+
+fillSiteSelect(el("site"), site);
+el("site").addEventListener("change", () => {
+  const v = el("site").value;
+  if (v === "custom") return; // カレンダーでは緯度経度の手入力は省く (今夜の空で設定する)
+  const [lat, lon] = v.split(",").map(Number);
+  site = { name: el("site").selectedOptions[0].textContent, lat, lon };
+  saveSite(site);
+  render();
+});
+
+el("prev").addEventListener("click", () => {
+  ym = ym.m === 1 ? { y: ym.y - 1, m: 12 } : { y: ym.y, m: ym.m - 1 };
+  render();
+});
+el("next").addEventListener("click", () => {
+  ym = ym.m === 12 ? { y: ym.y + 1, m: 1 } : { y: ym.y, m: ym.m + 1 };
+  render();
+});
+el("this-month").addEventListener("click", () => { ym = thisMonth(); render(); });
+
+render();
+</script>

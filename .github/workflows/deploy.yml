@@ -1,0 +1,67 @@
+name: Deploy to GitHub Pages
+
+# main に push すると、データを取り直してサイトを組み立て、Pages に公開する。
+# 星表 (HYG) と食のカタログ (NASA) は外部から取ってくるので、
+# ビルド時にダウンロードする形にしてある (キャッシュを使って毎回の負荷は抑える)。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 公開は同時に1つだけ。走行中のものは終わらせてから次へ。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 星表 (14MB) と食のカタログは変わらないのでキャッシュする
+      - name: 外部データのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: tools/cache
+          key: astro-data-v1
+
+      - name: 星表データを生成
+        run: python3 tools/build_data.py
+
+      - name: 天文現象のテーブルを生成
+        run: python3 tools/build_events.py
+
+      - name: テスト
+        run: node --test tests/*.mjs
+
+      - name: サイトを組み立て
+        run: python3 tools/build_site.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

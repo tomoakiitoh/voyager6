@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<link rel="canonical" href="{{canonical}}">
+<link rel="icon" href="{{root}}favicon.svg" type="image/svg+xml">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{{sitename}}">
+<meta property="og:title" content="{{title}}">
+<meta property="og:description" content="{{description}}">
+<meta property="og:url" content="{{canonical}}">
+<meta property="og:image" content="{{origin}}/og.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="stylesheet" href="{{root}}assets/style.css">
+</head>
+<body class="{{bodyclass}}">
+<!-- 共有スクリプトはページ内スクリプトより先に評価される必要があるので body 先頭に置く
+     (defer や末尾配置だと、ページ内の初期化コードのほうが先に走ってしまう) -->
+{{scripts}}
+
+<header id="site-header">
+  <a class="brand" href="{{root}}">{{sitename}}</a>
+  <nav>{{nav}}</nav>
+</header>
+
+{{content}}
+
+<footer id="site-footer">
+  星表 <a href="https://github.com/astronexus/HYG-Database">HYG Database</a> (CC BY-SA 2.5) /
+  星座線・天の川 <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (BSD-3-Clause)
+  — <a href="{{root}}credits/">出典とライセンス</a>
+</footer>
+</body>
+</html>

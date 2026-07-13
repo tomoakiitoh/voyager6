@@ -1,0 +1,246 @@
+<!--
+title: 今夜の空
+description: 選んだ場所の日の入り・薄明・月の出入り・月齢と、今夜見ごろの惑星。
+scripts: astro.js sky.js sites.js
+-->
+<main class="doc tonight">
+
+<h1>今夜の空</h1>
+
+<div class="controls">
+  <label>場所 <select id="site"></select></label>
+  <label id="custom-coords" hidden>
+    緯度 <input type="number" id="lat" step="0.01" min="-90" max="90">
+    経度 <input type="number" id="lon" step="0.01" min="-180" max="180">
+  </label>
+  <label>日付 <input type="date" id="date"></label>
+  <button id="today">今日</button>
+</div>
+
+<p class="lead" id="summary"></p>
+
+<h2>太陽と薄明</h2>
+<table id="sun-table"></table>
+<p class="note">
+  天体観測に向くのは、空が完全に暗くなる<strong>天文薄明の終わり</strong>から、
+  <strong>天文薄明の始まり</strong>までの間です。
+</p>
+
+<h2>月</h2>
+<div class="moon-row">
+  <canvas id="moon-canvas" width="120" height="120"></canvas>
+  <table id="moon-table"></table>
+</div>
+
+<h2>今夜見ごろの惑星</h2>
+<table id="planet-table"></table>
+<p class="note" id="planet-note"></p>
+
+<p class="note">
+  時刻は日本時間（JST）。出没時刻の精度は太陽が約1分、月が約3分です（<a href="../credits/">精度について</a>）。
+</p>
+
+</main>
+
+<script>
+"use strict";
+
+const TZ_MIN = 9 * 60;
+const el = (id) => document.getElementById(id);
+
+let site = loadSite();
+let day = startOfToday();
+
+/** JST の「今日の 0:00」の絶対時刻。 */
+function startOfToday() {
+  const now = new Date(Date.now() + TZ_MIN * 60000);
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - TZ_MIN * 60000;
+}
+
+const p2 = (n) => String(n).padStart(2, "0");
+
+/** 絶対時刻 → "HH:MM"。翌日にまたぐ場合は "翌 HH:MM"。 */
+function hhmm(ms, base = day) {
+  if (ms === null || ms === undefined) return "—";
+  const d = new Date(ms + TZ_MIN * 60000);
+  const s = `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+  return ms >= base + 86400000 ? `翌 ${s}` : s;
+}
+
+function dateStr(ms) {
+  const d = new Date(ms + TZ_MIN * 60000);
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`;
+}
+
+/** 早見盤へのリンク (その時刻・その場所の空が開く)。 */
+function skyLink(ms, label) {
+  const t = new Date(ms + TZ_MIN * 60000).toISOString().slice(0, 16);
+  return `<a href="../?t=${t}&lat=${site.lat}&lon=${site.lon}">${label}</a>`;
+}
+
+function rows(table, data) {
+  table.innerHTML = data
+    .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`)
+    .join("");
+}
+
+function render() {
+  const sun = riseSet("sun", day, site.lat, site.lon);
+  const tw = twilightTimes(day, site.lat, site.lon);
+  const nextTw = twilightTimes(day + 86400000, site.lat, site.lon);
+  const moon = riseSet("moon", day, site.lat, site.lon);
+  const age = moonAge(day + 21 * 3600e3); // その日の宵の月齢
+
+  el("summary").innerHTML = sun.set
+    ? `${site.name} の ${dateStr(day)}。日の入り <b>${hhmm(sun.set)}</b>、`
+      + `空が暗くなるのは <b>${hhmm(tw.astronomical.dusk)}</b> ごろ。`
+      + `月齢 <b>${age.age.toFixed(1)}</b>（${moonPhaseName(age)}）。`
+      + ` &nbsp;${skyLink(day + 21 * 3600e3, "21時の空を見る →")}`
+    : `${site.name} の ${dateStr(day)}。`
+      + (sun.alwaysUp ? "この日は太陽が沈みません（白夜）。"
+        : "この日は太陽が昇りません（極夜）。");
+
+  rows(el("sun-table"), [
+    ["日の出", hhmm(sun.rise)],
+    ["日の入り", hhmm(sun.set)],
+    ["南中", `${hhmm(sun.transit)}（高度 ${sun.transitAlt.toFixed(1)}°）`],
+    ["市民薄明の終わり", hhmm(tw.civil.dusk)],
+    ["航海薄明の終わり", hhmm(tw.nautical.dusk)],
+    ["天文薄明の終わり（暗くなる）", hhmm(tw.astronomical.dusk)],
+    ["天文薄明の始まり（明るくなる）", hhmm(nextTw.astronomical.dawn)],
+    ["翌朝の日の出", hhmm(riseSet("sun", day + 86400000, site.lat, site.lon).rise)],
+  ]);
+
+  rows(el("moon-table"), [
+    ["月の出", hhmm(moon.rise)],
+    ["月の入り", hhmm(moon.set)],
+    ["南中", `${hhmm(moon.transit)}（高度 ${moon.transitAlt.toFixed(1)}°）`],
+    ["月齢", `${age.age.toFixed(1)}（${moonPhaseName(age)}）`],
+    ["輝面比", `${(age.illum * 100).toFixed(0)}%`],
+  ]);
+  drawMoonIcon(age);
+
+  renderPlanets();
+}
+
+/** 月齢から呼び名を決める。 */
+function moonPhaseName(age) {
+  const a = age.age;
+  if (a < 1.5) return "新月";
+  if (a < 6.5) return "三日月ごろ";
+  if (a < 9) return "上弦";
+  if (a < 13.5) return "十日夜すぎ";
+  if (a < 16.5) return "満月";
+  if (a < 21) return "十六夜すぎ";
+  if (a < 24) return "下弦";
+  return "有明月";
+}
+
+/** 月の満ち欠けアイコン。太陽が右にあるものとして描く（向きは実際の空とは別）。 */
+function drawMoonIcon(age) {
+  const c = el("moon-canvas");
+  const ctx = c.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const size = 120;
+  c.width = c.height = size * dpr;
+  c.style.width = c.style.height = size + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+
+  const r = size / 2 - 6;
+  const cx = size / 2, cy = size / 2;
+  // 満ちていく月は右が光り、欠けていく月は左が光る（北半球から見た向き）
+  const dir = age.waxing ? 1 : -1;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(dir, 1);
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(120,130,155,0.28)";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2, false);
+  ctx.ellipse(0, 0, Math.abs(2 * age.illum - 1) * r, r, 0,
+    Math.PI / 2, -Math.PI / 2, age.illum < 0.5);
+  ctx.closePath();
+  ctx.fillStyle = "#f2efe2";
+  ctx.fill();
+  ctx.restore();
+}
+
+function renderPlanets() {
+  const w = planetWindows(day, site.lat, site.lon, 15);
+  const t = el("planet-table");
+
+  if (!w.planets.length) {
+    t.innerHTML = "";
+    el("planet-note").textContent =
+      "今夜は高度15°を超える惑星がありません（低空にはいるかもしれません）。";
+    return;
+  }
+
+  t.innerHTML =
+    "<thead><tr><th>惑星</th><th>見ごろ</th><th>最高高度</th><th>明るさ</th><th></th></tr></thead>"
+    + "<tbody>" + w.planets.map((p) => {
+      const spans = p.spans.map(([a, b]) => `${hhmm(a)} 〜 ${hhmm(b)}`).join("<br>");
+      return `<tr><th>${p.ja}</th><td>${spans}</td>`
+        + `<td>${p.bestAlt.toFixed(0)}°</td><td>${p.mag.toFixed(1)}等</td>`
+        + `<td>${skyLink(p.bestMs, "空を見る")}</td></tr>`;
+    }).join("") + "</tbody>";
+
+  el("planet-note").innerHTML =
+    `夜（市民薄明の終わり <b>${hhmm(w.nightFrom)}</b> 〜 始まり <b>${hhmm(w.nightTo)}</b>）のうち、`
+    + "高度15°より上にいる時間帯です。";
+}
+
+// ---------------- コントロール ----------------
+
+fillSiteSelect(el("site"), site);
+el("lat").value = site.lat;
+el("lon").value = site.lon;
+el("custom-coords").hidden = el("site").value !== "custom";
+el("date").value = dateStr(day);
+
+el("site").addEventListener("change", () => {
+  const v = el("site").value;
+  if (v === "custom") {
+    el("custom-coords").hidden = false;
+    site = { name: "指定地点", lat: Number(el("lat").value), lon: Number(el("lon").value) };
+  } else {
+    el("custom-coords").hidden = true;
+    const [lat, lon] = v.split(",").map(Number);
+    site = { name: el("site").selectedOptions[0].textContent, lat, lon };
+    el("lat").value = lat;
+    el("lon").value = lon;
+  }
+  saveSite(site);
+  render();
+});
+
+for (const id of ["lat", "lon"]) {
+  el(id).addEventListener("change", () => {
+    const lat = Number(el("lat").value), lon = Number(el("lon").value);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    site = { name: "指定地点", lat, lon };
+    saveSite(site);
+    render();
+  });
+}
+
+el("date").addEventListener("change", () => {
+  if (!el("date").value) return;
+  const [y, mo, d] = el("date").value.split("-").map(Number);
+  day = Date.UTC(y, mo - 1, d) - TZ_MIN * 60000;
+  render();
+});
+
+el("today").addEventListener("click", () => {
+  day = startOfToday();
+  el("date").value = dateStr(day);
+  render();
+});
+
+render();
+</script>

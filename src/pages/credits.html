@@ -1,0 +1,101 @@
+<!--
+title: 出典とライセンス
+description: このサイトが使っている星表・星座線データの出典と、それぞれのライセンス。
+-->
+<main class="doc">
+
+<h1>出典とライセンス</h1>
+
+<p>
+このサイトの星図は、公開されている星表データをもとに描いています。
+データごとにライセンスが異なるので、下の表のとおり分けて扱っています。
+</p>
+
+<h2>使っているデータとコード</h2>
+
+<table>
+  <thead>
+    <tr><th>対象</th><th>出典</th><th>ライセンス</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>恒星 1,637個（実視等級 5.0 以下）<br><code>assets/data.js</code> の <code>STARS</code></td>
+      <td><a href="https://github.com/astronexus/HYG-Database">HYG Database v3.8</a><br>© David Nash / astronexus</td>
+      <td><a href="https://creativecommons.org/licenses/by-sa/2.5/deed.ja">CC BY-SA 2.5</a></td>
+    </tr>
+    <tr>
+      <td>星座線・星座名・天の川・メシエ天体<br><code>assets/data.js</code> の <code>CONST_LINES</code> / <code>CONST_NAMES</code> / <code>MILKYWAY</code> / <code>MESSIER</code></td>
+      <td><a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a><br>© Olaf Frohn<br>（星座線は IAU / Stellarium の "modern" 星座に由来）</td>
+      <td>BSD-3-Clause</td>
+    </tr>
+    <tr>
+      <td>日食・月食のカタログ<br><code>assets/events.js</code> の <code>ECLIPSES_SOLAR</code> / <code>ECLIPSES_LUNAR</code></td>
+      <td><a href="https://eclipse.gsfc.nasa.gov/">NASA Eclipse Web Site</a><br>Fred Espenak (NASA/GSFC)</td>
+      <td>パブリックドメイン</td>
+    </tr>
+    <tr>
+      <td>天文計算・描画・サイトのコード<br><code>assets/astro.js</code> ほか</td>
+      <td>© 2026 Tomoaki Itoh</td>
+      <td>MIT</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>星表データは CC BY-SA 2.5 を継承します</h2>
+
+<p>
+恒星データは HYG Database を加工したものなので、それを含む <code>assets/data.js</code> は
+<strong>元と同じ CC BY-SA 2.5</strong> で提供します。再利用・再配布は自由ですが、
+出典の表示と、同じライセンスでの提供が条件になります。
+自作コード（MIT）とはライセンスが違う点にご注意ください。
+</p>
+
+<h2>d3-celestial のライセンス表示（BSD-3-Clause）</h2>
+
+<pre>Copyright (c) 2015, Olaf Frohn
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>
+
+<h2>計算の精度について</h2>
+
+<p>
+天文計算はすべてこのサイト内で行っています（外部APIを呼びません）。精度は観望の用途に合わせた
+ものなので、参考値としてお使いください。JPL Horizons の値と突き合わせて、次の範囲に収めています。
+</p>
+
+<ul>
+  <li>恒星 — 歳差を補正し、位置のずれ 0.2° 未満</li>
+  <li>太陽 — 0.3° 未満</li>
+  <li>月 — 地平視差を補正して 0.5° 未満</li>
+  <li>惑星（水星〜土星） — 0.5° 未満</li>
+</ul>
+
+<p>
+大気差（地平線ぎわで天体が浮き上がって見える効果）は星図の描画では省いています。
+</p>
+
+</main>
