@@ -228,6 +228,62 @@ function meteorPeaks(year) {
   })).filter((m) => m.peakMs !== null).sort((a, b) => a.peakMs - b.peakMs);
 }
 
+/**
+ * 実際に見える流星数 [個/時] の目安 (IMO の標準式)。
+ *
+ *   HR = ZHR · sin(h) / r^(6.5 − lm)
+ *
+ *   h  : 輻射点の高度 [度]。低いほど流星は地平線に隠れる (輻射点が地平線下なら 0)
+ *   lm : その空の極限等級 (肉眼で見える最も暗い星)。街なかは 4 等、山では 6 等以上
+ *   r  : 個数比 (population index)。1 等暗くなるごとに流星が何倍増えるか。
+ *        ペルセウス座流星群は 2.2 前後
+ *
+ * ZHR は「輻射点が天頂・極限等級 6.5 等」という理想条件の数字なので、
+ * そのまま「1時間に100個見える」と受け取ると必ず外れる。この式で現実に引き戻す。
+ * なお ZHR は全天を見渡した場合の数で、実際の観測者の視野は空の一部なので、
+ * ここで出る数もまだ楽観側であることに注意。
+ */
+function meteorRate(zhr, altDeg, limitingMag, r = 2.2) {
+  if (altDeg <= 0) return 0;
+  return zhr * Math.sin(altDeg * DEG) / Math.pow(r, 6.5 - limitingMag);
+}
+
+/** 太陽黄経の進み [度/日]。極大からの時間差を Δλ☉ に直すのに使う。 */
+const SUN_LON_PER_DAY = 0.9856;
+
+/**
+ * 極大から離れた時刻の ZHR。IMO の標準式:
+ *
+ *   ZHR(λ) = ZHR_max · 10^(−B · |λ − λ_max|)
+ *
+ * B は活動の立ち上がり・落ち込みの鋭さ。ペルセウス座流星群は極大前 0.19 / 極大後 0.29 で、
+ * 極大の 1日前なら 0.65 倍、1日後なら 0.52 倍まで落ちる (後ろのほうが速く減る)。
+ *
+ * これを入れないと「どの夜でも同じくらい見える」という誤った表になる。
+ * deltaMs: その時刻 − 極大の時刻 [ms] (負なら極大前)。
+ */
+function meteorZhrAt(zhrMax, deltaMs, bBefore = 0.19, bAfter = 0.29) {
+  const dLambda = (deltaMs / 86400000) * SUN_LON_PER_DAY;
+  const B = dLambda < 0 ? bBefore : bAfter;
+  return zhrMax * Math.pow(10, -B * Math.abs(dLambda));
+}
+
+/**
+ * その夜の輻射点の高度推移。dayStart (JST 0:00) の当日 fromH 時から toH 時まで
+ * 1時間刻み (toH は 24 を超えてよい = 翌朝)。
+ * 返り値: [{ ms, hour, alt, az }]
+ */
+function radiantTrack(ra, dec, dayStart, lat, lon, fromH = 19, toH = 29) {
+  const out = [];
+  for (let h = fromH; h <= toH; h++) {
+    const ms = dayStart + h * 3600000;
+    const jd = jdFromDate(new Date(ms));
+    const { alt, az } = eqToHorizon(ra, dec, jd, lat, lon);
+    out.push({ ms, hour: h % 24, alt, az });
+  }
+  return out;
+}
+
 /** 月と太陽の黄経差 [度] (0=新月, 90=上弦, 180=満月, 270=下弦)。 */
 function moonSunLon(jd) {
   return norm360(moonPosition(jd).lon - sunPosition(jd).lon);

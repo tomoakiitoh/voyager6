@@ -1,0 +1,281 @@
+<!--
+title: 観察記録シート
+description: 印刷して現地で使う観測ログ。場所と日付を選ぶと、座標・月齢・薄明の時刻が刷り込まれた状態で印刷できます。スケッチ用と流星計数用。
+scripts: astro.js sky.js events.js sites.js
+bodyclass: log-page
+-->
+<main class="doc log">
+
+<div class="controls no-print">
+  <label>様式
+    <select id="kind">
+      <option value="general">観測ログ（スケッチ）</option>
+      <option value="meteor">流星計数</option>
+    </select>
+  </label>
+  <label>場所 <select id="site"></select></label>
+  <label>日付 <input type="date" id="date"></label>
+  <button id="print">印刷</button>
+</div>
+
+<p class="note no-print">
+  現地で書くための紙です。選んだ場所と日付の<strong>座標・月齢・薄明の時刻</strong>を刷り込んで印刷するので、
+  暗い中で調べ直す必要がありません。A4 縦 1 枚に収まります。空欄は現地で埋めてください。
+</p>
+
+<!-- ============ 印刷される紙 ============ -->
+<section class="sheet" id="sheet">
+
+  <header class="sheet-head">
+    <h2 id="sheet-title">観測ログ</h2>
+    <div class="sheet-meta">
+      <span>Voyager6 — voyager6.net</span>
+    </div>
+  </header>
+
+  <table class="fields">
+    <tr>
+      <th>日付</th><td id="f-date"></td>
+      <th>観測者</th><td class="blank"></td>
+    </tr>
+    <tr>
+      <th>場所</th><td id="f-place"></td>
+      <th>座標</th><td id="f-coord"></td>
+    </tr>
+    <tr>
+      <th>薄明の終わり<span class="sub">空が暗くなる</span></th><td id="f-dusk"></td>
+      <th>薄明の始まり<span class="sub">空が明るむ</span></th><td id="f-dawn"></td>
+    </tr>
+    <tr>
+      <th>月</th><td id="f-moon" colspan="3"></td>
+    </tr>
+  </table>
+
+  <h3>空の状態<span class="sub">現地で記入</span></h3>
+  <table class="fields">
+    <tr>
+      <th>雲量</th><td class="blank">／10</td>
+      <th>極限等級<span class="sub">見える最も暗い星</span></th><td class="blank">等</td>
+    </tr>
+    <tr>
+      <th>透明度</th><td class="blank">1 ・ 2 ・ 3 ・ 4 ・ 5</td>
+      <th>シーイング</th><td class="blank">1 ・ 2 ・ 3 ・ 4 ・ 5</td>
+    </tr>
+    <tr>
+      <th>気温</th><td class="blank">℃</td>
+      <th>風</th><td class="blank"></td>
+    </tr>
+  </table>
+
+  <!-- ---- 観測ログ（スケッチ）様式 ---- -->
+  <div class="variant" id="v-general">
+    <h3>機材</h3>
+    <table class="fields">
+      <tr>
+        <th>望遠鏡・双眼鏡</th><td class="blank"></td>
+        <th>口径 / 焦点距離</th><td class="blank">mm / mm</td>
+      </tr>
+      <tr>
+        <th>アイピース</th><td class="blank"></td>
+        <th>倍率 / 実視界</th><td class="blank">× / °</td>
+      </tr>
+    </table>
+
+    <h3>観測記録</h3>
+    <table class="rows">
+      <thead>
+        <tr><th class="c-time">時刻</th><th class="c-obj">対象</th><th class="c-pow">倍率</th><th>見えたもの・印象</th></tr>
+      </thead>
+      <tbody id="obs-rows"></tbody>
+    </table>
+
+    <h3>スケッチ<span class="sub">視野円。北と倍率を書き添える</span></h3>
+    <div class="sketches">
+      <figure>
+        <svg viewBox="0 0 100 100" class="fov"><circle cx="50" cy="50" r="48" /></svg>
+        <figcaption>対象 <span class="line"></span> 倍率 <span class="line short"></span></figcaption>
+      </figure>
+      <figure>
+        <svg viewBox="0 0 100 100" class="fov"><circle cx="50" cy="50" r="48" /></svg>
+        <figcaption>対象 <span class="line"></span> 倍率 <span class="line short"></span></figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <!-- ---- 流星計数様式 ---- -->
+  <div class="variant" id="v-meteor" hidden>
+    <table class="fields">
+      <tr>
+        <th>流星群</th><td id="f-shower"></td>
+        <th>輻射点</th><td id="f-radiant"></td>
+      </tr>
+      <tr>
+        <th>見ていた方向<span class="sub">方位・高度</span></th><td class="blank"></td>
+        <th>視野をさえぎるもの<span class="sub">木・建物など</span></th><td class="blank"></td>
+      </tr>
+    </table>
+
+    <h3>計数<span class="sub">15〜30分ごとに区切る。個数は正の字で</span></h3>
+    <table class="rows">
+      <thead>
+        <tr>
+          <th class="c-span">時間帯</th>
+          <th class="c-cloud">雲</th>
+          <th>流星の数</th>
+          <th class="c-cnt">計</th>
+          <th class="c-mag">最も明るかった流星</th>
+        </tr>
+      </thead>
+      <tbody id="count-rows"></tbody>
+      <tfoot>
+        <tr><th colspan="3">合計</th><th class="c-cnt blank"></th><th class="blank"></th></tr>
+      </tfoot>
+    </table>
+
+    <p class="formula">
+      あとで ZHR に直すとき: <b>ZHR = HR ÷ sin(輻射点高度) × r<sup>(6.5 − 極限等級)</sup></b>
+      （HR = 1時間あたりの個数、ペルセウス座流星群は r = 2.2）
+    </p>
+  </div>
+
+  <h3>メモ</h3>
+  <div class="memo"></div>
+
+</section>
+
+</main>
+
+<script>
+"use strict";
+
+const TZ_MIN = 9 * 60;
+const el = (id) => document.getElementById(id);
+const p2 = (n) => String(n).padStart(2, "0");
+
+let site = loadSite();
+let day = defaultDay();
+let kind = "general";
+
+/** 既定の日付。2026年のペルセウス座流星群の本命の夜 (8/12) を初期値にする。 */
+function defaultDay() {
+  const now = new Date(Date.now() + TZ_MIN * 60000);
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - TZ_MIN * 60000;
+  const perseid = Date.UTC(2026, 7, 12) - TZ_MIN * 60000;
+  return today <= perseid ? perseid : today;
+}
+
+function hhmm(ms) {
+  if (ms === null || ms === undefined) return "—";
+  const d = new Date(ms + TZ_MIN * 60000);
+  return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+}
+
+function ymd(ms) {
+  const d = new Date(ms + TZ_MIN * 60000);
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`;
+}
+
+const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
+
+function render() {
+  const d = new Date(day + TZ_MIN * 60000);
+  const tw = twilightTimes(day, site.lat, site.lon);
+  const nextTw = twilightTimes(day + 86400000, site.lat, site.lon);
+  const moon = riseSet("moon", day, site.lat, site.lon);
+  const age = moonAge(day + 24 * 3600e3);   // その夜半の月齢
+
+  el("sheet-title").textContent = kind === "meteor" ? "流星計数記録" : "観測ログ";
+  el("f-date").innerHTML =
+    `${d.getUTCFullYear()}年 ${d.getUTCMonth() + 1}月 ${d.getUTCDate()}日（${WEEK[d.getUTCDay()]}）の夜`;
+  el("f-place").textContent = site.name;
+  el("f-coord").textContent = `${site.lat.toFixed(2)}°N  ${site.lon.toFixed(2)}°E`;
+  el("f-dusk").textContent = hhmm(tw.astronomical.dusk);
+  el("f-dawn").textContent = `翌 ${hhmm(nextTw.astronomical.dawn)}`;
+  el("f-moon").innerHTML =
+    `月齢 <b>${age.age.toFixed(1)}</b>（輝面比 ${(age.illum * 100).toFixed(0)}%）`
+    + ` — 月の出 ${hhmm(moon.rise)} / 月の入り ${hhmm(moon.set)}`;
+
+  // 流星計数様式: その夜に極大が近い流星群を自動で選ぶ
+  if (kind === "meteor") {
+    const showers = meteorPeaks(d.getUTCFullYear());
+    const near = showers
+      .map((s) => ({ s, diff: Math.abs(s.peakMs - (day + 24 * 3600e3)) }))
+      .sort((a, b) => a.diff - b.diff)[0];
+    const s = near.s;
+    const track = radiantTrack(s.ra, s.dec, day, site.lat, site.lon, 19, 29);
+    const maxAlt = Math.max(...track.map((t) => t.alt));
+    el("f-shower").innerHTML = near.diff < 5 * 86400e3
+      ? `${s.name}<span class="sub">極大 ${ymd(s.peakMs)} ${hhmm(s.peakMs)}</span>`
+      : '<span class="blank"></span>';
+    el("f-radiant").innerHTML = near.diff < 5 * 86400e3
+      ? `赤経 ${(s.ra / 15).toFixed(1)}h / 赤緯 ${s.dec >= 0 ? "+" : ""}${s.dec.toFixed(0)}°`
+        + `<span class="sub">この夜の最高高度 ${maxAlt.toFixed(0)}°</span>`
+      : '<span class="blank"></span>';
+  }
+
+  // 記入欄の行
+  el("obs-rows").innerHTML = Array.from({ length: 9 }, () =>
+    '<tr><td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>').join("");
+
+  // 計数欄: 完全な夜 (天文薄明の終わり〜始まり) を 30分刻みで刷り込んでおく。
+  // 現地で区切りを変えてよいので、時刻は薄く出す。
+  const rows = [];
+  let t = Math.ceil(tw.astronomical.dusk / (30 * 60000)) * (30 * 60000);
+  // 行数を絞るのは、夜の長い土地 (低緯度) でも A4 1枚に収めるため。
+  // 足りなければ現地で行を足せばよい。
+  for (let i = 0; i < 13 && t < nextTw.astronomical.dawn; i++, t += 30 * 60000) {
+    rows.push(`<tr><th class="c-span pre">${hhmm(t)}–${hhmm(t + 30 * 60000)}</th>`
+      + '<td class="blank"></td><td class="blank"></td><td class="blank"></td><td class="blank"></td></tr>');
+  }
+  el("count-rows").innerHTML = rows.join("");
+}
+
+el("kind").addEventListener("change", (e) => {
+  kind = e.target.value;
+  el("v-general").hidden = kind !== "general";
+  el("v-meteor").hidden = kind !== "meteor";
+  render();
+});
+
+el("date").addEventListener("change", (e) => {
+  const [y, m, dd] = e.target.value.split("-").map(Number);
+  if (y) { day = Date.UTC(y, m - 1, dd) - TZ_MIN * 60000; render(); }
+});
+
+el("print").addEventListener("click", () => window.print());
+
+// ---- 場所の選択 ----
+function loadSite() {
+  try {
+    const s = JSON.parse(localStorage.getItem("site"));
+    if (s && typeof s.lat === "number" && typeof s.lon === "number") return s;
+  } catch (e) { /* 壊れていたら既定値 */ }
+  return { name: "東京", lat: 35.68, lon: 139.77 };
+}
+
+function initSites() {
+  const sel = el("site");
+  for (const [label, list] of [["都道府県庁所在地", SITES_PREF], ["観望地", SITES_SPOT]]) {
+    const g = document.createElement("optgroup");
+    g.label = label;
+    for (const [name, lat, lon] of list) {
+      const o = document.createElement("option");
+      o.value = `${lat},${lon}`;
+      o.textContent = name;
+      o.selected = name === site.name;
+      g.appendChild(o);
+    }
+    sel.appendChild(g);
+  }
+  sel.addEventListener("change", () => {
+    const [lat, lon] = sel.value.split(",").map(Number);
+    site = { name: sel.options[sel.selectedIndex].textContent, lat, lon };
+    try { localStorage.setItem("site", JSON.stringify(site)); } catch (e) { /* 無視 */ }
+    render();
+  });
+  el("date").value = ymd(day);
+}
+
+initSites();
+render();
+</script>

@@ -1,0 +1,271 @@
+<!--
+title: ペルセウス座流星群 2026
+description: 2026年のペルセウス座流星群は極大が新月と重なる当たり年。見頃の夜・輻射点の高度・空の暗さごとの出現数の目安を、選んだ場所について計算します。
+scripts: astro.js sky.js events.js sites.js
+-->
+<main class="doc meteor">
+
+<h1>ペルセウス座流星群 2026</h1>
+
+<p class="lead" id="lead"></p>
+
+<div class="controls">
+  <label>場所 <select id="site"></select></label>
+  <label id="custom-coords" hidden>
+    緯度 <input type="number" id="lat" step="0.01" min="-90" max="90">
+    経度 <input type="number" id="lon" step="0.01" min="-180" max="180">
+  </label>
+</div>
+
+<h2>いつ見るか</h2>
+
+<p id="which-night"></p>
+
+<table id="night-table"></table>
+
+<p class="note">
+  極大は「地球が塵の帯の最も濃いところを通る瞬間」で、日本の昼間に当たることもあります。
+  そのときは<strong>極大に時間的に最も近い夜</strong>を選びます。流星群は極大の前後数日にわたって
+  流れるので、1日ずれても見られなくなるわけではありません。
+</p>
+
+<h2>輻射点の高度と、見える数の目安</h2>
+
+<p>
+  流星は空全体に流れますが、その数は<strong>輻射点の高度</strong>で決まります。
+  輻射点が低いと流星は地平線の下に隠れてしまうためで、輻射点が高くなる明け方ほど数は増えます。
+</p>
+
+<table id="rate-table"></table>
+
+<p class="note">
+  <b>ZHR</b>（天頂修正出現数）は「輻射点が真上にあり、6.5等星まで見える理想的な空」での1時間あたりの数で、
+  ペルセウス座流星群は 100 です。実際に見える数はこれよりずっと少なくなります。上の表は
+  <code>HR = ZHR × sin(輻射点高度) ÷ r^(6.5 − 極限等級)</code>（r = 2.2）で現実の空に引き戻し、
+  さらに ZHR 自体を極大からの離れで減衰させた（<code>10^(−B·|Δλ☉|)</code>、B は極大前 0.19 / 極大後 0.29）ものです。
+  それでも「空全体を見渡せた場合」の数なので、ひとりで見上げて数えられるのはこの 5〜7 割程度です。
+  <b>極限等級</b>は、その空で肉眼で見える最も暗い星の等級です。
+</p>
+
+<h2>見かた</h2>
+
+<ul>
+  <li><strong>輻射点は見ない。</strong> 輻射点の方向は流星の経路が短くなります。輻射点から 30〜50° 離れた、空の高いところを広く見るほうが長い流星を捉えられます。</li>
+  <li><strong>暗さに目を慣らす。</strong> 暗順応には 20〜30 分かかります。その間にスマホの白い画面を見ると振り出しに戻るので、手元の明かりは赤色にします（このサイトは早見盤ページの「赤色」ボタンで赤い画面になります）。</li>
+  <li><strong>寝転ぶ。</strong> 見上げ続けると首がもたないので、レジャーシートやリクライニングチェアで、天頂を含む広い範囲が視野に入る姿勢をとります。</li>
+  <li><strong>望遠鏡も双眼鏡も使わない。</strong> 流星は肉眼が最良の器材です。視野が狭い器材はかえって不利になります。</li>
+  <li><strong>数えるなら記録を。</strong> 何時から何時まで、どの範囲を見て、何個数えたか。これがないと数字は比較できません。<a href="../log/">観察記録シート</a>の計数用を印刷して使えます。</li>
+</ul>
+
+<h2>この夜の空の条件</h2>
+
+<table id="cond-table"></table>
+
+<p class="note" id="accuracy"></p>
+
+</main>
+
+<script>
+"use strict";
+
+const TZ_MIN = 9 * 60;
+const el = (id) => document.getElementById(id);
+const p2 = (n) => String(n).padStart(2, "0");
+
+// 空の暗さの区分。[見出し, 極限等級]
+const SKIES = [
+  ["市街地<br><span>4.0等</span>", 4.0],
+  ["郊外<br><span>5.0等</span>", 5.0],
+  ["暗い空<br><span>6.0等</span>", 6.0],
+  ["最上の空<br><span>6.5等</span>", 6.5],
+];
+
+const POP_INDEX = 2.2;   // ペルセウス座流星群の個数比 r
+
+let site = loadSite();
+
+/** JST の日付 → その日の 0:00 の絶対時刻。 */
+const dayStart = (y, m, d) => Date.UTC(y, m - 1, d) - TZ_MIN * 60000;
+
+function hhmm(ms) {
+  if (ms === null || ms === undefined) return "—";
+  const d = new Date(ms + TZ_MIN * 60000);
+  return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+}
+
+function dateTime(ms) {
+  const d = new Date(ms + TZ_MIN * 60000);
+  return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+}
+
+/** 早見盤へのリンク。 */
+function skyLink(ms, label) {
+  const t = new Date(ms + TZ_MIN * 60000).toISOString().slice(0, 16);
+  return `<a href="../?t=${t}&lat=${site.lat}&lon=${site.lon}">${label}</a>`;
+}
+
+/** 極大に時間的に最も近い「夜」を選ぶ。夜は当日 19時〜翌 5時とみなし、その中心で比べる。 */
+function bestNight(peakMs, candidates) {
+  return candidates
+    .map((d) => ({ d, mid: d + 24 * 3600e3 })) // 19時〜翌5時 の中心 = 翌 0時
+    .sort((a, b) => Math.abs(a.mid - peakMs) - Math.abs(b.mid - peakMs))[0].d;
+}
+
+function render() {
+  const shower = meteorPeaks(2026).find((m) => m.name === "ペルセウス座流星群");
+  const peak = shower.peakMs;
+  const newMoon = moonPhaseEvents(dayStart(2026, 8, 8), dayStart(2026, 8, 18))
+    .find((e) => e.name === "新月");
+
+  // 極大の前後の夜 (8/11 夜 〜 8/14 夜) を候補にする
+  const nights = [11, 12, 13, 14].map((d) => dayStart(2026, 8, d));
+  const best = bestNight(peak, nights);
+
+  el("lead").innerHTML =
+    `2026年の極大は <b>${dateTime(peak)}（JST）</b>。新月が <b>${dateTime(newMoon.ms)}</b> と`
+    + `ほぼ重なるため、極大の夜は<b>ひと晩じゅう月がありません</b>。`
+    + `月明かりに邪魔されない、条件のそろった年です。`;
+
+  // ---- どの夜を選ぶか ----
+  const bestLabel = `${new Date(best + TZ_MIN * 60000).getUTCMonth() + 1}月${new Date(best + TZ_MIN * 60000).getUTCDate()}日`;
+  const peakIsDaytime = (() => {
+    const h = new Date(peak + TZ_MIN * 60000).getUTCHours();
+    return h >= 6 && h < 18;
+  })();
+  el("which-night").innerHTML =
+    (peakIsDaytime
+      ? `極大の ${dateTime(peak)} は日本では<strong>昼間</strong>なので、その瞬間は見られません。`
+      : `極大の ${dateTime(peak)} は日本では夜間です。`)
+    + `時間的に最も近い <b>${bestLabel}の夜から翌朝</b>が本命、その前後の夜が次点になります。`;
+
+  const rows = nights.map((d) => {
+    const dt = new Date(d + TZ_MIN * 60000);
+    const label = `${dt.getUTCMonth() + 1}/${dt.getUTCDate()} 夜〜翌朝`;
+    const tw = twilightTimes(d, site.lat, site.lon);
+    const nextTw = twilightTimes(d + 86400000, site.lat, site.lon);
+    const track = radiantTrack(shower.ra, shower.dec, d, site.lat, site.lon, 19, 29);
+    // 完全な夜 (天文薄明の外) のうち、最も条件の良い時刻の出現数。
+    // ZHR は極大からの離れで減衰させる (これを入れないとどの夜も同じ数字になってしまう)
+    const darkFrom = tw.astronomical.dusk, darkTo = nextTw.astronomical.dawn;
+    const inDark = track.filter((t) => t.ms >= darkFrom && t.ms <= darkTo);
+    const bestRate = Math.max(...inDark.map((t) =>
+      meteorRate(meteorZhrAt(shower.zhr, t.ms - peak), t.alt, 5.0, POP_INDEX)), 0);
+    const hoursFromPeak = (d + 24 * 3600e3 - peak) / 3600e3;
+    const moon = moonAge(d + 24 * 3600e3);
+    return `<tr${d === best ? ' class="best"' : ""}>`
+      + `<th>${label}${d === best ? ' <span class="tag">本命</span>' : ""}</th>`
+      + `<td>${hoursFromPeak >= 0 ? "極大の " + Math.round(hoursFromPeak) + " 時間後" : "極大の " + Math.round(-hoursFromPeak) + " 時間前"}</td>`
+      + `<td>月齢 ${moon.age.toFixed(1)}（輝面比 ${(moon.illum * 100).toFixed(0)}%）</td>`
+      + `<td>郊外で最大 <b>${Math.round(bestRate)}</b> 個/時</td>`
+      + `</tr>`;
+  });
+  el("night-table").innerHTML =
+    "<thead><tr><th>夜</th><th>極大との差</th><th>月</th><th>見込み</th></tr></thead>"
+    + `<tbody>${rows.join("")}</tbody>`;
+
+  // ---- 輻射点の高度と出現数 ----
+  const tw = twilightTimes(best, site.lat, site.lon);
+  const nextTw = twilightTimes(best + 86400000, site.lat, site.lon);
+  const track = radiantTrack(shower.ra, shower.dec, best, site.lat, site.lon, 19, 29);
+
+  const head = "<thead><tr><th>時刻</th><th>輻射点の高度</th>"
+    + SKIES.map(([label]) => `<th>${label}</th>`).join("")
+    + "</tr></thead>";
+  const body = track.map((t) => {
+    const dark = t.ms >= tw.astronomical.dusk && t.ms <= nextTw.astronomical.dawn;
+    const zhr = meteorZhrAt(shower.zhr, t.ms - peak);   // その時刻の活動度
+    const cells = SKIES.map(([, lm]) => {
+      const hr = meteorRate(zhr, t.alt, lm, POP_INDEX);
+      return `<td>${hr < 1 ? "—" : Math.round(hr)}</td>`;
+    }).join("");
+    return `<tr class="${dark ? "dark-hour" : "twilight-hour"}">`
+      + `<th>${p2(t.hour)}:00${dark ? "" : ' <span class="tag dim">薄明</span>'}</th>`
+      + `<td>${t.alt < 0 ? "地平線下" : t.alt.toFixed(0) + "°"}</td>${cells}</tr>`;
+  }).join("");
+  el("rate-table").innerHTML = head + `<tbody>${body}</tbody>`;
+
+  // ---- その夜の条件 ----
+  const moon = riseSet("moon", best, site.lat, site.lon);
+  const sun = riseSet("sun", best, site.lat, site.lon);
+  const peakAlt = Math.max(...track.map((t) => t.alt));
+  el("cond-table").innerHTML = [
+    ["場所", `${site.name}（${site.lat.toFixed(2)}°N, ${site.lon.toFixed(2)}°E）`],
+    ["日の入り", hhmm(sun.set)],
+    ["空が完全に暗くなる", `${hhmm(tw.astronomical.dusk)}（天文薄明の終わり）`],
+    ["空が明るみはじめる", `翌 ${hhmm(nextTw.astronomical.dawn)}（天文薄明の始まり）`],
+    ["月の入り", hhmm(moon.set)],
+    ["翌朝の月の出", `翌 ${hhmm(riseSet("moon", best + 86400000, site.lat, site.lon).rise)}`],
+    ["輻射点（ペルセウス座 γ 付近）", `赤経 ${(shower.ra / 15).toFixed(1)}h / 赤緯 +${shower.dec.toFixed(0)}°`],
+    ["この夜の輻射点の最高高度", `${peakAlt.toFixed(0)}°（明け方）`],
+    ["この時刻の空を見る", skyLink(best + 26 * 3600e3, "早見盤で 翌 2時の空を開く →")],
+  ].map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+
+  el("accuracy").innerHTML =
+    "時刻は日本時間（JST）。極大の時刻は IMO が公表する太陽黄経 λ☉ = 140.0°（J2000.0）から計算しています。"
+    + "出現数はあくまで目安で、流星群の実際の活動は年ごとに揺れます"
+    + "（<a href=\"../credits/\">精度について</a>）。";
+}
+
+// ---- 場所の選択 (今夜の空ページと同じ作り) ----
+function loadSite() {
+  try {
+    const s = JSON.parse(localStorage.getItem("site"));
+    if (s && typeof s.lat === "number" && typeof s.lon === "number") return s;
+  } catch (e) { /* 壊れていたら既定値 */ }
+  return { name: "東京", lat: 35.68, lon: 139.77 };
+}
+
+function saveSite() {
+  try { localStorage.setItem("site", JSON.stringify(site)); } catch (e) { /* 無視 */ }
+}
+
+function initSites() {
+  const sel = el("site");
+  const groups = [["都道府県庁所在地", SITES_PREF], ["観望地", SITES_SPOT]];
+  for (const [label, list] of groups) {
+    const g = document.createElement("optgroup");
+    g.label = label;
+    for (const [name, lat, lon] of list) {
+      const o = document.createElement("option");
+      o.value = `${lat},${lon}`;
+      o.textContent = name;
+      o.selected = name === site.name;
+      g.appendChild(o);
+    }
+    sel.appendChild(g);
+  }
+  const custom = document.createElement("option");
+  custom.value = "custom";
+  custom.textContent = "座標を指定";
+  sel.appendChild(custom);
+
+  sel.addEventListener("change", () => {
+    if (sel.value === "custom") {
+      el("custom-coords").hidden = false;
+      el("lat").value = site.lat;
+      el("lon").value = site.lon;
+      site = { name: "指定した場所", lat: site.lat, lon: site.lon };
+    } else {
+      el("custom-coords").hidden = true;
+      const [lat, lon] = sel.value.split(",").map(Number);
+      site = { name: sel.options[sel.selectedIndex].textContent, lat, lon };
+    }
+    saveSite();
+    render();
+  });
+
+  for (const id of ["lat", "lon"]) {
+    el(id).addEventListener("change", () => {
+      const lat = Number(el("lat").value), lon = Number(el("lon").value);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        site = { name: "指定した場所", lat, lon };
+        saveSite();
+        render();
+      }
+    });
+  }
+}
+
+initSites();
+render();
+</script>
