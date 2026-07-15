@@ -45,8 +45,7 @@ NAV = [
 ]
 
 # dist/assets/ に置く共有ファイル (存在するものだけコピーする)
-ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
-          "events.js", "stars.js"]
+ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js", "events.js"]
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
 
@@ -100,12 +99,19 @@ def main() -> int:
             out = DIST / "index.html"
             root = ""            # dist/index.html から見た dist/ の位置
             canonical = f"{origin}/"
+        elif stem == "404":
+            # GitHub Pages は存在しない全URLに dist/404.html を返す。
+            # どの階層で表示されるか分からないので、参照は絶対パスにする。
+            out = DIST / "404.html"
+            root = "/"
+            canonical = f"{origin}/404.html"
         else:
             out = DIST / stem / "index.html"
             root = "../"
             canonical = f"{origin}/{stem}/"
         out.parent.mkdir(parents=True, exist_ok=True)
-        urls.append(canonical)
+        if stem != "404":     # 404 はサイトマップに載せない
+            urls.append(canonical)
 
         scripts = "\n".join(
             f'<script src="{root}assets/{s}"></script>'
