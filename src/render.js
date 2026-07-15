@@ -159,6 +159,17 @@ function bvColor(bv) {
   return `rgb(${to(r)},${to(g)},${to(b)})`;
 }
 
+/**
+ * アイピースの倍率と実視界を求める。
+ *   倍率     = 望遠鏡の焦点距離 / アイピースの焦点距離
+ *   実視界°  = アイピースの見かけ視界° / 倍率
+ * (簡略式。厳密には見かけ視界に tan 補正が要るが、観望の目安としてはこれで十分。)
+ */
+function eyepieceFov(scopeFL, epFL, apparentFov) {
+  const mag = scopeFL / epFL;
+  return { mag, trueFov: apparentFov / mag };
+}
+
 /** 等級 → 描画半径 [px]。R は盤面半径 (画面の大きさに合わせて少しスケールする)。 */
 function starRadius(mag, R) {
   const s = R / 320;

@@ -17,7 +17,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const src = (name) => readFileSync(path.join(ROOT, "src", name), "utf8");
 
 const EXPORTS = ["project", "makeView", "projectView", "unprojectView",
-  "rotateAToB", "raDecToVec", "applySky"];
+  "rotateAToB", "eyepieceFov", "raDecToVec", "applySky"];
 const V = new Function(
   `${src("astro.js")}\n${src("render.js")}\nreturn {${EXPORTS.join(",")}};`
 )();
@@ -156,6 +156,21 @@ test("rotateAToB: 再センタリング反復でカーソル下の空がカー�
   }
   const p = V.projectView(grab, V.makeView(CX, CY, { center, pxPerDeg: 90 }));
   assert.ok(Math.hypot(p.x - cursor.x, p.y - cursor.y) < 0.1, "掴んだ空がカーソルへ収束");
+});
+
+test("eyepieceFov: 倍率と実視界", () => {
+  // 焦点距離1200mm + アイピース25mm(見かけ52°) → 48倍・実視界 約1.08°
+  const a = V.eyepieceFov(1200, 25, 52);
+  assert.ok(Math.abs(a.mag - 48) < 1e-9);
+  assert.ok(Math.abs(a.trueFov - 52 / 48) < 1e-9);
+  // 焦点距離1200mm + アイピース8mm(見かけ68°) → 150倍・実視界 約0.45°
+  const b = V.eyepieceFov(1200, 8, 68);
+  assert.ok(Math.abs(b.mag - 150) < 1e-9);
+  assert.ok(Math.abs(b.trueFov - 68 / 150) < 1e-9);
+  // 短焦点鏡 400mm + 32mm(70°) → 12.5倍・実視界 5.6°(広視野)
+  const c = V.eyepieceFov(400, 32, 70);
+  assert.ok(Math.abs(c.mag - 12.5) < 1e-9);
+  assert.ok(Math.abs(c.trueFov - 5.6) < 1e-9);
 });
 
 test("projectView: 中心の裏側は behind=true", () => {

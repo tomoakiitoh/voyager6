@@ -47,6 +47,30 @@ bodyclass: sky-page
     <label><input type="checkbox" id="t-night">赤色ナイトモード</label>
   </div>
 
+  <details id="fov-panel" hidden>
+    <summary>望遠鏡の視野（FOV）</summary>
+    <div class="row toggles">
+      <label><input type="checkbox" id="fov-telrad">Telrad</label>
+      <label><input type="checkbox" id="fov-finder">ファインダー</label>
+      <label><input type="checkbox" id="fov-eyepiece">アイピース</label>
+    </div>
+    <div class="row" id="fov-finder-row" hidden>
+      <label class="info">実視界 <input type="number" id="finder-deg" step="0.1" min="0.1" max="20"> °</label>
+    </div>
+    <div class="row" id="fov-eyepiece-row" hidden>
+      <label class="info">望遠鏡FL <input type="number" id="scope-fl" step="1" min="1"> mm</label>
+      <label class="info">アイピースFL <input type="number" id="ep-fl" step="0.5" min="1"> mm</label>
+      <label class="info">見かけ視界 <input type="number" id="ep-afov" step="1" min="20" max="120"> °</label>
+      <span id="ep-calc" class="info"></span>
+    </div>
+    <div class="row" id="fov-preset-row" hidden>
+      <label class="info">機材 <select id="equip-select"></select></label>
+      <input type="text" id="equip-name" placeholder="名前を付けて保存" maxlength="24">
+      <button id="equip-save">保存</button>
+      <button id="equip-del" title="選択中の機材を削除">削除</button>
+    </div>
+  </details>
+
   <details>
     <summary>観測地</summary>
     <div class="row">
@@ -176,6 +200,14 @@ const show = {
   guides: false,    // 補助線 (同心円・方位線・天の赤道・黄道)
 };
 
+// 視野サークル (望遠鏡モード)。中心 = 視野中心に描く。単位はいずれも「直径の角度[度]」。
+const fov = {
+  telrad: false,                       // Telrad: 0.5 / 2 / 4° の同心円
+  finder: false, finderDeg: 5,         // ファインダー: 任意の実視界°
+  eyepiece: false, scopeFL: 1200, epFL: 25, afov: 52, // アイピース: 焦点距離から実視界を算出
+};
+let equipPresets = [];                 // 保存した機材 [{name, scopeFL, epFL, afov}]
+
 function resize() {
   const wrap = document.getElementById("sky-wrap");
   const size = Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight));
@@ -249,6 +281,8 @@ function draw() {
     ctx.lineWidth = 1.2;
     ctx.stroke();
   }
+
+  if (telescope) drawFovCircles();
 
   // ラベルは盤面のクリップ外で描く (地平線ぎわの文字が切れないように)。
   // 惑星・月 → 星名 → 星座名 の順に場所を確保する (見たい情報が優先)。
@@ -715,6 +749,39 @@ function endPointer(ev) {
 canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 
+/**
+ * 視野サークルを視野中心 (画面中心) に描く。正距方位図法では中心まわりの
+ * 角半径 ρ の円は画面上でも半径 pxPerDeg·ρ の円になるので、そのまま arc で描ける。
+ */
+function drawFovCircles() {
+  const ppd = (R / 90) * state.view.zoom;
+  const anyOn = fov.telrad || fov.finder || fov.eyepiece;
+  if (!anyOn) return;
+  const circle = (diamDeg, color, w) => {
+    if (!(diamDeg > 0)) return;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ppd * diamDeg / 2, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = w;
+    ctx.stroke();
+  };
+
+  // 中心の照準十字
+  ctx.strokeStyle = "rgba(255,120,120,0.75)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy);
+  ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8);
+  ctx.stroke();
+
+  if (fov.telrad) for (const d of [0.5, 2, 4]) circle(d, "rgba(255,90,90,0.55)", 1.3);
+  if (fov.finder) circle(fov.finderDeg, "rgba(120,200,255,0.65)", 1.3);
+  if (fov.eyepiece) {
+    const { trueFov } = eyepieceFov(fov.scopeFL, fov.epFL, fov.afov);
+    circle(trueFov, "rgba(150,255,180,0.75)", 1.4);
+  }
+}
+
 /** 方位ラベル。北=上、東=左 (見上げた空なので地図と鏡像)。 */
 function drawCompass() {
   const labels = [["北", 0], ["東", 90], ["南", 180], ["西", 270]];
@@ -743,6 +810,8 @@ function updateInfo() {
   if (rb) rb.hidden = !zoomed;
   const fb = document.getElementById("flip");
   if (fb) { fb.hidden = !zoomed; fb.value = state.view.flip; }
+  const fp = document.getElementById("fov-panel");
+  if (fp) fp.hidden = !zoomed;
 }
 
 /** 画面の短辺に相当する視野角 [度] (中心の pxPerDeg から)。 */
@@ -801,6 +870,140 @@ el("flip").addEventListener("change", () => {
   state.view.flip = el("flip").value;
   popup.style.display = "none";
   draw();
+});
+
+// ---------------- 視野サークル / 機材 (F1-4) ----------------
+
+const EQUIP_KEY = "voyager6.equip";
+
+function loadEquipState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(EQUIP_KEY));
+    if (s && typeof s === "object") {
+      for (const k of ["telrad", "finder", "eyepiece"]) {
+        if (typeof s[k] === "boolean") fov[k] = s[k];
+      }
+      for (const k of ["finderDeg", "scopeFL", "epFL", "afov"]) {
+        if (Number.isFinite(s[k]) && s[k] > 0) fov[k] = s[k];
+      }
+      if (Array.isArray(s.presets)) {
+        equipPresets = s.presets.filter((p) => p && typeof p.name === "string"
+          && Number.isFinite(p.scopeFL) && Number.isFinite(p.epFL) && Number.isFinite(p.afov));
+      }
+    }
+  } catch (e) { /* 壊れていたら既定値のまま */ }
+}
+
+function saveEquipState() {
+  try {
+    localStorage.setItem(EQUIP_KEY, JSON.stringify({
+      telrad: fov.telrad, finder: fov.finder, eyepiece: fov.eyepiece,
+      finderDeg: fov.finderDeg, scopeFL: fov.scopeFL, epFL: fov.epFL, afov: fov.afov,
+      presets: equipPresets,
+    }));
+  } catch (e) { /* プライベートモード等で保存できなくても続行 */ }
+}
+
+/** アイピースの倍率・実視界の表示を更新。 */
+function updateEpCalc() {
+  const { mag, trueFov } = eyepieceFov(fov.scopeFL, fov.epFL, fov.afov);
+  el("ep-calc").textContent = `${Math.round(mag)}倍 / 実視界 ${trueFov.toFixed(2)}°`;
+}
+
+/** サブ行の出し入れ (チェックされた種類だけ入力欄を出す)。 */
+function syncFovRows() {
+  el("fov-finder-row").hidden = !fov.finder;
+  el("fov-eyepiece-row").hidden = !fov.eyepiece;
+  el("fov-preset-row").hidden = !fov.eyepiece;
+}
+
+/** 機材プリセットの <select> を並べ直す。 */
+function fillEquipSelect() {
+  const sel = el("equip-select");
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = equipPresets.length ? "— 選択 —" : "（未保存）";
+  sel.appendChild(none);
+  equipPresets.forEach((p, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = p.name;
+    sel.appendChild(o);
+  });
+}
+
+/** 保存値をフォームへ流し込む。 */
+function initFovForm() {
+  el("fov-telrad").checked = fov.telrad;
+  el("fov-finder").checked = fov.finder;
+  el("fov-eyepiece").checked = fov.eyepiece;
+  el("finder-deg").value = fov.finderDeg;
+  el("scope-fl").value = fov.scopeFL;
+  el("ep-fl").value = fov.epFL;
+  el("ep-afov").value = fov.afov;
+  syncFovRows();
+  updateEpCalc();
+  fillEquipSelect();
+}
+
+loadEquipState();
+initFovForm();
+
+for (const [id, key] of [["fov-telrad", "telrad"], ["fov-finder", "finder"],
+                         ["fov-eyepiece", "eyepiece"]]) {
+  el(id).addEventListener("change", () => {
+    fov[key] = el(id).checked;
+    syncFovRows();
+    saveEquipState();
+    draw();
+  });
+}
+
+for (const [id, key] of [["finder-deg", "finderDeg"], ["scope-fl", "scopeFL"],
+                         ["ep-fl", "epFL"], ["ep-afov", "afov"]]) {
+  el(id).addEventListener("input", () => {
+    const v = Number(el(id).value);
+    if (!Number.isFinite(v) || v <= 0) return;
+    fov[key] = v;
+    updateEpCalc();
+    saveEquipState();
+    draw();
+  });
+}
+
+// プリセット読み込み: 選ぶとアイピース欄へ反映
+el("equip-select").addEventListener("change", () => {
+  const p = equipPresets[Number(el("equip-select").value)];
+  if (!p) return;
+  fov.scopeFL = p.scopeFL; fov.epFL = p.epFL; fov.afov = p.afov;
+  el("scope-fl").value = p.scopeFL;
+  el("ep-fl").value = p.epFL;
+  el("ep-afov").value = p.afov;
+  updateEpCalc();
+  saveEquipState();
+  draw();
+});
+
+// 現在のアイピース設定を名前を付けて保存 (同名は上書き)
+el("equip-save").addEventListener("click", () => {
+  const name = el("equip-name").value.trim();
+  if (!name) { el("equip-name").focus(); return; }
+  const rec = { name, scopeFL: fov.scopeFL, epFL: fov.epFL, afov: fov.afov };
+  const i = equipPresets.findIndex((p) => p.name === name);
+  if (i >= 0) equipPresets[i] = rec; else equipPresets.push(rec);
+  el("equip-name").value = "";
+  fillEquipSelect();
+  el("equip-select").value = String(equipPresets.findIndex((p) => p.name === name));
+  saveEquipState();
+});
+
+el("equip-del").addEventListener("click", () => {
+  const i = Number(el("equip-select").value);
+  if (!equipPresets[i]) return;
+  equipPresets.splice(i, 1);
+  fillEquipSelect();
+  saveEquipState();
 });
 el("hour-prev").addEventListener("click", () => setTime(state.ms - 3600e3));
 el("hour-next").addEventListener("click", () => setTime(state.ms + 3600e3));
