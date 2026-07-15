@@ -10,6 +10,7 @@ bodyclass: sky-page
   <div class="row">
     <span id="clock" class="info"></span>
     <span class="grow"></span>
+    <button id="zoom-reset" hidden title="全天図に戻す">⤢ 全天</button>
     <button id="now" class="primary">今の空</button>
   </div>
 
@@ -65,7 +66,31 @@ const state = {
   ms: Date.now(),   // 起動時は「今の空」
   playing: false,
   speed: 60,        // 再生速度 (倍)
+  // 望遠鏡モード (F1)。zoom=1 で全天図 (最小ズーム・天頂中心)。zoom>1 でズームイン。
+  // center は視野中心が向く地平方向。flip は 正立/鏡像/倒立。
+  view: { zoom: 1, center: { e: 0, n: 0, u: 1 }, flip: "upright" },
 };
+
+const ZOOM_MIN = 1, ZOOM_MAX = 90;
+const ZENITH_DIR = { e: 0, n: 0, u: 1 };
+
+/** 現在の state.view と画面サイズから描画用のビュー記述子を作る。 */
+function buildView() {
+  const v = state.view;
+  return makeView(cx, cy, {
+    center: v.center,
+    pxPerDeg: (R / 90) * v.zoom, // 全天図(zoom=1)では R/90 = 既存 project() と一致
+    flip: v.flip,
+  });
+}
+
+/** ズーム1以下では中心を天頂へ吸着させ、全天図を現状と完全一致させる。 */
+function normalizeView() {
+  if (state.view.zoom <= ZOOM_MIN + 1e-6) {
+    state.view.zoom = ZOOM_MIN;
+    state.view.center = { ...ZENITH_DIR };
+  }
+}
 
 /**
  * URL パラメータで日時と場所を指定できる (「今夜の空」から飛んでくるときに使う)。
@@ -117,6 +142,7 @@ function msFromJst(y, mo, d, hh, mm) {
 const canvas = document.getElementById("sky");
 const ctx = canvas.getContext("2d");
 let R = 300, cx = 0, cy = 0;
+let view = null; // 現在の描画ビュー (draw / pickObject の直前に buildView() で更新)
 
 // J2000 単位ベクトルは一度だけ作っておく (毎フレームの三角関数を省く)
 const STAR_VEC = STARS.map((s) => raDecToVec(s[0], s[1]));
@@ -177,6 +203,9 @@ const PLANET_JA = [
 ];
 
 function draw() {
+  normalizeView();
+  view = buildView();
+  const telescope = state.view.zoom > ZOOM_MIN + 1e-6;
   const jd = jdFromDate(new Date(state.ms));
   const M = skyMatrix(jd, SITE.lat, SITE.lon);           // 恒星 (J2000 → 歳差込み)
   const Mn = skyMatrixNoPrecession(jd, SITE.lat, SITE.lon); // 太陽系 (日付の分点)
@@ -189,28 +218,31 @@ function draw() {
   ctx.fillStyle = "#05070d";
   ctx.fillRect(0, 0, size, size);
 
-  // 盤面 (薄明で地色が変わる)
+  // 盤面 (薄明で地色が変わる)。全天図は真円、望遠鏡モードは画面全体。
   ctx.save();
   ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  if (telescope) ctx.rect(0, 0, size, size);
+  else ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.fillStyle = skyColor(sunAlt);
   ctx.fill();
   ctx.clip();
 
   if (show.milkyway) drawMilkyway(M);
-  if (show.guides) drawGuides(Mn, jd);
+  if (show.guides) drawGuides(Mn, jd, telescope);
   if (show.constLines) drawConstLines(M);
   drawStars(M);
   if (show.messier) drawMessier(M);
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
   ctx.restore();
 
-  // 地平線
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.strokeStyle = "#39456b";
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
+  // 地平線 (全天図のみ。望遠鏡モードでは真円の外周は意味を持たない)
+  if (!telescope) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = "#39456b";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
 
   // ラベルは盤面のクリップ外で描く (地平線ぎわの文字が切れないように)。
   // 惑星・月 → 星名 → 星座名 の順に場所を確保する (見たい情報が優先)。
@@ -219,7 +251,7 @@ function draw() {
   if (show.starNames) drawStarNames(M, place);
   if (show.constNames) drawConstNames(M, place);
 
-  drawCompass();
+  if (!telescope) drawCompass();
   updateInfo();
 }
 
@@ -227,7 +259,8 @@ function drawStars(M) {
   for (let i = 0; i < STARS.length; i++) {
     const h = applySky(M, STAR_VEC[i]);
     if (h.u <= 0) continue; // 地平線下
-    const p = project(h, cx, cy, R);
+    const p = projectView(h, view);
+    if (p.behind) continue; // 視野中心の裏側
     const mag = STARS[i][2];
     const rad = starRadius(mag, R);
     ctx.beginPath();
@@ -261,8 +294,9 @@ function drawConstLines(M) {
         if (a.u <= 0 && b.u <= 0) continue;          // 両端とも地平線下
         if (a.u <= 0) a = clipToHorizon(b, a);        // 片端だけ下 → 地平線で切る
         else if (b.u <= 0) b = clipToHorizon(a, b);
-        const p1 = project(a, cx, cy, R);
-        const p2 = project(b, cx, cy, R);
+        const p1 = projectView(a, view);
+        const p2 = projectView(b, view);
+        if (p1.behind || p2.behind) continue;         // 視野中心の裏側をまたぐ線分は捨てる
         ctx.moveTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y);
       }
@@ -283,7 +317,9 @@ function drawConstNames(M, place) {
   for (const c of CNAME_VEC) {
     const h = applySky(M, c.v);
     if (h.u <= 0.09) continue; // 高度 5° 未満は出さない (盤面の縁は混むので)
-    cands.push({ ja: c.ja, h, p: project(h, cx, cy, R) });
+    const p = projectView(h, view);
+    if (p.behind) continue;
+    cands.push({ ja: c.ja, h, p });
   }
   cands.sort((a, b) => b.h.u - a.h.u); // 高い順
 
@@ -307,7 +343,8 @@ function drawStarNames(M, place) {
     if (STARS[idx][2] > starNameMagLimit()) break;
     const h = applySky(M, STAR_VEC[idx]);
     if (h.u <= 0.035) continue; // 高度 2° 未満は出さない
-    const p = project(h, cx, cy, R);
+    const p = projectView(h, view);
+    if (p.behind) continue;
     const rad = starRadius(STARS[idx][2], R);
     const w = ctx.measureText(name).width;
     const x = p.x + rad + 3, y = p.y;
@@ -329,8 +366,9 @@ function drawMilkyway(M) {
     for (const ring of level) {
       const poly = clipPolygon(ring.map((v) => applySky(M, v)));
       if (poly.length < 3) continue;
-      poly.forEach((h, i) => {
-        const p = project(h, cx, cy, R);
+      const ps = poly.map((h) => projectView(h, view));
+      if (ps.some((p) => p.behind)) continue; // 裏側をまたぐリングは形が崩れるので捨てる
+      ps.forEach((p, i) => {
         if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
       });
       ctx.closePath();
@@ -340,23 +378,25 @@ function drawMilkyway(M) {
 }
 
 /** 補助線: 高度30°/60°の同心円、方位線、天の赤道、黄道。 */
-function drawGuides(Mn, jd) {
-  // 高度の同心円
-  ctx.strokeStyle = "rgba(140,165,210,0.18)";
-  ctx.lineWidth = 1;
-  for (const alt of [30, 60]) {
+function drawGuides(Mn, jd, telescope) {
+  // 高度の同心円と方位線は天頂中心の全天図でのみ意味を持つ (望遠鏡モードでは出さない)
+  if (!telescope) {
+    ctx.strokeStyle = "rgba(140,165,210,0.18)";
+    ctx.lineWidth = 1;
+    for (const alt of [30, 60]) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * (90 - alt) / 90, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // 方位線 (30°ごと)
     ctx.beginPath();
-    ctx.arc(cx, cy, R * (90 - alt) / 90, 0, Math.PI * 2);
+    for (let az = 0; az < 360; az += 30) {
+      const a = az * DEG;
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - R * Math.sin(a), cy - R * Math.cos(a));
+    }
     ctx.stroke();
   }
-  // 方位線 (30°ごと)
-  ctx.beginPath();
-  for (let az = 0; az < 360; az += 30) {
-    const a = az * DEG;
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx - R * Math.sin(a), cy - R * Math.cos(a));
-  }
-  ctx.stroke();
 
   // 天の赤道 (赤緯0°) と黄道 (黄緯0°)。どちらも日付の分点で描く。
   const d = schlyterDay(jd);
@@ -380,7 +420,8 @@ function drawGreatCircle(Mn, vecAt, color) {
     if (a.u <= 0 && b.u <= 0) continue;
     if (a.u <= 0) a = clipToHorizon(b, a);
     else if (b.u <= 0) b = clipToHorizon(a, b);
-    const p1 = project(a, cx, cy, R), p2 = project(b, cx, cy, R);
+    const p1 = projectView(a, view), p2 = projectView(b, view);
+    if (p1.behind || p2.behind) continue;
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
   }
@@ -406,7 +447,8 @@ function drawMessier(M) {
   for (const m of MESSIER_VEC) {
     const h = applySky(M, m.v);
     if (h.u <= 0) continue;
-    const p = project(h, cx, cy, R);
+    const p = projectView(h, view);
+    if (p.behind) continue;
     const style = MESSIER_STYLE[m.kind] || MESSIER_STYLE.other;
     ctx.strokeStyle = style.color;
     ctx.setLineDash(style.shape === "circle" ? [2, 2] : []);
@@ -436,7 +478,8 @@ function drawSolarSystem(Mn, sky, sunH) {
   for (const p of sky.planets) {
     const h = applySky(Mn, raDecToVec(p.ra, p.dec));
     if (h.u <= 0) continue;
-    const pos = project(h, cx, cy, R);
+    const pos = projectView(h, view);
+    if (pos.behind) continue;
     // 明るいものほど大きく (金星・木星がひときわ目立つように)
     const rad = Math.max(2.2, (4.4 - 0.75 * p.mag) * (R / 320));
     const glow = ctx.createRadialGradient(pos.x, pos.y, rad * 0.4, pos.x, pos.y, rad * 3.2);
@@ -457,9 +500,9 @@ function drawSolarSystem(Mn, sky, sunH) {
 
   // 月 (満ち欠けを描く)
   const mh = applySky(Mn, raDecToVec(sky.moon.ra, sky.moon.dec));
-  if (mh.u > 0) {
-    const pos = project(mh, cx, cy, R);
-    const sunPos = project(sunH, cx, cy, R); // 地平線下でも図法上の向きは意味を持つ
+  if (mh.u > 0 && !projectView(mh, view).behind) {
+    const pos = projectView(mh, view);
+    const sunPos = projectView(sunH, view); // 地平線下でも図法上の向きは意味を持つ
     const angleToSun = Math.atan2(sunPos.y - pos.y, sunPos.x - pos.x);
     const { illum } = moonPhase(sky.moon);
     const rad = Math.max(5, R / 30);
@@ -489,6 +532,7 @@ function drawSolarLabels(labels, place) {
 
 /** 画面上の点に近い天体を探す。見つからなければ null。 */
 function pickObject(px, py) {
+  view = buildView();
   const jd = jdFromDate(new Date(state.ms));
   const M = skyMatrix(jd, SITE.lat, SITE.lon);
   const Mn = skyMatrixNoPrecession(jd, SITE.lat, SITE.lon);
@@ -497,7 +541,8 @@ function pickObject(px, py) {
 
   const consider = (label, mag, h, extra) => {
     if (h.u <= 0) return;
-    const p = project(h, cx, cy, R);
+    const p = projectView(h, view);
+    if (p.behind) return;
     const d = Math.hypot(p.x - px, p.y - py);
     if (d > hitR) return;
     // 同じくらい近ければ明るいほうを採る
@@ -550,12 +595,119 @@ function showPopup(px, py, o) {
   popup.style.top = y + "px";
 }
 
-canvas.addEventListener("click", (ev) => {
+// ---------------- ズーム・パン (望遠鏡モード F1) ----------------
+
+const ZOOM_STEP = 1.18; // ホイール1ノッチの倍率
+canvas.style.touchAction = "none"; // ブラウザのピンチ/スクロールを止めて自前で扱う
+
+function localXY(ev) {
   const rect = canvas.getBoundingClientRect();
-  const o = pickObject(ev.clientX - rect.left, ev.clientY - rect.top);
-  if (o) showPopup(ev.clientX - rect.left, ev.clientY - rect.top, o);
-  else popup.style.display = "none";
+  return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+}
+
+/** 画面座標 → その瞬間の描画ビューでの地平方向。 */
+function skyAt(px, py) {
+  view = buildView();
+  return unprojectView(px, py, view);
+}
+
+/** anchor(地平方向) が画面の (px,py) に来るよう中心を再センタリング (反復で収束)。 */
+function recenterTo(px, py, anchor, iters = 3) {
+  for (let i = 0; i < iters; i++) {
+    view = buildView();
+    const under = unprojectView(px, py, view);
+    state.view.center = rotateAToB(state.view.center, under, anchor);
+  }
+}
+
+/** カーソル位置を軸にズーム倍率を factor 倍する。 */
+function zoomAt(px, py, factor) {
+  const before = skyAt(px, py); // カーソル下の空
+  const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, state.view.zoom * factor));
+  if (z === state.view.zoom) return;
+  state.view.zoom = z;
+  if (z <= ZOOM_MIN + 1e-6) normalizeView();     // 最小ズームは天頂中心の全天図へ
+  else recenterTo(px, py, before);               // カーソル下の空を保つ
+  popup.style.display = "none";
+  draw();
+}
+
+// ホイール: 上でズームイン・下でアウト
+canvas.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  const { x, y } = localXY(ev);
+  zoomAt(x, y, ev.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+}, { passive: false });
+
+// ダブルクリック / ダブルタップ: その点を中心にズームイン
+canvas.addEventListener("dblclick", (ev) => {
+  ev.preventDefault();
+  const { x, y } = localXY(ev);
+  zoomAt(x, y, 2.2);
 });
+
+// ポインタ: 1本指ドラッグでパン、2本指でピンチズーム。動きが小さければタップ=天体ピック。
+const pointers = new Map();
+let dragGrab = null;   // 掴んだ空 (地平方向)
+let dragStart = null;  // タップ判定用の押下位置
+let moved = false;
+let pinchPrev = null;  // { dist }
+
+canvas.addEventListener("pointerdown", (ev) => {
+  canvas.setPointerCapture(ev.pointerId);
+  const p = localXY(ev);
+  pointers.set(ev.pointerId, p);
+  if (pointers.size === 1) {
+    dragStart = p;
+    moved = false;
+    dragGrab = skyAt(p.x, p.y);
+  } else if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinchPrev = { dist: Math.hypot(a.x - b.x, a.y - b.y) };
+    dragGrab = null; // ピンチ中はパンしない
+  }
+});
+
+canvas.addEventListener("pointermove", (ev) => {
+  if (!pointers.has(ev.pointerId)) return;
+  const p = localXY(ev);
+  pointers.set(ev.pointerId, p);
+
+  if (pointers.size >= 2 && pinchPrev) {
+    const [a, b] = [...pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (pinchPrev.dist > 0) zoomAt(mid.x, mid.y, dist / pinchPrev.dist);
+    pinchPrev.dist = dist;
+    moved = true;
+    return;
+  }
+
+  if (dragGrab) {
+    if (dragStart && Math.hypot(p.x - dragStart.x, p.y - dragStart.y) > 4) moved = true;
+    if (state.view.zoom <= ZOOM_MIN + 1e-6) return; // 全天図は天頂固定なのでパン無効
+    recenterTo(p.x, p.y, dragGrab, 2); // 掴んだ空をカーソルへ追従
+    popup.style.display = "none";
+    draw();
+  }
+});
+
+function endPointer(ev) {
+  if (!pointers.has(ev.pointerId)) return;
+  pointers.delete(ev.pointerId);
+  if (pointers.size < 2) pinchPrev = null;
+  if (pointers.size === 0) {
+    if (!moved && dragStart) { // タップ (ほぼ静止) は天体ピック
+      const o = pickObject(dragStart.x, dragStart.y);
+      if (o) showPopup(dragStart.x, dragStart.y, o);
+      else popup.style.display = "none";
+    }
+    dragGrab = null;
+    dragStart = null;
+  }
+}
+canvas.addEventListener("pointerup", endPointer);
+canvas.addEventListener("pointercancel", endPointer);
 
 /** 方位ラベル。北=上、東=左 (見上げた空なので地図と鏡像)。 */
 function drawCompass() {
@@ -575,10 +727,20 @@ const p2 = (n) => String(n).padStart(2, "0");
 
 function updateInfo() {
   const t = jstParts(state.ms);
+  const zoomed = state.view.zoom > ZOOM_MIN + 1e-6;
   document.getElementById("clock").textContent =
-    `${t.y}-${p2(t.mo)}-${p2(t.d)} ${p2(t.hh)}:${p2(t.mm)} JST`;
+    `${t.y}-${p2(t.mo)}-${p2(t.d)} ${p2(t.hh)}:${p2(t.mm)} JST`
+    + (zoomed ? `　視野 約${fovDeg().toFixed(1)}°` : "");
   document.getElementById("place").textContent =
     `${SITE.name} ${SITE.lat.toFixed(2)}° ${SITE.lon.toFixed(2)}°  /  ${STARS.length} 星`;
+  const rb = document.getElementById("zoom-reset");
+  if (rb) rb.hidden = !zoomed;
+}
+
+/** 画面の短辺に相当する視野角 [度] (中心の pxPerDeg から)。 */
+function fovDeg() {
+  const ppd = (R / 90) * state.view.zoom;
+  return (2 * R) / ppd;
 }
 
 // ---------------- コントロール ----------------
@@ -617,6 +779,14 @@ el("time").addEventListener("input", () => {
 });
 
 el("now").addEventListener("click", () => { stop(); setTime(Date.now()); });
+
+// 全天へ戻す (ズームを最小・天頂中心にリセット)
+el("zoom-reset").addEventListener("click", () => {
+  state.view.zoom = ZOOM_MIN;
+  normalizeView();
+  popup.style.display = "none";
+  draw();
+});
 el("hour-prev").addEventListener("click", () => setTime(state.ms - 3600e3));
 el("hour-next").addEventListener("click", () => setTime(state.ms + 3600e3));
 el("day-prev").addEventListener("click", () => setTime(state.ms - 86400e3));
