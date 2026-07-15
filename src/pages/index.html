@@ -344,14 +344,17 @@ let starManifest = null;        // manifest.json (未取得は null)
 let starManifestTried = false;  // 取得を試みたか (失敗しても再試行しない)
 const tileCache = new Map();    // "layer/key" -> {n,vx,vy,vz,mag,bv} | "loading" | "error"
 let highPm = null;              // 高固有運動星 (前計算した基底ベクトルと接ベクトル)
+let deepPending = 0;            // 取得中の fetch 数 (ローディング表示用)
 
 function loadManifest() {
   if (starManifest || starManifestTried) return;
   starManifestTried = true;
+  deepPending++;
   fetch(STARS_BASE + "manifest.json")
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((m) => { starManifest = m; loadHighPm(); draw(); })
-    .catch(() => { /* 深層データ無し。5等ベースのまま動く */ });
+    .then((m) => { starManifest = m; loadHighPm(); })
+    .catch(() => { /* 深層データ無し。5等ベースのまま動く */ })
+    .finally(() => { deepPending--; draw(); });
 }
 
 /**
@@ -359,6 +362,7 @@ function loadManifest() {
  * 描画時は base + a·ê + d·n̂ の線形結合だけで日付ぶん動かせる (毎フレーム安い)。
  */
 function loadHighPm() {
+  deepPending++;
   fetch(STARS_BASE + "highpm.json")
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((arr) => {
@@ -378,9 +382,9 @@ function loadHighPm() {
         hp.pmRa[i] = pr; hp.pmDec[i] = pd; hp.mag[i] = mg; hp.bv[i] = b;
       }
       highPm = hp;
-      draw();
     })
-    .catch(() => { /* 高μ星なしでも動く */ });
+    .catch(() => { /* 高μ星なしでも動く */ })
+    .finally(() => { deepPending--; draw(); });
 }
 
 /** FOV(短辺)[度] に応じて読む等級層。広いほど浅く (密度と負荷を抑える)。 */
@@ -393,6 +397,7 @@ function deepLayersForFov(fov) {
 
 function fetchTile(id) {
   tileCache.set(id, "loading");
+  deepPending++;
   fetch(STARS_BASE + id + ".bin")
     .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)))
     .then((buf) => {
@@ -404,9 +409,9 @@ function fetchTile(id) {
         vx[i] = v[0]; vy[i] = v[1]; vz[i] = v[2];
       }
       tileCache.set(id, { n: d.n, vx, vy, vz, mag: d.mag, bv: d.bv });
-      draw();
     })
-    .catch(() => tileCache.set(id, "error"));
+    .catch(() => tileCache.set(id, "error"))
+    .finally(() => { deepPending--; draw(); });
 }
 
 /** 深い星の描画半径 [px]。5等→約1.8px、10等→約0.6px (R でスケール)。 */
@@ -1056,6 +1061,7 @@ function updateInfo() {
   if (zoomed) {
     const [ra, dec] = raDecOf(state.view.center);
     extra = `　視野 約${fovDeg().toFixed(1)}°　中心 α${fmtRa(ra)} δ${fmtDec(dec)}`;
+    if (deepPending > 0) extra += "　深い星表を読込中…";
   }
   document.getElementById("clock").textContent =
     `${t.y}-${p2(t.mo)}-${p2(t.d)} ${p2(t.hh)}:${p2(t.mm)} JST` + extra;
