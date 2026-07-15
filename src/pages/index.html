@@ -15,6 +15,8 @@ bodyclass: sky-page
       <option value="mirror">鏡像（天頂ミラー）</option>
       <option value="inverted">倒立（ニュートン）</option>
     </select>
+    <button id="north-reset" hidden title="回転をリセット（北を上に）">北↑</button>
+    <button id="rotate-mode" hidden title="ドラッグを 移動／回転 で切替">⟳ 回転</button>
     <button id="zoom-reset" hidden title="全天図に戻す">⤢ 全天</button>
     <button id="now" class="primary">今の空</button>
   </div>
@@ -109,29 +111,38 @@ const state = {
   playing: false,
   speed: 60,        // 再生速度 (倍)
   // 望遠鏡モード (F1)。zoom=1 で全天図 (最小ズーム・天頂中心)。zoom>1 でズームイン。
-  // center は視野中心が向く地平方向。flip は 正立/鏡像/倒立。
-  view: { zoom: 1, center: { e: 0, n: 0, u: 1 }, flip: "upright" },
+  // center は視野中心が向く地平方向。flip は 正立/鏡像/倒立。roll は視野の回転 [ラジアン]。
+  // dragMode='pan' はドラッグで移動 (回転なし・北が上)、'rotate' はドラッグで回転。
+  view: { zoom: 1, center: { e: 0, n: 0, u: 1 }, flip: "upright", roll: 0, dragMode: "pan" },
 };
 
 const ZOOM_MIN = 1, ZOOM_MAX = 90;
 const ZENITH_DIR = { e: 0, n: 0, u: 1 };
+const NCP_VEC = [0, 0, 1];        // 天の北極 (赤道座標の単位ベクトル)
+let ncpUp = { e: 0, n: 1, u: 0 }; // 天の北極の地平方向 (draw で M から更新。望遠鏡モードの「上」)
 
 /** 現在の state.view と画面サイズから描画用のビュー記述子を作る。 */
 function buildView() {
   const v = state.view;
+  const telescope = v.zoom > ZOOM_MIN + 1e-6;
   return makeView(cx, cy, {
     center: v.center,
     pxPerDeg: (R / 90) * v.zoom, // 全天図(zoom=1)では R/90 = 既存 project() と一致
     flip: v.flip,
+    // 望遠鏡モードは「上」を天の北極にして、パンで星野が回転しないようにする。
+    // 全天図(zoom=1)は天頂基準のまま (現状と完全一致・北が盤面の上)。
+    upRef: telescope ? ncpUp : undefined,
+    roll: v.roll,
   });
 }
 
-/** ズーム1以下では中心を天頂へ吸着し正立に戻す。全天図(肉眼)を現状と完全一致させる。 */
+/** ズーム1以下では中心を天頂へ吸着し正立・無回転に戻す。全天図(肉眼)を現状と完全一致させる。 */
 function normalizeView() {
   if (state.view.zoom <= ZOOM_MIN + 1e-6) {
     state.view.zoom = ZOOM_MIN;
     state.view.center = { ...ZENITH_DIR };
     state.view.flip = "upright"; // 全天図は肉眼で見上げた向き固定
+    state.view.roll = 0;
   }
 }
 
@@ -256,10 +267,11 @@ const PLANET_JA = [
 
 function draw() {
   normalizeView();
-  view = buildView();
-  const telescope = state.view.zoom > ZOOM_MIN + 1e-6;
   const jd = jdFromDate(new Date(state.ms));
   const M = skyMatrix(jd, SITE.lat, SITE.lon);           // 恒星 (J2000 → 歳差込み)
+  ncpUp = applySky(M, NCP_VEC);                          // 天の北極の地平方向 (望遠鏡モードの上)
+  view = buildView();
+  const telescope = state.view.zoom > ZOOM_MIN + 1e-6;
   const Mn = skyMatrixNoPrecession(jd, SITE.lat, SITE.lon); // 太陽系 (日付の分点)
   const sky = solarSystem(jd);
   const sunH = applySky(Mn, raDecToVec(sky.sun.ra, sky.sun.dec));
@@ -792,9 +804,10 @@ function drawSolarLabels(labels, place) {
 
 /** 画面上の点に近い天体を探す。見つからなければ null。 */
 function pickObject(px, py) {
-  view = buildView();
   const jd = jdFromDate(new Date(state.ms));
   const M = skyMatrix(jd, SITE.lat, SITE.lon);
+  ncpUp = applySky(M, NCP_VEC);
+  view = buildView();
   const Mn = skyMatrixNoPrecession(jd, SITE.lat, SITE.lon);
   const hitR = 16;
   let best = null;
@@ -929,6 +942,8 @@ let dragStart = null;  // タップ判定用の押下位置
 let moved = false;
 let pinchPrev = null;  // { dist }
 
+const normAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a)); // [-π,π] に畳む
+
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   const p = localXY(ev);
@@ -939,30 +954,43 @@ canvas.addEventListener("pointerdown", (ev) => {
     dragGrab = skyAt(p.x, p.y);
   } else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
-    pinchPrev = { dist: Math.hypot(a.x - b.x, a.y - b.y) };
+    pinchPrev = { dist: Math.hypot(a.x - b.x, a.y - b.y), ang: Math.atan2(b.y - a.y, b.x - a.x) };
     dragGrab = null; // ピンチ中はパンしない
   }
 });
 
 canvas.addEventListener("pointermove", (ev) => {
   if (!pointers.has(ev.pointerId)) return;
+  const prev = pointers.get(ev.pointerId);
   const p = localXY(ev);
   pointers.set(ev.pointerId, p);
+  const telescope = state.view.zoom > ZOOM_MIN + 1e-6;
 
+  // 2本指: 開閉でズーム、ひねりで回転
   if (pointers.size >= 2 && pinchPrev) {
     const [a, b] = [...pointers.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    if (pinchPrev.dist > 0) zoomAt(mid.x, mid.y, dist / pinchPrev.dist);
-    pinchPrev.dist = dist;
+    const ratio = pinchPrev.dist > 0 ? dist / pinchPrev.dist : 1;
+    if (telescope) state.view.roll += normAngle(ang - pinchPrev.ang); // ひねり回転
+    pinchPrev.dist = dist; pinchPrev.ang = ang;
     moved = true;
+    popup.style.display = "none";
+    if (ratio !== 1) zoomAt(mid.x, mid.y, ratio); else draw(); // zoomAt が draw する
     return;
   }
 
-  if (dragGrab) {
-    if (dragStart && Math.hypot(p.x - dragStart.x, p.y - dragStart.y) > 4) moved = true;
-    if (state.view.zoom <= ZOOM_MIN + 1e-6) return; // 全天図は天頂固定なのでパン無効
-    recenterTo(p.x, p.y, dragGrab, 2); // 掴んだ空をカーソルへ追従
+  if (!telescope) return; // 全天図はパン/回転しない (天頂固定)
+  if (dragStart && Math.hypot(p.x - dragStart.x, p.y - dragStart.y) > 4) moved = true;
+
+  if (state.view.dragMode === "rotate") {           // 回転モード: 中心まわりの角度差ぶん回す
+    const a0 = Math.atan2(prev.y - cy, prev.x - cx), a1 = Math.atan2(p.y - cy, p.x - cx);
+    state.view.roll += normAngle(a1 - a0);
+    popup.style.display = "none";
+    draw();
+  } else if (dragGrab) {                            // 移動モード: 掴んだ空をカーソルへ (回転なし)
+    recenterTo(p.x, p.y, dragGrab, 2);
     popup.style.display = "none";
     draw();
   }
@@ -1073,6 +1101,10 @@ function updateInfo() {
   if (fb) { fb.hidden = !zoomed; fb.value = state.view.flip; }
   const fp = document.getElementById("fov-panel");
   if (fp) fp.hidden = !zoomed;
+  const rm = document.getElementById("rotate-mode");
+  if (rm) rm.hidden = !zoomed;
+  const nr = document.getElementById("north-reset");
+  if (nr) nr.hidden = !(zoomed && Math.abs(state.view.roll) > 1e-4);
 }
 
 /** 画面の短辺に相当する視野角 [度] (中心の pxPerDeg から)。 */
@@ -1130,6 +1162,20 @@ el("zoom-reset").addEventListener("click", () => {
 el("flip").addEventListener("change", () => {
   state.view.flip = el("flip").value;
   popup.style.display = "none";
+  draw();
+});
+
+// ドラッグの 移動／回転 切替
+el("rotate-mode").addEventListener("click", () => {
+  const v = state.view;
+  v.dragMode = v.dragMode === "rotate" ? "pan" : "rotate";
+  el("rotate-mode").classList.toggle("on", v.dragMode === "rotate");
+  el("rotate-mode").textContent = v.dragMode === "rotate" ? "✋ 移動" : "⟳ 回転";
+});
+
+// 回転をリセット (北を上に戻す)
+el("north-reset").addEventListener("click", () => {
+  state.view.roll = 0;
   draw();
 });
 

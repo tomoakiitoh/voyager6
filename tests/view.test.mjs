@@ -225,6 +225,31 @@ test("eyepieceFov: 倍率と実視界", () => {
   assert.ok(Math.abs(c.trueFov - 5.6) < 1e-9);
 });
 
+test("projectView: roll で視野中心まわりに回転する", () => {
+  const center = hFromAltAz(50, 120);
+  const P = hFromAltAz(52, 122);
+  const v0 = V.makeView(CX, CY, { center, pxPerDeg: 40 });
+  const vr = V.makeView(CX, CY, { center, pxPerDeg: 40, roll: Math.PI / 3 });
+  const p0 = V.projectView(P, v0), pr = V.projectView(P, vr);
+  const r0 = Math.hypot(p0.x - CX, p0.y - CY), rr = Math.hypot(pr.x - CX, pr.y - CY);
+  assert.ok(Math.abs(r0 - rr) < 1e-6, "中心からの距離は不変");
+  const a0 = Math.atan2(p0.y - CY, p0.x - CX), ar = Math.atan2(pr.y - CY, pr.x - CX);
+  const d = Math.atan2(Math.sin(ar - a0), Math.cos(ar - a0));
+  assert.ok(Math.abs(Math.abs(d) - Math.PI / 3) < 1e-6, `回転角 ${d}`);
+});
+
+test("viewBasis(upRef): 画面の上が指定した基準方向を向く (北を上=回転しないパンの土台)", () => {
+  const center = hFromAltAz(20, 90); // 東を向く
+  const north = { e: 0, n: 1, u: 0 };
+  const v = V.makeView(CX, CY, { center, pxPerDeg: 40, upRef: north });
+  const c = [center.e, center.n, center.u];
+  const d = north.e * c[0] + north.n * c[1] + north.u * c[2];
+  const t = [north.e - c[0] * d, north.n - c[1] * d, north.u - c[2] * d];
+  const L = Math.hypot(t[0], t[1], t[2]);
+  const dot = v.basis.up[0] * t[0] / L + v.basis.up[1] * t[1] / L + v.basis.up[2] * t[2] / L;
+  assert.ok(dot > 1 - 1e-9, `up が北の接方向を向く dot=${dot}`);
+});
+
 test("projectView: 中心の裏側は behind=true", () => {
   const center = hFromAltAz(70, 0);
   const view = V.makeView(CX, CY, { center, pxPerDeg: 20 });

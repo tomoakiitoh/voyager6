@@ -41,20 +41,28 @@ function norm3(a) {
 const FLIP = { upright: [1, 1], mirror: [-1, 1], inverted: [-1, -1] };
 
 /**
- * 視野中心 c (地平成分の単位ベクトル) における画面のタンジェント基底を作る。
- *   up    … 天頂へ向かう接ベクトル (中心が天頂に近ければ北にフォールバック)
- *   right … c × up。天頂中心では西 (−東) になり「東が左」の見上げた向きを再現する。
+ * 視野中心 c における画面のタンジェント基底を作る。
+ *   upRef … 「画面の上」に置きたい基準方向 (地平成分の配列)。全天図は天頂、
+ *           望遠鏡モードは天の北極を渡す。中心が動いても基準が同じなのでパンで回転しない。
+ *   roll  … さらに視野中心まわりに回す角 [ラジアン] (回転モード用)。
+ *   right … c × up。天頂中心・天頂基準では西 (−東) になり「東が左」を再現する。
  */
-function viewBasis(c) {
+function viewBasis(c, upRef, roll) {
   const cv = [c.e, c.n, c.u];
-  let up = [
-    ZENITH[0] - cv[0] * dot3(ZENITH, cv),
-    ZENITH[1] - cv[1] * dot3(ZENITH, cv),
-    ZENITH[2] - cv[2] * dot3(ZENITH, cv),
-  ];
-  if (len3(up) < 1e-6) up = [0, 1, 0]; // 天頂中心では北を上に
+  const ur = upRef || ZENITH;
+  const d = dot3(ur, cv);
+  let up = [ur[0] - cv[0] * d, ur[1] - cv[1] * d, ur[2] - cv[2] * d];
+  if (len3(up) < 1e-6) up = [0, 1, 0];               // 基準が中心と重なる (極を向く) → 北で代用
+  if (len3(cross3(cv, up)) < 1e-9) up = [1, 0, 0];   // それも平行なら東
   up = norm3(up);
-  return { c: cv, up, right: cross3(cv, up) };
+  let right = cross3(cv, up);
+  if (roll) {                                        // 視野中心を軸に回す
+    const cs = Math.cos(roll), sn = Math.sin(roll);
+    const u2 = [up[0] * cs - right[0] * sn, up[1] * cs - right[1] * sn, up[2] * cs - right[2] * sn];
+    right = [up[0] * sn + right[0] * cs, up[1] * sn + right[1] * cs, up[2] * sn + right[2] * cs];
+    up = u2;
+  }
+  return { c: cv, up, right };
 }
 
 /**
@@ -66,11 +74,14 @@ function viewBasis(c) {
  */
 function makeView(cx, cy, opts = {}) {
   const center = opts.center || { e: 0, n: 0, u: 1 };
+  const upRef = opts.upRef ? [opts.upRef.e, opts.upRef.n, opts.upRef.u] : ZENITH;
+  const roll = opts.roll || 0;
   return {
     cx, cy, center,
     pxPerDeg: opts.pxPerDeg,
     flip: opts.flip || "upright",
-    basis: viewBasis(center),
+    roll,
+    basis: viewBasis(center, upRef, roll),
   };
 }
 
