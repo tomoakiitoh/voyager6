@@ -379,6 +379,16 @@ function fetchTile(id) {
     .catch(() => tileCache.set(id, "error"));
 }
 
+/** 深い星の描画半径 [px]。5等→約1.8px、10等→約0.6px (R でスケール)。 */
+function deepStarRadius(mag, R) {
+  return Math.max(0.5, (0.6 + (10 - mag) * 0.24) * (R / 660));
+}
+
+/** FOV(短辺)[度] に応じた限界等級。広いほど浅く (密度を抑える)。 */
+function deepLimMag(fov) {
+  return Math.max(7, Math.min(10, 10.6 - 0.18 * fov));
+}
+
 /** 深い星を描く。可視タイル/層を確保し、キャッシュ済みのものを重ね描きする。 */
 function drawDeepStars(M) {
   const fov = fovDeg();
@@ -388,6 +398,12 @@ function drawDeepStars(M) {
 
   const [cra, cdec] = vecToRaDec(applySkyInverse(M, state.view.center)); // 視野中心 (J2000)
   const keys = tileKeysForRegion(cra, cdec, fov * 0.75, starManifest);   // FOVの少し外まで
+  const limMag = deepLimMag(fov);
+  const size = cx * 2;
+  const faint = [];        // 暗い星 (mag>7.5) は fillRect でまとめて速く描く
+  const m00 = M[0][0], m01 = M[0][1], m02 = M[0][2];
+  const m10 = M[1][0], m11 = M[1][1], m12 = M[1][2];
+  const m20 = M[2][0], m21 = M[2][1], m22 = M[2][2];
 
   for (const layer of layers) {
     const exist = starManifest.tiles[layer];
@@ -397,19 +413,29 @@ function drawDeepStars(M) {
       const c = tileCache.get(id);
       if (c === undefined) { fetchTile(id); continue; }
       if (typeof c === "string") continue;    // loading / error
-      for (let i = 0; i < c.n; i++) {
-        const e = M[0][0] * c.vx[i] + M[0][1] * c.vy[i] + M[0][2] * c.vz[i];
-        const n = M[1][0] * c.vx[i] + M[1][1] * c.vy[i] + M[1][2] * c.vz[i];
-        const u = M[2][0] * c.vx[i] + M[2][1] * c.vy[i] + M[2][2] * c.vz[i];
+      const { n, vx, vy, vz, mag, bv } = c;
+      for (let i = 0; i < n; i++) {
+        const mg = mag[i];
+        if (mg > limMag) continue;            // 限界等級で間引き
+        const x = vx[i], y = vy[i], z = vz[i];
+        const u = m20 * x + m21 * y + m22 * z;
         if (u <= 0) continue;                 // 地平線下
-        const p = projectView({ e, n, u }, view);
-        if (p.behind) continue;
+        const e = m00 * x + m01 * y + m02 * z;
+        const nn = m10 * x + m11 * y + m12 * z;
+        const p = projectView({ e, n: nn, u }, view);
+        if (p.behind || p.x < -4 || p.x > size + 4 || p.y < -4 || p.y > size + 4) continue;
+        if (mg > 7.5) { faint.push(p.x, p.y); continue; }
         ctx.beginPath();
-        ctx.arc(p.x, p.y, starRadius(c.mag[i], R), 0, Math.PI * 2);
-        ctx.fillStyle = bvColor(c.bv[i]);
+        ctx.arc(p.x, p.y, deepStarRadius(mg, R), 0, Math.PI * 2);
+        ctx.fillStyle = bvColor(bv[i]);
         ctx.fill();
       }
     }
+  }
+  // 暗い星は色を1つに固定して四角でまとめ描き (arc より速い)
+  if (faint.length) {
+    ctx.fillStyle = "rgba(228,236,255,0.85)";
+    for (let i = 0; i < faint.length; i += 2) ctx.fillRect(faint[i] - 0.5, faint[i + 1] - 0.5, 1.1, 1.1);
   }
 }
 
