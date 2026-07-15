@@ -343,14 +343,44 @@ const STARS_BASE = "stars/";
 let starManifest = null;        // manifest.json (未取得は null)
 let starManifestTried = false;  // 取得を試みたか (失敗しても再試行しない)
 const tileCache = new Map();    // "layer/key" -> {n,vx,vy,vz,mag,bv} | "loading" | "error"
+let highPm = null;              // 高固有運動星 (前計算した基底ベクトルと接ベクトル)
 
 function loadManifest() {
   if (starManifest || starManifestTried) return;
   starManifestTried = true;
   fetch(STARS_BASE + "manifest.json")
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((m) => { starManifest = m; draw(); })
+    .then((m) => { starManifest = m; loadHighPm(); draw(); })
     .catch(() => { /* 深層データ無し。5等ベースのまま動く */ });
+}
+
+/**
+ * 高固有運動星を読み、基底ベクトルと東・北の接ベクトルを前計算する。
+ * 描画時は base + a·ê + d·n̂ の線形結合だけで日付ぶん動かせる (毎フレーム安い)。
+ */
+function loadHighPm() {
+  fetch(STARS_BASE + "highpm.json")
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((arr) => {
+      const n = arr.length;
+      const f = () => new Float32Array(n);
+      const hp = {
+        n, bx: f(), by: f(), bz: f(), ex: f(), ey: f(), ez: f(),
+        nx: f(), ny: f(), nz: f(), pmRa: f(), pmDec: f(), mag: f(), bv: f(),
+      };
+      for (let i = 0; i < n; i++) {
+        const [ra, dec, pr, pd, mg, b] = arr[i];
+        const rr = ra * DEG, dd = dec * DEG;
+        const ca = Math.cos(rr), sa = Math.sin(rr), cd = Math.cos(dd), sd = Math.sin(dd);
+        hp.bx[i] = cd * ca; hp.by[i] = cd * sa; hp.bz[i] = sd;
+        hp.ex[i] = -sa; hp.ey[i] = ca; hp.ez[i] = 0;
+        hp.nx[i] = -sd * ca; hp.ny[i] = -sd * sa; hp.nz[i] = cd;
+        hp.pmRa[i] = pr; hp.pmDec[i] = pd; hp.mag[i] = mg; hp.bv[i] = b;
+      }
+      highPm = hp;
+      draw();
+    })
+    .catch(() => { /* 高μ星なしでも動く */ });
 }
 
 /** FOV(短辺)[度] に応じて読む等級層。広いほど浅く (密度と負荷を抑える)。 */
@@ -432,6 +462,31 @@ function drawDeepStars(M) {
       }
     }
   }
+  // 高固有運動星 (タイルから外してある) を日付ぶん動かして描く
+  if (highPm) {
+    const yrs = (jdFromDate(new Date(state.ms)) - 2451545.0) / 365.25;
+    const hp = highPm;
+    for (let i = 0; i < hp.n; i++) {
+      const mg = hp.mag[i];
+      if (mg > limMag) continue;
+      const a = hp.pmRa[i] * MAS_TO_RAD * yrs, d = hp.pmDec[i] * MAS_TO_RAD * yrs;
+      let x = hp.bx[i] + a * hp.ex[i] + d * hp.nx[i];
+      let y = hp.by[i] + a * hp.ey[i] + d * hp.ny[i];
+      let z = hp.bz[i] + a * hp.ez[i] + d * hp.nz[i];
+      const L = Math.hypot(x, y, z) || 1; x /= L; y /= L; z /= L;
+      const u = m20 * x + m21 * y + m22 * z;
+      if (u <= 0) continue;
+      const e = m00 * x + m01 * y + m02 * z, nn = m10 * x + m11 * y + m12 * z;
+      const p = projectView({ e, n: nn, u }, view);
+      if (p.behind || p.x < -4 || p.x > size + 4 || p.y < -4 || p.y > size + 4) continue;
+      if (mg > 7.5) { faint.push(p.x, p.y); continue; }
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, deepStarRadius(mg, R), 0, Math.PI * 2);
+      ctx.fillStyle = bvColor(hp.bv[i]);
+      ctx.fill();
+    }
+  }
+
   // 暗い星は色を1つに固定して四角でまとめ描き (arc より速い)
   if (faint.length) {
     ctx.fillStyle = "rgba(228,236,255,0.85)";

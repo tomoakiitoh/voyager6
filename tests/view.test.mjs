@@ -18,7 +18,7 @@ const src = (name) => readFileSync(path.join(ROOT, "src", name), "utf8");
 
 const EXPORTS = ["project", "makeView", "projectView", "unprojectView",
   "rotateAToB", "eyepieceFov", "raDecToVec", "vecToRaDec", "applySky",
-  "applySkyInverse", "skyMatrix"];
+  "applySkyInverse", "skyMatrix", "applyProperMotion"];
 const V = new Function(
   `${src("astro.js")}\n${src("render.js")}\nreturn {${EXPORTS.join(",")}};`
 )();
@@ -173,6 +173,41 @@ test("applySkyInverse: applySky の逆で RA/Dec が往復する", () => {
     assert.ok(d > 1 - 1e-9, `round-trip dot=${d} ra=${ra} dec=${dec}`);
     assert.ok(Math.abs(dec2 - dec) < 1e-6, `dec ${dec2} vs ${dec}`);
   }
+});
+
+test("applyProperMotion: バーナード星の26年後の移動 (第一原理照合)", () => {
+  // バーナード星 (最大の固有運動星) J2000
+  const ra = 269.45207, dec = 4.69339;
+  const pmRa = -798.71, pmDec = 10337.77;   // μα*・μδ [mas/yr]
+  const years = 26.0;
+  const MAS_TO_DEG = 1 / 3600 / 1000;
+
+  const base = V.raDecToVec(ra, dec);
+  const moved = V.applyProperMotion(ra, dec, pmRa, pmDec, years);
+  const [ra2, dec2] = V.vecToRaDec(moved);
+
+  // Dec の変化 ≈ μδ·years (北向きはそのまま座標変化)
+  assert.ok(Math.abs((dec2 - dec) - pmDec * years * MAS_TO_DEG) < 5e-6,
+    `Δdec=${(dec2 - dec).toFixed(6)} 期待 ${(pmDec * years * MAS_TO_DEG).toFixed(6)}`);
+  // 天球上の総移動量 ≈ hypot(μα*,μδ)·years
+  const sep = Math.acos(Math.max(-1, Math.min(1,
+    base[0] * moved[0] + base[1] * moved[1] + base[2] * moved[2]))) * (180 / Math.PI) * 3600; // 秒角
+  const expected = Math.hypot(pmRa, pmDec) * years / 1000; // 秒角
+  assert.ok(Math.abs(sep - expected) < 0.5, `移動量 ${sep.toFixed(1)}″ 期待 ${expected.toFixed(1)}″`);
+  // RA は南天でなければ μα*/cosδ ぶん動く
+  assert.ok((ra2 - ra) < 0, "μα*<0 なので RA は減る");
+});
+
+test("applyProperMotion: 往復で元に戻る / years=0 は不動", () => {
+  const ra = 100, dec = -30, pmRa = 500, pmDec = -1200;
+  const fwd = V.applyProperMotion(ra, dec, pmRa, pmDec, 50);
+  const [ra2, dec2] = V.vecToRaDec(fwd);
+  const back = V.applyProperMotion(ra2, dec2, pmRa, pmDec, -50);
+  const b0 = V.raDecToVec(ra, dec);
+  const dot = b0[0] * back[0] + b0[1] * back[1] + b0[2] * back[2];
+  assert.ok(dot > 1 - 1e-9, `往復 dot=${dot}`);
+  const still = V.applyProperMotion(ra, dec, pmRa, pmDec, 0);
+  assert.ok(Math.abs(still[0] - b0[0]) < 1e-12 && Math.abs(still[2] - b0[2]) < 1e-12);
 });
 
 test("eyepieceFov: 倍率と実視界", () => {

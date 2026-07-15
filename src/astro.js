@@ -54,6 +54,25 @@ function vecToRaDec(v) {
   return [norm360(Math.atan2(v[1], v[0]) * RAD), Math.asin(v[2]) * RAD];
 }
 
+const MAS_TO_RAD = Math.PI / 180 / 3600 / 1000;
+
+/**
+ * 固有運動を years 年ぶん適用した J2000 単位ベクトルを返す。
+ * pmRa は μα* (= μα·cosδ、天球上の東向きの速さ) [mas/yr]、pmDec は μδ [mas/yr]。
+ * 接平面の東 (ê) と北 (n̂) 方向へ小さく動かして正規化する (10等星表で効く高μ星向け)。
+ */
+function applyProperMotion(raDeg, decDeg, pmRa, pmDec, years) {
+  const ra = raDeg * DEG, dec = decDeg * DEG;
+  const ca = Math.cos(ra), sa = Math.sin(ra), cd = Math.cos(dec), sd = Math.sin(dec);
+  const a = pmRa * MAS_TO_RAD * years, d = pmDec * MAS_TO_RAD * years;
+  // base=(cd ca, cd sa, sd), ê=(−sa, ca, 0), n̂=(−sd ca, −sd sa, cd)
+  const x = cd * ca + a * (-sa) + d * (-sd * ca);
+  const y = cd * sa + a * ca + d * (-sd * sa);
+  const z = sd + d * cd;
+  const L = Math.hypot(x, y, z) || 1;
+  return [x / L, y / L, z / L];
+}
+
 /**
  * J2000.0 平均分点 → 指定 JD の平均分点への歳差回転行列 (Meeus 21章)。
  * 恒星位置を 0.2° 以内に保つために必要 (2026年で約 0.36° ずれる)。

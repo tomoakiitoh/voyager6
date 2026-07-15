@@ -52,6 +52,9 @@ LAYERS = [7.0, 8.5, 10.0]  # 各等級層の上限 (下限は前の層の上限 
 MAG_LO, MAG_HI = 5.0, 10.0      # 等級量子化レンジ
 BV_LO, BV_HI = -0.5, 2.5        # B-V 量子化レンジ
 
+PM_THRESHOLD = 200.0  # 固有運動 [mas/yr]。これを超える星はタイルから外し highpm.json へ
+                      # (日付に応じてクライアントが位置を前進させて描く。二重描画を避ける)
+
 
 def n_bands() -> int:
     return round(180.0 / BAND_H)
@@ -110,8 +113,16 @@ def main() -> int:
 
     # tiles[layer][tileKey] = [ (mag, ra, dec, bv), ... ]
     tiles: list[dict[str, list]] = [dict() for _ in LAYERS]
+    highpm = []  # [ra, dec, pm_ra, pm_dec, mag, bv] 高固有運動星
     total = 0
     skipped_nomag = 0
+
+    def fnum(row, key, default=0.0):
+        try:
+            return float(row[key])
+        except (ValueError, KeyError, TypeError):
+            return default
+
     with gzip.open(path, "rt", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             try:
@@ -122,15 +133,20 @@ def main() -> int:
             layer = layer_of(mag)
             if layer < 0:
                 continue
-            ra = float(row["ra"]) * 15.0   # AT-HYG の ra は「時」単位
+            ra = float(row["ra"]) * 15.0 % 360.0   # AT-HYG の ra は「時」単位
             dec = float(row["dec"])
-            try:
-                bv = float(row["ci"])
-            except (ValueError, KeyError, TypeError):
-                bv = 0.6
+            bv = fnum(row, "ci", 0.6)
+            pmra = fnum(row, "pm_ra")   # mas/yr (μα* = μα·cosδ, Gaia由来)
+            pmdec = fnum(row, "pm_dec")
+            if math.hypot(pmra, pmdec) > PM_THRESHOLD:
+                # 高固有運動星はタイルから外し、日付連動で描くために別ファイルへ
+                highpm.append([round(ra, 5), round(dec, 5), round(pmra, 1),
+                               round(pmdec, 1), round(mag, 2), round(bv, 2)])
+                total += 1
+                continue
             band = band_of(dec)
             key = f"{band}_{cell_of(ra, band)}"
-            tiles[layer].setdefault(key, []).append((mag, ra % 360.0, dec, bv))
+            tiles[layer].setdefault(key, []).append((mag, ra, dec, bv))
             total += 1
 
     if OUTDIR.exists():
@@ -170,12 +186,21 @@ def main() -> int:
         "layers": [{"id": i, "magMax": hi} for i, hi in enumerate(LAYERS)],
         "tiles": manifest_tiles,
     }
+    manifest["highPmThreshold"] = PM_THRESHOLD
+    manifest["highPmCount"] = len(highpm)
     (OUTDIR / "manifest.json").write_text(
         json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+
+    # 高固有運動星 (日付連動でクライアントが位置を前進させる)
+    highpm.sort(key=lambda s: s[4])  # 明るい順
+    hp_path = OUTDIR / "highpm.json"
+    hp_path.write_text(json.dumps(highpm, separators=(",", ":")), encoding="utf-8")
 
     per_layer = " / ".join(f"L{i}:{sum(c.values()):,}" for i, c in enumerate(manifest_tiles))
     print(f"  深層星: {total:,} 星 ({per_layer})  等級不明でスキップ {skipped_nomag:,}")
     print(f"  タイル: {nfiles:,} ファイル / {nbytes:,} bytes ({nbytes/1024/1024:.2f} MB)")
+    print(f"  高固有運動星 (|μ|>{PM_THRESHOLD:.0f}mas/yr): {len(highpm):,} 個 "
+          f"-> highpm.json ({hp_path.stat().st_size:,} bytes)")
     print(f"  出力: {OUTDIR.relative_to(ROOT.parent)}/")
     return 0
 
