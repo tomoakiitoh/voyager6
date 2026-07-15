@@ -10,6 +10,11 @@ bodyclass: sky-page
   <div class="row">
     <span id="clock" class="info"></span>
     <span class="grow"></span>
+    <select id="flip" hidden title="表示の向き（望遠鏡モード）">
+      <option value="upright">正立（肉眼）</option>
+      <option value="mirror">鏡像（天頂ミラー）</option>
+      <option value="inverted">倒立（ニュートン）</option>
+    </select>
     <button id="zoom-reset" hidden title="全天図に戻す">⤢ 全天</button>
     <button id="now" class="primary">今の空</button>
   </div>
@@ -84,11 +89,12 @@ function buildView() {
   });
 }
 
-/** ズーム1以下では中心を天頂へ吸着させ、全天図を現状と完全一致させる。 */
+/** ズーム1以下では中心を天頂へ吸着し正立に戻す。全天図(肉眼)を現状と完全一致させる。 */
 function normalizeView() {
   if (state.view.zoom <= ZOOM_MIN + 1e-6) {
     state.view.zoom = ZOOM_MIN;
     state.view.center = { ...ZENITH_DIR };
+    state.view.flip = "upright"; // 全天図は肉眼で見上げた向き固定
   }
 }
 
@@ -735,6 +741,8 @@ function updateInfo() {
     `${SITE.name} ${SITE.lat.toFixed(2)}° ${SITE.lon.toFixed(2)}°  /  ${STARS.length} 星`;
   const rb = document.getElementById("zoom-reset");
   if (rb) rb.hidden = !zoomed;
+  const fb = document.getElementById("flip");
+  if (fb) { fb.hidden = !zoomed; fb.value = state.view.flip; }
 }
 
 /** 画面の短辺に相当する視野角 [度] (中心の pxPerDeg から)。 */
@@ -784,6 +792,13 @@ el("now").addEventListener("click", () => { stop(); setTime(Date.now()); });
 el("zoom-reset").addEventListener("click", () => {
   state.view.zoom = ZOOM_MIN;
   normalizeView();
+  popup.style.display = "none";
+  draw();
+});
+
+// 表示の向き: 正立(肉眼・ファインダー)/鏡像(天頂ミラー)/倒立(ニュートン直焦点)
+el("flip").addEventListener("change", () => {
+  state.view.flip = el("flip").value;
   popup.style.display = "none";
   draw();
 });
