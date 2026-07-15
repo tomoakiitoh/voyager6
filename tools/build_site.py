@@ -45,7 +45,8 @@ NAV = [
 ]
 
 # dist/assets/ に置く共有ファイル (存在するものだけコピーする)
-ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js", "events.js"]
+ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
+          "events.js", "stars.js"]
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
 

@@ -33,12 +33,12 @@ jobs:
         with:
           node-version: "22"
 
-      # 星表 (14MB) と食のカタログは変わらないのでキャッシュする
+      # 星表 (HYG 14MB + AT-HYG深層 28MB) と食のカタログは変わらないのでキャッシュする
       - name: 外部データのキャッシュ
         uses: actions/cache@v4
         with:
           path: tools/cache
-          key: astro-data-v1
+          key: astro-data-v2
 
       - name: 星表データを生成
         run: python3 tools/build_data.py
@@ -51,6 +51,10 @@ jobs:
 
       - name: サイトを組み立て
         run: python3 tools/build_site.py
+
+      # 深い星表 (V<=10) のタイルを dist/stars/ に生成 (build_site が dist を作り直すので後段)
+      - name: 深層星表のタイルを生成
+        run: python3 tools/build_stars.py
 
       - uses: actions/upload-pages-artifact@v3
         with:
