@@ -44,6 +44,7 @@ bodyclass: sky-page
     <label><input type="checkbox" id="t-mw" checked>天の川</label>
     <label><input type="checkbox" id="t-messier">メシエ天体</label>
     <label><input type="checkbox" id="t-guides">補助線</label>
+    <label><input type="checkbox" id="t-grid">赤道座標</label>
     <label><input type="checkbox" id="t-night">赤色ナイトモード</label>
   </div>
 
@@ -69,6 +70,18 @@ bodyclass: sky-page
       <button id="equip-save">保存</button>
       <button id="equip-del" title="選択中の機材を削除">削除</button>
     </div>
+  </details>
+
+  <details id="goto-panel">
+    <summary>座標で移動（RA/Dec・J2000）</summary>
+    <div class="row">
+      <label class="info">RA
+        <input type="number" id="goto-ra-h" min="0" max="23" step="1" placeholder="h"> h
+        <input type="number" id="goto-ra-m" min="0" max="59" step="1" placeholder="m"> m</label>
+      <label class="info">Dec <input type="number" id="goto-dec" min="-90" max="90" step="0.1" placeholder="±°"> °</label>
+      <button id="goto-btn">移動</button>
+    </div>
+    <div class="row"><span id="goto-note" class="info"></span></div>
   </details>
 
   <details>
@@ -198,6 +211,7 @@ const show = {
   milkyway: true,
   messier: false,   // メシエ天体 (既定は消しておく。星図が混むので)
   guides: false,    // 補助線 (同心円・方位線・天の赤道・黄道)
+  grid: false,      // 赤道座標グリッド (RA/Dec の網)
 };
 
 // 視野サークル (望遠鏡モード)。中心 = 視野中心に描く。単位はいずれも「直径の角度[度]」。
@@ -266,6 +280,7 @@ function draw() {
   ctx.clip();
 
   if (show.milkyway) drawMilkyway(M);
+  if (show.grid) drawEquatorialGrid(M);
   if (show.guides) drawGuides(Mn, jd, telescope);
   if (show.constLines) drawConstLines(M);
   drawStars(M);
@@ -445,6 +460,46 @@ function drawGuides(Mn, jd, telescope) {
     const eq = eclipticToEquatorial(t, 0, d);
     return raDecToVec(eq.ra, eq.dec);
   }, "rgba(255,210,120,0.40)");
+}
+
+/**
+ * 媒介変数 t で表される天球上の曲線を、地平線と視野中心の裏側で切りながら描く。
+ * vecAt(t) は J2000 (または日付分点) の単位ベクトルを返す。M はその分点用の行列。
+ */
+function strokeSkyCurve(M, vecAt, tStart, tEnd, tStep) {
+  let prev = applySky(M, vecAt(tStart));
+  for (let t = tStart + tStep; t <= tEnd + 1e-9; t += tStep) {
+    const cur = applySky(M, vecAt(t));
+    let a = prev, b = cur;
+    prev = cur;
+    if (a.u <= 0 && b.u <= 0) continue;
+    if (a.u <= 0) a = clipToHorizon(b, a);
+    else if (b.u <= 0) b = clipToHorizon(a, b);
+    const p1 = projectView(a, view), p2 = projectView(b, view);
+    if (p1.behind || p2.behind) continue;
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+  }
+}
+
+/**
+ * 赤道座標グリッド (RA の経線・Dec の緯線)。恒星と同じ J2000 分点 (M) で描くので
+ * 星の並びと一致する。密度は倍率に応じて変える (拡大するほど細かく)。
+ */
+function drawEquatorialGrid(M) {
+  const zoom = state.view.zoom;
+  const decStep = zoom > 25 ? 5 : (zoom > 6 ? 10 : 30);          // 緯線の間隔 [度]
+  const raStep = zoom > 25 ? 3.75 : (zoom > 6 ? 15 : 30);         // 経線の間隔 [度] (15分/1時/2時)
+  ctx.strokeStyle = "rgba(120,200,255,0.20)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let dec = -80; dec <= 80; dec += decStep) {               // Dec の緯線
+    strokeSkyCurve(M, (t) => raDecToVec(t, dec), 0, 360, 3);
+  }
+  for (let ra = 0; ra < 360; ra += raStep) {                     // RA の経線
+    strokeSkyCurve(M, (t) => raDecToVec(ra, t), -85, 85, 3);
+  }
+  ctx.stroke();
 }
 
 /** 媒介変数 t (0-360°) で表される大円を、地平線で切りながら描く。 */
@@ -635,6 +690,22 @@ function showPopup(px, py, o) {
   popup.style.top = y + "px";
 }
 
+/** 何もない場所をタップしたとき、その位置の RA/Dec・高度方位を出す (望遠鏡モード)。 */
+function showRaDecPopup(px, py) {
+  view = buildView();
+  const h = unprojectView(px, py, view);
+  if (h.u <= 0) { popup.style.display = "none"; return; } // 地平線下
+  const [ra, dec] = raDecOf(h);
+  const { alt, az } = horizonAngles(h);
+  popup.innerHTML = `<b>この位置</b><br>α ${fmtRa(ra)}　δ ${fmtDec(dec)}<br>`
+    + `高度 ${alt.toFixed(1)}°　方位 ${az.toFixed(0)}°`;
+  popup.style.display = "block";
+  const rect = canvas.getBoundingClientRect();
+  const w = popup.offsetWidth, hh = popup.offsetHeight;
+  popup.style.left = Math.min(Math.max(4, rect.left + px + 12), window.innerWidth - w - 4) + "px";
+  popup.style.top = Math.max(4, rect.top + py - hh - 10) + "px";
+}
+
 // ---------------- ズーム・パン (望遠鏡モード F1) ----------------
 
 const ZOOM_STEP = 1.18; // ホイール1ノッチの倍率
@@ -740,6 +811,7 @@ function endPointer(ev) {
     if (!moved && dragStart) { // タップ (ほぼ静止) は天体ピック
       const o = pickObject(dragStart.x, dragStart.y);
       if (o) showPopup(dragStart.x, dragStart.y, o);
+      else if (state.view.zoom > ZOOM_MIN + 1e-6) showRaDecPopup(dragStart.x, dragStart.y);
       else popup.style.display = "none";
     }
     dragGrab = null;
@@ -798,12 +870,35 @@ function drawCompass() {
 
 const p2 = (n) => String(n).padStart(2, "0");
 
+/** RA[度] → "18h37m"。 */
+function fmtRa(raDeg) {
+  let hh = Math.floor(norm360(raDeg) / 15);
+  let mm = Math.round((norm360(raDeg) / 15 - hh) * 60);
+  if (mm === 60) { mm = 0; hh = (hh + 1) % 24; }
+  return `${hh}h${String(mm).padStart(2, "0")}m`;
+}
+
+/** Dec[度] → "+38.8°" (負号は見やすい U+2212)。 */
+function fmtDec(decDeg) {
+  return `${decDeg >= 0 ? "+" : "−"}${Math.abs(decDeg).toFixed(1)}°`;
+}
+
+/** 地平方向 {e,n,u} → J2000 の [RA, Dec] [度] (恒星カタログと同じ分点)。 */
+function raDecOf(h) {
+  const M = skyMatrix(jdFromDate(new Date(state.ms)), SITE.lat, SITE.lon);
+  return vecToRaDec(applySkyInverse(M, h));
+}
+
 function updateInfo() {
   const t = jstParts(state.ms);
   const zoomed = state.view.zoom > ZOOM_MIN + 1e-6;
+  let extra = "";
+  if (zoomed) {
+    const [ra, dec] = raDecOf(state.view.center);
+    extra = `　視野 約${fovDeg().toFixed(1)}°　中心 α${fmtRa(ra)} δ${fmtDec(dec)}`;
+  }
   document.getElementById("clock").textContent =
-    `${t.y}-${p2(t.mo)}-${p2(t.d)} ${p2(t.hh)}:${p2(t.mm)} JST`
-    + (zoomed ? `　視野 約${fovDeg().toFixed(1)}°` : "");
+    `${t.y}-${p2(t.mo)}-${p2(t.d)} ${p2(t.hh)}:${p2(t.mm)} JST` + extra;
   document.getElementById("place").textContent =
     `${SITE.name} ${SITE.lat.toFixed(2)}° ${SITE.lon.toFixed(2)}°  /  ${STARS.length} 星`;
   const rb = document.getElementById("zoom-reset");
@@ -1005,6 +1100,27 @@ el("equip-del").addEventListener("click", () => {
   fillEquipSelect();
   saveEquipState();
 });
+
+// ---------------- 座標で移動 (RA/Dec ジャンプ, F1-5) ----------------
+
+el("goto-btn").addEventListener("click", () => {
+  const dec = Number(el("goto-dec").value);
+  if (!Number.isFinite(dec) || dec < -90 || dec > 90) { el("goto-dec").focus(); return; }
+  const raH = Number(el("goto-ra-h").value) || 0;
+  const raM = Number(el("goto-ra-m").value) || 0;
+  const ra = norm360((raH + raM / 60) * 15);
+  const M = skyMatrix(jdFromDate(new Date(state.ms)), SITE.lat, SITE.lon);
+  const hor = applySky(M, raDecToVec(ra, dec));
+  const L = Math.hypot(hor.e, hor.n, hor.u) || 1;
+  state.view.center = { e: hor.e / L, n: hor.n / L, u: hor.u / L };
+  if (state.view.zoom <= ZOOM_MIN + 1e-6) state.view.zoom = 20; // 全天からなら望遠鏡倍率へ
+  popup.style.display = "none";
+  draw();
+  const { alt } = horizonAngles(hor);
+  el("goto-note").textContent = alt < 0
+    ? `※ α${fmtRa(ra)} δ${fmtDec(dec)} は今 地平線の下（高度 ${alt.toFixed(0)}°）`
+    : `α${fmtRa(ra)} δ${fmtDec(dec)} へ移動（高度 ${alt.toFixed(0)}°）`;
+});
 el("hour-prev").addEventListener("click", () => setTime(state.ms - 3600e3));
 el("hour-next").addEventListener("click", () => setTime(state.ms + 3600e3));
 el("day-prev").addEventListener("click", () => setTime(state.ms - 86400e3));
@@ -1015,7 +1131,7 @@ el("speed").addEventListener("change", () => { state.speed = Number(el("speed").
 for (const [id, key] of [["t-lines", "constLines"], ["t-cnames", "constNames"],
                          ["t-snames", "starNames"], ["t-solar", "solar"],
                          ["t-mw", "milkyway"], ["t-messier", "messier"],
-                         ["t-guides", "guides"]]) {
+                         ["t-guides", "guides"], ["t-grid", "grid"]]) {
   el(id).addEventListener("change", () => { show[key] = el(id).checked; draw(); });
 }
 

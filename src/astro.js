@@ -112,6 +112,20 @@ function applySky(M, v) {
   return { e, n, u };
 }
 
+/**
+ * applySky の逆。地平成分 {e,n,u} → J2000 赤道単位ベクトル [x,y,z]。
+ * M は直交行列 (回転の積) なので逆行列は転置。vecToRaDec に渡せば RA/Dec が得られる。
+ * (M は歳差込みなので、得られる RA/Dec は J2000 = 恒星カタログと同じ分点。)
+ */
+function applySkyInverse(M, h) {
+  const e = h.e, n = h.n, u = h.u;
+  return [
+    M[0][0] * e + M[1][0] * n + M[2][0] * u,
+    M[0][1] * e + M[1][1] * n + M[2][1] * u,
+    M[0][2] * e + M[1][2] * n + M[2][2] * u,
+  ];
+}
+
 /** 地平成分 → 高度・方位 [度] (方位は北=0, 東=90 の時計回り)。 */
 function horizonAngles(h) {
   return {

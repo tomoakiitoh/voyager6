@@ -17,7 +17,8 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const src = (name) => readFileSync(path.join(ROOT, "src", name), "utf8");
 
 const EXPORTS = ["project", "makeView", "projectView", "unprojectView",
-  "rotateAToB", "eyepieceFov", "raDecToVec", "applySky"];
+  "rotateAToB", "eyepieceFov", "raDecToVec", "vecToRaDec", "applySky",
+  "applySkyInverse", "skyMatrix"];
 const V = new Function(
   `${src("astro.js")}\n${src("render.js")}\nreturn {${EXPORTS.join(",")}};`
 )();
@@ -156,6 +157,22 @@ test("rotateAToB: 再センタリング反復でカーソル下の空がカー�
   }
   const p = V.projectView(grab, V.makeView(CX, CY, { center, pxPerDeg: 90 }));
   assert.ok(Math.hypot(p.x - cursor.x, p.y - cursor.y) < 0.1, "掴んだ空がカーソルへ収束");
+});
+
+test("applySkyInverse: applySky の逆で RA/Dec が往復する", () => {
+  const M = V.skyMatrix(2461237.0, 35.68, 139.77); // 適当な JD・東京
+  const rand = rng(77);
+  for (let i = 0; i < 300; i++) {
+    const ra = rand() * 360, dec = (rand() - 0.5) * 160; // -80..80
+    const v = V.raDecToVec(ra, dec);
+    const h = V.applySky(M, v);
+    const back = V.applySkyInverse(M, h);
+    const [ra2, dec2] = V.vecToRaDec(back);
+    // 角距離で比較 (RA の 0/360 境界を避ける)
+    const d = v[0] * back[0] + v[1] * back[1] + v[2] * back[2];
+    assert.ok(d > 1 - 1e-9, `round-trip dot=${d} ra=${ra} dec=${dec}`);
+    assert.ok(Math.abs(dec2 - dec) < 1e-6, `dec ${dec2} vs ${dec}`);
+  }
 });
 
 test("eyepieceFov: 倍率と実視界", () => {
