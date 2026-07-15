@@ -284,6 +284,7 @@ function draw() {
   if (show.guides) drawGuides(Mn, jd, telescope);
   if (show.constLines) drawConstLines(M);
   drawStars(M);
+  if (telescope) drawDeepStars(M); // 深い星表 (望遠鏡モードで視野が狭まったら遅延ロード)
   if (show.messier) drawMessier(M);
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
   ctx.restore();
@@ -330,6 +331,84 @@ function drawStars(M) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, rad * 3.4, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+}
+
+// ---------------- 深い星表 (F2: 望遠鏡モードの遅延ロード) ----------------
+// build_stars.py が出力した dist/stars/ のタイルを、視野中心+FOV に応じて取得し
+// 埋め込み5等カタログに重ね描きする。取得失敗時は5等ベースのまま (サイトを壊さない)。
+
+const STARS_BASE = "stars/";
+let starManifest = null;        // manifest.json (未取得は null)
+let starManifestTried = false;  // 取得を試みたか (失敗しても再試行しない)
+const tileCache = new Map();    // "layer/key" -> {n,vx,vy,vz,mag,bv} | "loading" | "error"
+
+function loadManifest() {
+  if (starManifest || starManifestTried) return;
+  starManifestTried = true;
+  fetch(STARS_BASE + "manifest.json")
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((m) => { starManifest = m; draw(); })
+    .catch(() => { /* 深層データ無し。5等ベースのまま動く */ });
+}
+
+/** FOV(短辺)[度] に応じて読む等級層。広いほど浅く (密度と負荷を抑える)。 */
+function deepLayersForFov(fov) {
+  if (fov > 30) return [];
+  if (fov > 12) return [0];
+  if (fov > 5) return [0, 1];
+  return [0, 1, 2];
+}
+
+function fetchTile(id) {
+  tileCache.set(id, "loading");
+  fetch(STARS_BASE + id + ".bin")
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)))
+    .then((buf) => {
+      const d = decodeStarTile(buf, starManifest);
+      // J2000 単位ベクトルを前計算しておく (毎フレームの三角関数を省く)
+      const vx = new Float32Array(d.n), vy = new Float32Array(d.n), vz = new Float32Array(d.n);
+      for (let i = 0; i < d.n; i++) {
+        const v = raDecToVec(d.ra[i], d.dec[i]);
+        vx[i] = v[0]; vy[i] = v[1]; vz[i] = v[2];
+      }
+      tileCache.set(id, { n: d.n, vx, vy, vz, mag: d.mag, bv: d.bv });
+      draw();
+    })
+    .catch(() => tileCache.set(id, "error"));
+}
+
+/** 深い星を描く。可視タイル/層を確保し、キャッシュ済みのものを重ね描きする。 */
+function drawDeepStars(M) {
+  const fov = fovDeg();
+  if (!starManifest) { if (fov <= 30) loadManifest(); return; }
+  const layers = deepLayersForFov(fov);
+  if (!layers.length) return;
+
+  const [cra, cdec] = vecToRaDec(applySkyInverse(M, state.view.center)); // 視野中心 (J2000)
+  const keys = tileKeysForRegion(cra, cdec, fov * 0.75, starManifest);   // FOVの少し外まで
+
+  for (const layer of layers) {
+    const exist = starManifest.tiles[layer];
+    for (const key of keys) {
+      if (exist[key] === undefined) continue; // その層に星が無いタイル
+      const id = layer + "/" + key;
+      const c = tileCache.get(id);
+      if (c === undefined) { fetchTile(id); continue; }
+      if (typeof c === "string") continue;    // loading / error
+      for (let i = 0; i < c.n; i++) {
+        const e = M[0][0] * c.vx[i] + M[0][1] * c.vy[i] + M[0][2] * c.vz[i];
+        const n = M[1][0] * c.vx[i] + M[1][1] * c.vy[i] + M[1][2] * c.vz[i];
+        const u = M[2][0] * c.vx[i] + M[2][1] * c.vy[i] + M[2][2] * c.vz[i];
+        if (u <= 0) continue;                 // 地平線下
+        const p = projectView({ e, n, u }, view);
+        if (p.behind) continue;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, starRadius(c.mag[i], R), 0, Math.PI * 2);
+        ctx.fillStyle = bvColor(c.bv[i]);
+        ctx.fill();
+      }
     }
   }
 }
