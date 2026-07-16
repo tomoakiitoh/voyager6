@@ -197,6 +197,7 @@ const canvas = document.getElementById("sky");
 const ctx = canvas.getContext("2d");
 let R = 300, cx = 0, cy = 0;
 let view = null; // 現在の描画ビュー (draw / pickObject の直前に buildView() で更新)
+let telescopeMode = false; // 望遠鏡モードか (地平線下も描くカリング分岐に使う)
 
 // J2000 単位ベクトルは一度だけ作っておく (毎フレームの三角関数を省く)
 const STAR_VEC = STARS.map((s) => raDecToVec(s[0], s[1]));
@@ -272,6 +273,7 @@ function draw() {
   ncpUp = applySky(M, NCP_VEC);                          // 天の北極の地平方向 (望遠鏡モードの上)
   view = buildView();
   const telescope = state.view.zoom > ZOOM_MIN + 1e-6;
+  telescopeMode = telescope;
   const Mn = skyMatrixNoPrecession(jd, SITE.lat, SITE.lon); // 太陽系 (日付の分点)
   const sky = solarSystem(jd);
   const sunH = applySky(Mn, raDecToVec(sky.sun.ra, sky.sun.dec));
@@ -299,6 +301,7 @@ function draw() {
   if (telescope) drawDeepStars(M); // 深い星表 (望遠鏡モードで視野が狭まったら遅延ロード)
   if (show.messier) drawMessier(M);
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
+  if (telescope) drawHorizonShade(); // 地平線カーブ＋その下を暗く (地平線下の天体は描いたまま暗くなる)
   ctx.restore();
 
   // 地平線 (全天図のみ。望遠鏡モードでは真円の外周は意味を持たない)
@@ -326,7 +329,7 @@ function draw() {
 function drawStars(M) {
   for (let i = 0; i < STARS.length; i++) {
     const h = applySky(M, STAR_VEC[i]);
-    if (h.u <= 0) continue; // 地平線下
+    if (h.u <= 0 && !telescopeMode) continue; // 地平線下 (望遠鏡モードでは描く)
     const p = projectView(h, view);
     if (p.behind) continue; // 視野中心の裏側
     const mag = STARS[i][2];
@@ -466,7 +469,7 @@ function drawDeepStars(M) {
         if (mg > limMag) continue;            // 限界等級で間引き
         const x = vx[i], y = vy[i], z = vz[i];
         const u = m20 * x + m21 * y + m22 * z;
-        if (u <= 0) continue;                 // 地平線下
+        if (u <= 0 && !telescopeMode) continue; // 地平線下 (望遠鏡モードでは描く)
         const e = m00 * x + m01 * y + m02 * z;
         const nn = m10 * x + m11 * y + m12 * z;
         const p = projectView({ e, n: nn, u }, view);
@@ -492,7 +495,7 @@ function drawDeepStars(M) {
       let z = hp.bz[i] + a * hp.ez[i] + d * hp.nz[i];
       const L = Math.hypot(x, y, z) || 1; x /= L; y /= L; z /= L;
       const u = m20 * x + m21 * y + m22 * z;
-      if (u <= 0) continue;
+      if (u <= 0 && !telescopeMode) continue; // 地平線下 (望遠鏡モードでは描く)
       const e = m00 * x + m01 * y + m02 * z, nn = m10 * x + m11 * y + m12 * z;
       const p = projectView({ e, n: nn, u }, view);
       if (p.behind || p.x < -4 || p.x > size + 4 || p.y < -4 || p.y > size + 4) continue;
@@ -718,7 +721,7 @@ function drawMessier(M) {
 
   for (const m of MESSIER_VEC) {
     const h = applySky(M, m.v);
-    if (h.u <= 0) continue;
+    if (h.u <= 0 && !telescopeMode) continue;
     const p = projectView(h, view);
     if (p.behind) continue;
     const style = MESSIER_STYLE[m.kind] || MESSIER_STYLE.other;
@@ -747,9 +750,29 @@ function drawMessier(M) {
 function drawSolarSystem(Mn, sky, sunH) {
   const labels = [];
 
+  // 太陽 (地平線下でも望遠鏡モードでは描く。観測シミュレーション用)
+  if (sunH.u > 0 || telescopeMode) {
+    const sp = projectView(sunH, view);
+    if (!sp.behind) {
+      const rad = Math.max(6, R / 26);
+      const glow = ctx.createRadialGradient(sp.x, sp.y, rad * 0.5, sp.x, sp.y, rad * 3.5);
+      glow.addColorStop(0, "rgba(255,236,160,0.55)");
+      glow.addColorStop(1, "rgba(255,236,160,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, rad * 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, rad, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffdf70";
+      ctx.fill();
+      labels.push({ text: "太陽", x: sp.x + rad + 4, y: sp.y, color: "rgba(255,238,180,0.95)" });
+    }
+  }
+
   for (const p of sky.planets) {
     const h = applySky(Mn, raDecToVec(p.ra, p.dec));
-    if (h.u <= 0) continue;
+    if (h.u <= 0 && !telescopeMode) continue;
     const pos = projectView(h, view);
     if (pos.behind) continue;
     // 明るいものほど大きく (金星・木星がひときわ目立つように)
@@ -772,7 +795,7 @@ function drawSolarSystem(Mn, sky, sunH) {
 
   // 月 (満ち欠けを描く)
   const mh = applySky(Mn, raDecToVec(sky.moon.ra, sky.moon.dec));
-  if (mh.u > 0 && !projectView(mh, view).behind) {
+  if ((mh.u > 0 || telescopeMode) && !projectView(mh, view).behind) {
     const pos = projectView(mh, view);
     const sunPos = projectView(sunH, view); // 地平線下でも図法上の向きは意味を持つ
     const angleToSun = Math.atan2(sunPos.y - pos.y, sunPos.x - pos.x);
@@ -1045,6 +1068,44 @@ function drawFovCircles() {
     const { trueFov } = eyepieceFov(fov.scopeFL, fov.epFL, fov.afov);
     circle(trueFov, "rgba(150,255,180,0.75)", 1.4);
   }
+}
+
+/**
+ * 望遠鏡モードで地平線カーブを描き、その下 (地平線下) を暗く塗る。
+ * 地平線下の天体は描いたまま暗くなるので「ここから下は地平線下」と分かる (観測シミュレーション)。
+ * 地平線は地平成分 (cosλ, sinλ, 0) の大円。画面上では一般に曲線になる。
+ */
+function drawHorizonShade() {
+  const c = view.basis.c;
+  const cu = c[2];                       // 視野中心の高度成分 (>0 なら中心は地平線上)
+  if (Math.abs(cu) < 1e-4) return;       // 中心がちょうど地平線上のときは省略
+  const up = view.basis.up, right = view.basis.right;
+  const pts = [];
+  for (let deg = 0; deg <= 360; deg += 3) {
+    const psi = deg * DEG, cp = Math.cos(psi), sp = Math.sin(psi);
+    const t = [cp * up[0] + sp * right[0], cp * up[1] + sp * right[1], cp * up[2] + sp * right[2]];
+    // 視野中心から方位 psi の向きで、高度0 (地平線) に達する角 th を解く: cu·cosθ + t_u·sinθ = 0
+    let th = Math.atan2(cu, -t[2]);
+    if (th < 0) th += Math.PI;
+    const ct = Math.cos(th), st = Math.sin(th);
+    pts.push(projectView({ e: ct * c[0] + st * t[0], n: ct * c[1] + st * t[1], u: ct * c[2] + st * t[2] }, view));
+  }
+  const size = cx * 2;
+  // 地平線下を暗く。中心が地平線上(cu>0)なら曲線の「外側」が地平線下 → rect と evenodd で外側を塗る。
+  ctx.save();
+  ctx.beginPath();
+  if (cu > 0) ctx.rect(0, 0, size, size);
+  pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.fillStyle = "rgba(2,4,9,0.6)";
+  ctx.fill("evenodd");
+  ctx.restore();
+  // 地平線そのもの
+  ctx.beginPath();
+  pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.strokeStyle = "rgba(150,120,88,0.75)";
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
 }
 
 /** 方位ラベル。北=上、東=左 (見上げた空なので地図と鏡像)。 */
