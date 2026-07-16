@@ -47,6 +47,7 @@ bodyclass: sky-page
     <label><input type="checkbox" id="t-messier">メシエ天体</label>
     <label><input type="checkbox" id="t-comets">彗星</label>
     <label><input type="checkbox" id="t-asteroids">小惑星</label>
+    <label><input type="checkbox" id="t-dso">星雲星団銀河</label>
     <label><input type="checkbox" id="t-guides">補助線</label>
     <label><input type="checkbox" id="t-grid">赤道座標</label>
     <label><input type="checkbox" id="t-night">赤色ナイトモード</label>
@@ -73,6 +74,15 @@ bodyclass: sky-page
       <input type="text" id="equip-name" placeholder="名前を付けて保存" maxlength="24">
       <button id="equip-save">保存</button>
       <button id="equip-del" title="選択中の機材を削除">削除</button>
+    </div>
+  </details>
+
+  <details id="search-panel">
+    <summary>天体を検索して移動（M31 / NGC253 / 名前）</summary>
+    <div class="row">
+      <input type="text" id="obj-search" placeholder="M31, NGC253, Orion…" maxlength="30">
+      <button id="obj-search-btn">検索</button>
+      <span id="obj-search-note" class="info"></span>
     </div>
   </details>
 
@@ -226,6 +236,7 @@ const show = {
   messier: false,   // メシエ天体 (既定は消しておく。星図が混むので)
   comets: false,    // 彗星 (MPC 軌道要素から都度計算)
   asteroids: false, // 小惑星 (現在 V≤11 + 四大)
+  dso: false,       // 星雲・星団・銀河 (OpenNGC V≤12)
   guides: false,    // 補助線 (同心円・方位線・天の赤道・黄道)
   grid: false,      // 赤道座標グリッド (RA/Dec の網)
 };
@@ -304,6 +315,7 @@ function draw() {
   drawStars(M);
   if (telescope) drawDeepStars(M); // 深い星表 (望遠鏡モードで視野が狭まったら遅延ロード)
   if (show.messier) drawMessier(M);
+  const dsoLabels = show.dso ? drawDSO(M) : [];
   const cometLabels = show.comets ? drawComets(M) : [];
   const asteroidLabels = show.asteroids ? drawAsteroids(M) : [];
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
@@ -325,6 +337,7 @@ function draw() {
   // 惑星・月 → 星名 → 星座名 の順に場所を確保する (見たい情報が優先)。
   const place = makeLabelPlacer(2);
   drawSolarLabels(solarLabels.concat(cometLabels, asteroidLabels), place);
+  drawSolarLabels(dsoLabels, place); // DSO ラベル (明るい順に置き、重なりは placer が間引く)
   if (show.starNames) drawStarNames(M, place);
   if (show.constNames) drawConstNames(M, place);
 
@@ -864,6 +877,93 @@ function drawAsteroids(M) {
                   color: "rgba(240,214,160,0.95)" });
   }
   return labels;
+}
+
+// ---------------- 星雲・星団・銀河 (F5: OpenNGC V≤12) ----------------
+const DSO_URL = "dso.json";
+let dso = null, dsoTried = false, dsoIndex = null;
+const DSO_COLOR = { galaxy: "#e6a6d6", open: "#f0dfa0", globular: "#f0dfa0",
+                    nebula: "#9fe6c8", other: "#b8c2d8" };
+
+function loadDSO() {
+  if (dso || dsoTried) return;
+  dsoTried = true;
+  fetch(DSO_URL)
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((d) => { dso = d; buildDsoIndex(d); draw(); })
+    .catch(() => { /* DSO 無しでも動く */ });
+}
+
+/** 検索用に符号・通称を正規化してキーにする (NGC0224→ngc224, M031→m31)。 */
+function dsoKey(s) {
+  return String(s).toLowerCase().replace(/\s+/g, "")
+    .replace(/^ngc0*/, "ngc").replace(/^ic0*/, "ic").replace(/^m0*/, "m");
+}
+
+function buildDsoIndex(d) {
+  dsoIndex = new Map();
+  for (const o of d) {
+    for (const k of [o[7], o[8]]) if (k) dsoIndex.set(dsoKey(k), o);
+  }
+}
+
+/** 星雲・星団・銀河を種別ごとの記号で描く。ラベルは位置だけ返す。 */
+function drawDSO(M) {
+  if (!dso) { loadDSO(); return []; }
+  const ppd = (R / 90) * state.view.zoom;
+  const magLimit = (telescopeMode || state.view.zoom > 1) ? 12 : 8.5; // 全天図は明るいものだけ
+  const labels = [];
+  const size = cx * 2;
+  ctx.lineWidth = Math.max(0.8, R / 500);
+  for (const o of dso) {
+    if (o[3] > magLimit) continue;
+    const h = applySky(M, raDecToVec(o[0], o[1]));
+    if (h.u <= 0 && !telescopeMode) continue;
+    const p = projectView(h, view);
+    if (p.behind || p.x < -20 || p.x > size + 20 || p.y < -20 || p.y > size + 20) continue;
+    const cat = o[2], maj = o[4], minr = o[5], pa = o[6];
+    const color = DSO_COLOR[cat] || DSO_COLOR.other;
+    const rMaj = Math.min(R, Math.max(3.2, (maj / 2 / 60) * ppd)); // 長半径 [px]
+    const rMin = maj > 0 && minr > 0 ? Math.max(2, rMaj * minr / maj) : rMaj * 0.7;
+    ctx.strokeStyle = color;
+    ctx.setLineDash([]);
+    if (cat === "galaxy") {
+      const pn = projectView(applySky(M, raDecToVec(o[0], o[1] + 0.05)), view);
+      const ang = Math.atan2(pn.y - p.y, pn.x - p.x) + pa * DEG; // 画面の北から PA
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, rMaj, rMin, ang, 0, Math.PI * 2); ctx.stroke();
+    } else if (cat === "globular") {
+      ctx.beginPath(); ctx.arc(p.x, p.y, rMaj, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p.x - rMaj, p.y); ctx.lineTo(p.x + rMaj, p.y);
+      ctx.moveTo(p.x, p.y - rMaj); ctx.lineTo(p.x, p.y + rMaj); ctx.stroke();
+    } else if (cat === "open") {
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.arc(p.x, p.y, rMaj, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+    } else if (cat === "nebula") {
+      ctx.strokeRect(p.x - rMaj, p.y - rMaj, rMaj * 2, rMaj * 2);
+    } else {
+      ctx.beginPath(); ctx.arc(p.x, p.y, rMaj, 0, Math.PI * 2); ctx.stroke();
+    }
+    labels.push({ text: o[8] || o[7], x: p.x + rMaj + 3, y: p.y, color });
+  }
+  return labels;
+}
+
+/** 名前 (M31/NGC253/通称) から DSO・メシエを探し {ra,dec,name} を返す。 */
+function searchObject(q) {
+  const key = dsoKey(q);
+  if (dsoIndex && dsoIndex.has(key)) {
+    const o = dsoIndex.get(key);
+    return { ra: o[0], dec: o[1], name: o[8] || o[7] };
+  }
+  for (const m of MESSIER_VEC) {
+    if (dsoKey(m.id) === key || (m.ja && m.ja.toLowerCase().replace(/\s+/g, "") === q.toLowerCase().replace(/\s+/g, ""))) {
+      const [ra, dec] = vecToRaDec(m.v);
+      return { ra, dec, name: m.ja ? `${m.id} ${m.ja}` : m.id };
+    }
+  }
+  return null;
 }
 
 /**
@@ -1497,6 +1597,30 @@ el("equip-del").addEventListener("click", () => {
   saveEquipState();
 });
 
+// ---------------- 天体を検索して移動 (F5) ----------------
+
+function runObjectSearch() {
+  const q = el("obj-search").value.trim();
+  if (!q) return;
+  if (!dso) { loadDSO(); el("obj-search-note").textContent = "データ読込中。もう一度どうぞ"; return; }
+  const r = searchObject(q);
+  if (!r) { el("obj-search-note").textContent = "見つかりません"; return; }
+  const M = skyMatrix(jdFromDate(new Date(state.ms)), SITE.lat, SITE.lon);
+  const hor = applySky(M, raDecToVec(r.ra, r.dec));
+  const L = Math.hypot(hor.e, hor.n, hor.u) || 1;
+  state.view.center = { e: hor.e / L, n: hor.n / L, u: hor.u / L };
+  if (state.view.zoom <= ZOOM_MIN + 1e-6) state.view.zoom = 25;
+  show.dso = true; el("t-dso").checked = true;
+  const { alt } = horizonAngles(hor);
+  el("obj-search-note").textContent = alt < 0
+    ? `${r.name}: 今は地平線下（高度 ${alt.toFixed(0)}°）`
+    : `${r.name} へ移動`;
+  popup.style.display = "none";
+  draw();
+}
+el("obj-search-btn").addEventListener("click", runObjectSearch);
+el("obj-search").addEventListener("keydown", (e) => { if (e.key === "Enter") runObjectSearch(); });
+
 // ---------------- 座標で移動 (RA/Dec ジャンプ, F1-5) ----------------
 
 el("goto-btn").addEventListener("click", () => {
@@ -1528,7 +1652,7 @@ for (const [id, key] of [["t-lines", "constLines"], ["t-cnames", "constNames"],
                          ["t-snames", "starNames"], ["t-solar", "solar"],
                          ["t-mw", "milkyway"], ["t-messier", "messier"],
                          ["t-comets", "comets"], ["t-asteroids", "asteroids"],
-                         ["t-guides", "guides"], ["t-grid", "grid"]]) {
+                         ["t-dso", "dso"], ["t-guides", "guides"], ["t-grid", "grid"]]) {
   el(id).addEventListener("change", () => { show[key] = el(id).checked; draw(); });
 }
 

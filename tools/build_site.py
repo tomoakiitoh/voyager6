@@ -84,7 +84,7 @@ def main() -> int:
 
     # ルート直下に置くファイル (OGP 画像・favicon・天体データ)。
     # comets.json / asteroids.json は cron が更新する最新データ (無ければスキップ)。
-    for name in ["og.png", "favicon.svg", "comets.json", "asteroids.json"]:
+    for name in ["og.png", "favicon.svg", "comets.json", "asteroids.json", "dso.json"]:
         f = SRC / name
         if f.exists():
             shutil.copy2(f, DIST / name)
