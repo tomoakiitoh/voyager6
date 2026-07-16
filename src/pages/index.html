@@ -813,8 +813,8 @@ function drawComets(M) {
     ctx.beginPath(); ctx.arc(p.x, p.y, rad * 3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "rgba(205,255,232,0.95)";
     ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, rad * 0.5), 0, Math.PI * 2); ctx.fill();
-    const short = c.name.replace(/\s*\(.*\)\s*$/, ""); // 別名の括弧は落とす
-    labels.push({ text: `${short} ${c.mag.toFixed(1)}等`, x: p.x + rad + 3, y: p.y,
+    // 仮符号だけでなく彗星名も出す (名前は "C/2024 J3 (ATLAS)" のように括弧内にある)
+    labels.push({ text: `${c.name} ${c.mag.toFixed(1)}等`, x: p.x + rad + 3, y: p.y,
                   color: "rgba(170,255,220,0.95)" });
   }
   return labels;
