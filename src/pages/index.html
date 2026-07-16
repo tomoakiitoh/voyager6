@@ -767,7 +767,8 @@ function drawMessier(M) {
 // (astro.js の orbitalToRaDec)、恒星と同じ J2000 なので skyMatrix(M) で地平座標へ落とす。
 
 const COMET_URL = "comets.json";
-const COMET_MAG_LIMIT = 12;   // 表示する全光度のしきい値 (PLAN 既定)
+const COMET_MAG_LIMIT = 13.5; // 表示する全光度のしきい値。望遠鏡向けにやや暗いものまで
+                              // (明るい彗星は本来まれ。彗星の予報等級は±1〜2等ばらつく)
 let comets = null;            // [[name,e,q,i,node,peri,tp,M1,K1], ...]
 let cometsTried = false;
 let cometCache = { jd: null, list: [] };
