@@ -20,6 +20,15 @@ const A = new Function(
    cometMagnitude, asteroidMagnitude, norm360};`
 )();
 
+test("cometMagnitude: JPL式 m = M1 + 5logΔ + k1·logr (10P で Horizons と一致)", () => {
+  // Horizons 10P: M1=14.2, k1=5.5。r/Δ を代入すると T-mag 13.85 に合う (2.5 は掛けない)。
+  const m = A.cometMagnitude(14.2, 5.5, 1.49, 0.55);
+  assert.ok(Math.abs(m - 13.85) < 0.1, `彗星等級 ${m.toFixed(2)} (期待 ≈13.85)`);
+  // 純粋な式チェック
+  const m2 = A.cometMagnitude(10, 8, 2.0, 1.5);
+  assert.ok(Math.abs(m2 - (10 + 5 * Math.log10(1.5) + 8 * Math.log10(2.0))) < 1e-9);
+});
+
 /** 2 つの赤道座標の離角 [度]。 */
 function sep(ra1, dec1, ra2, dec2) {
   const D = Math.PI / 180;

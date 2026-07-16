@@ -532,9 +532,13 @@ function orbitalToRaDec(el, jd) {
   };
 }
 
-/** 彗星の全光度 m = M1 + 5·log10(Δ) + 2.5·K1·log10(r)。 */
+/**
+ * 彗星の全光度 m = M1 + 5·log10(Δ) + K1·log10(r) (JPL/MPC の総光度式)。
+ * K1 は MPC cometels の "G"(=k1, 傾き)。10P で Horizons と一致を確認 (2.5 は掛けない)。
+ * (彗星の実測等級はもともと ±1〜2等ばらつく。表示は目安。)
+ */
 function cometMagnitude(M1, K1, r, delta) {
-  return M1 + 5 * Math.log10(delta) + 2.5 * K1 * Math.log10(r);
+  return M1 + 5 * Math.log10(delta) + K1 * Math.log10(r);
 }
 
 /** 小惑星の実視等級 (H, G 系, IAU)。r=日心, delta=地心, rs=日心太陽距離 [AU]。 */

@@ -82,8 +82,9 @@ def main() -> int:
     # GitHub Pages にカスタムドメインを教えるファイル
     (DIST / "CNAME").write_text(DOMAIN + "\n", encoding="utf-8")
 
-    # ルート直下に置くファイル (OGP 画像・favicon)
-    for name in ["og.png", "favicon.svg"]:
+    # ルート直下に置くファイル (OGP 画像・favicon・天体データ)。
+    # comets.json / asteroids.json は cron が更新する最新データ (無ければスキップ)。
+    for name in ["og.png", "favicon.svg", "comets.json", "asteroids.json"]:
         f = SRC / name
         if f.exists():
             shutil.copy2(f, DIST / name)

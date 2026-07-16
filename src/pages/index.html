@@ -45,6 +45,7 @@ bodyclass: sky-page
     <label><input type="checkbox" id="t-solar" checked>惑星・月</label>
     <label><input type="checkbox" id="t-mw" checked>天の川</label>
     <label><input type="checkbox" id="t-messier">メシエ天体</label>
+    <label><input type="checkbox" id="t-comets">彗星</label>
     <label><input type="checkbox" id="t-guides">補助線</label>
     <label><input type="checkbox" id="t-grid">赤道座標</label>
     <label><input type="checkbox" id="t-night">赤色ナイトモード</label>
@@ -222,6 +223,7 @@ const show = {
   solar: true,      // 太陽・月・惑星
   milkyway: true,
   messier: false,   // メシエ天体 (既定は消しておく。星図が混むので)
+  comets: false,    // 彗星 (MPC 軌道要素から都度計算)
   guides: false,    // 補助線 (同心円・方位線・天の赤道・黄道)
   grid: false,      // 赤道座標グリッド (RA/Dec の網)
 };
@@ -300,6 +302,7 @@ function draw() {
   drawStars(M);
   if (telescope) drawDeepStars(M); // 深い星表 (望遠鏡モードで視野が狭まったら遅延ロード)
   if (show.messier) drawMessier(M);
+  const cometLabels = show.comets ? drawComets(M) : [];
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
   if (telescope) drawHorizonShade(); // 地平線カーブ＋その下を暗く (地平線下の天体は描いたまま暗くなる)
   ctx.restore();
@@ -318,7 +321,7 @@ function draw() {
   // ラベルは盤面のクリップ外で描く (地平線ぎわの文字が切れないように)。
   // 惑星・月 → 星名 → 星座名 の順に場所を確保する (見たい情報が優先)。
   const place = makeLabelPlacer(2);
-  drawSolarLabels(solarLabels, place);
+  drawSolarLabels(solarLabels.concat(cometLabels), place);
   if (show.starNames) drawStarNames(M, place);
   if (show.constNames) drawConstNames(M, place);
 
@@ -741,6 +744,64 @@ function drawMessier(M) {
       ctx.fillText(m.id, p.x, p.y + s + 1);
     }
   }
+}
+
+// ---------------- 彗星 (F3: MPC 軌道要素から都度計算) ----------------
+// comets.json は cron が更新する最新の彗星軌道要素。位置はクライアントで都度計算し
+// (astro.js の orbitalToRaDec)、恒星と同じ J2000 なので skyMatrix(M) で地平座標へ落とす。
+
+const COMET_URL = "comets.json";
+const COMET_MAG_LIMIT = 12;   // 表示する全光度のしきい値 (PLAN 既定)
+let comets = null;            // [[name,e,q,i,node,peri,tp,M1,K1], ...]
+let cometsTried = false;
+let cometCache = { jd: null, list: [] };
+
+function loadComets() {
+  if (comets || cometsTried) return;
+  cometsTried = true;
+  fetch(COMET_URL)
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((d) => { comets = d; cometCache.jd = null; draw(); })
+    .catch(() => { /* 彗星データ無しでも動く */ });
+}
+
+/** その日時の彗星の位置・等級を計算し、しきい値内だけ返す (日付でキャッシュ)。 */
+function cometPositions(jd) {
+  if (cometCache.jd != null && Math.abs(jd - cometCache.jd) < 0.1) return cometCache.list;
+  const list = [];
+  for (const c of comets) {
+    const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
+    const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
+    if (!isFinite(mag) || mag > COMET_MAG_LIMIT) continue;
+    list.push({ name: c[0], ra: g.ra, dec: g.dec, mag });
+  }
+  cometCache = { jd, list };
+  return list;
+}
+
+/** 彗星を描く (コマ風のにじみ＋核)。ラベルは位置だけ返し呼び出し側で置く。 */
+function drawComets(M) {
+  if (!comets) { loadComets(); return []; }
+  const labels = [];
+  const jd = jdFromDate(new Date(state.ms));
+  for (const c of cometPositions(jd)) {
+    const h = applySky(M, raDecToVec(c.ra, c.dec));
+    if (h.u <= 0 && !telescopeMode) continue;
+    const p = projectView(h, view);
+    if (p.behind) continue;
+    const rad = Math.max(2.5, (6 - 0.35 * c.mag) * (R / 320));
+    const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad * 3);
+    glow.addColorStop(0, "rgba(140,255,205,0.5)");
+    glow.addColorStop(1, "rgba(140,255,205,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(p.x, p.y, rad * 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(205,255,232,0.95)";
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, rad * 0.5), 0, Math.PI * 2); ctx.fill();
+    const short = c.name.replace(/\s*\(.*\)\s*$/, ""); // 別名の括弧は落とす
+    labels.push({ text: `${short} ${c.mag.toFixed(1)}等`, x: p.x + rad + 3, y: p.y,
+                  color: "rgba(170,255,220,0.95)" });
+  }
+  return labels;
 }
 
 /**
@@ -1404,7 +1465,7 @@ el("speed").addEventListener("change", () => { state.speed = Number(el("speed").
 for (const [id, key] of [["t-lines", "constLines"], ["t-cnames", "constNames"],
                          ["t-snames", "starNames"], ["t-solar", "solar"],
                          ["t-mw", "milkyway"], ["t-messier", "messier"],
-                         ["t-guides", "guides"], ["t-grid", "grid"]]) {
+                         ["t-comets", "comets"], ["t-guides", "guides"], ["t-grid", "grid"]]) {
   el(id).addEventListener("change", () => { show[key] = el(id).checked; draw(); });
 }
 
