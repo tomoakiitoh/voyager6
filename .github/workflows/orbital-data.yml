@@ -1,0 +1,81 @@
+name: Update orbital data (comets/asteroids)
+
+# 週2回、MPC の彗星・小惑星の最新軌道要素を取り直して src/*.json を更新し、
+# サイトを組み立て直して Pages に公開する。取得失敗時は前回データを維持する
+# (build_*.py が失敗しても || true で続行し、変化したファイルだけコミットする)。
+# GITHUB_TOKEN の push は他ワークフローを再トリガしないので、このワークフロー自身が
+# ビルド〜デプロイまで自己完結させる。
+
+on:
+  schedule:
+    - cron: "17 3 * * 1,4"   # 毎週 月・木 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 更新した軌道要素 JSON をコミットするため
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages       # deploy.yml と同じグループ。同時デプロイを避ける
+  cancel-in-progress: false
+
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 外部データのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: tools/cache
+          key: astro-data-v2
+
+      # 取得失敗時はスクリプトが JSON を書き換えないので、前回データが残る。
+      - name: 彗星の軌道要素を更新
+        run: python3 tools/build_comets.py || echo "彗星の取得に失敗。前回データを維持。"
+
+      - name: 小惑星の軌道要素を更新
+        run: python3 tools/build_asteroids.py || echo "小惑星の取得に失敗。前回データを維持。"
+
+      - name: 更新分をコミット (前回データとして保持)
+        run: |
+          git config user.name "voyager6-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/comets.json src/asteroids.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "変更なし。"
+          else
+            git commit -m "orbital-data: 彗星・小惑星の軌道要素を更新 (自動)"
+            git push
+          fi
+
+      # ここから deploy.yml と同じ組み立て (取り込んだ最新データでサイトを作り直す)
+      - name: 星表データを生成
+        run: python3 tools/build_data.py
+      - name: 天文現象のテーブルを生成
+        run: python3 tools/build_events.py
+      - name: テスト
+        run: node --test tests/*.mjs
+      - name: サイトを組み立て
+        run: python3 tools/build_site.py
+      - name: 深層星表のタイルを生成
+        run: python3 tools/build_stars.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
