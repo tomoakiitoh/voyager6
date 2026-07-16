@@ -439,3 +439,110 @@ function moonPhase(moon) {
   const FV = 180 - elong;                 // 位相角
   return { illum: (1 + cos(FV)) / 2, elong };
 }
+
+// ================= 彗星・小惑星 (軌道要素からの位置) =================
+// MPC/JPL の軌道要素は J2000.0 黄道分点。ここでは J2000 赤道座標で位置を返し、
+// 描画は恒星と同じ skyMatrix (歳差込み) を掛ける。太陽 (地球) 位置は Meeus 低精度式を
+// J2000 に直したものを使う。Vesta で Horizons と 5″ 一致を確認済み (低精度 Schlyter 太陽
+// では 12′ ずれる)。単位: 距離 AU、角度 度。
+
+const GAUSS_K = 0.01720209895;          // ガウス重力定数 [rad/day]
+const OBLIQ_J2000 = 23.43929111;        // J2000 平均黄道傾斜 [度]
+const LIGHT_AU_PER_DAY = 173.1446327;   // 光速 [AU/day]
+
+/** 太陽の地心 J2000 黄道直交座標 [AU] (= −地球の日心)。Meeus 25章 低精度。 */
+function sunEclipticJ2000(jd) {
+  const T = (jd - 2451545) / 36525;
+  const L0 = 280.46646 + 36000.76983 * T + 0.0003032 * T * T;
+  const M = 357.52911 + 35999.05029 * T - 0.0001537 * T * T;
+  const e = 0.016708634 - 0.000042037 * T - 0.0000001267 * T * T;
+  const C = (1.914602 - 0.004817 * T - 0.000014 * T * T) * sin(M)
+    + (0.019993 - 0.000101 * T) * sin(2 * M) + 0.000289 * sin(3 * M);
+  const nu = M + C;
+  const R = 1.000001018 * (1 - e * e) / (1 + e * cos(nu));
+  const lon2000 = L0 + C - 0.01397 * ((jd - 2451545) / 365.25); // 日付分点 → J2000
+  return { x: R * cos(lon2000), y: R * sin(lon2000), z: 0, R };
+}
+
+/**
+ * 軌道要素から日心 J2000 黄道直交座標を求める。離心率で楕円/放物線/双曲線に分岐。
+ * el: { e, q(近日点距離) または a, i, node(Ω), peri(ω), tp(近日点通過JD) または M0+epoch }
+ */
+function orbitPosition(el, jd) {
+  const e = el.e;
+  const q = el.q != null ? el.q : el.a * (1 - e);
+  let v, r; // 真近点角 [度] と動径 [AU]
+  if (e < 0.98) {                         // 楕円
+    const a = q / (1 - e);
+    const n = 0.9856076686 / Math.pow(a, 1.5); // [deg/day]
+    const M = el.tp != null ? n * (jd - el.tp) : el.M0 + n * (jd - el.epoch);
+    const E = eccentricAnomaly(norm360(M), e);
+    const xv = a * (cos(E) - e), yv = a * Math.sqrt(1 - e * e) * sin(E);
+    v = Math.atan2(yv, xv) * RAD;
+    r = Math.hypot(xv, yv);
+  } else if (e > 1.02) {                  // 双曲線
+    const a = q / (e - 1);
+    const M = GAUSS_K / Math.pow(a, 1.5) * (jd - el.tp); // [rad]
+    let H = Math.asinh(M / e || 0.1);
+    for (let k = 0; k < 60; k++) {
+      const dH = (e * Math.sinh(H) - H - M) / (e * Math.cosh(H) - 1);
+      H -= dH;
+      if (Math.abs(dH) < 1e-10) break;
+    }
+    v = 2 * Math.atan2(Math.sqrt(e + 1) * Math.tanh(H / 2), Math.sqrt(e - 1)) * RAD;
+    r = a * (e * Math.cosh(H) - 1);
+  } else {                               // 放物線 (Barker、e≈1 の近傍もこれで近似)
+    const W = 3 * GAUSS_K / (Math.SQRT2 * Math.pow(q, 1.5)) * (jd - el.tp);
+    const G = W / 2;
+    const Y = Math.cbrt(G + Math.sqrt(G * G + 1));
+    const s = Y - 1 / Y;                  // tan(v/2)
+    v = 2 * Math.atan(s) * RAD;
+    r = q * (1 + s * s);
+  }
+  // 軌道面 → J2000 黄道 (Ω, i, ω で回転)
+  const u = v + el.peri;
+  const N = el.node, i = el.i;
+  return {
+    x: r * (cos(N) * cos(u) - sin(N) * sin(u) * cos(i)),
+    y: r * (sin(N) * cos(u) + cos(N) * sin(u) * cos(i)),
+    z: r * sin(u) * sin(i),
+    r,
+  };
+}
+
+/**
+ * 軌道要素 → 地心 J2000 赤道座標 (astrometric)。光行時を反復補正する。
+ * 返り値: ra, dec [度], r(日心距離), delta(地心距離) [AU]。
+ */
+function orbitalToRaDec(el, jd) {
+  const s = sunEclipticJ2000(jd);
+  let delta = 0, r = 0, xg = 0, yg = 0, zg = 0;
+  for (let iter = 0; iter < 3; iter++) {
+    const h = orbitPosition(el, jd - delta / LIGHT_AU_PER_DAY);
+    xg = h.x + s.x; yg = h.y + s.y; zg = h.z + s.z;
+    delta = Math.hypot(xg, yg, zg);
+    r = h.r;
+  }
+  const o = OBLIQ_J2000;
+  const xe = xg, ye = yg * cos(o) - zg * sin(o), ze = yg * sin(o) + zg * cos(o);
+  return {
+    ra: norm360(Math.atan2(ye, xe) * RAD),
+    dec: Math.atan2(ze, Math.hypot(xe, ye)) * RAD,
+    r, delta,
+  };
+}
+
+/** 彗星の全光度 m = M1 + 5·log10(Δ) + 2.5·K1·log10(r)。 */
+function cometMagnitude(M1, K1, r, delta) {
+  return M1 + 5 * Math.log10(delta) + 2.5 * K1 * Math.log10(r);
+}
+
+/** 小惑星の実視等級 (H, G 系, IAU)。r=日心, delta=地心, rs=日心太陽距離 [AU]。 */
+function asteroidMagnitude(H, G, r, delta, rs) {
+  const cosA = (r * r + delta * delta - rs * rs) / (2 * r * delta);
+  const alpha = Math.acos(Math.max(-1, Math.min(1, cosA))); // 位相角 [rad]
+  const t = Math.tan(alpha / 2);
+  const phi1 = Math.exp(-3.33 * Math.pow(t, 0.63));
+  const phi2 = Math.exp(-1.87 * Math.pow(t, 1.22));
+  return H + 5 * Math.log10(r * delta) - 2.5 * Math.log10((1 - G) * phi1 + G * phi2);
+}
