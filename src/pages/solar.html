@@ -1,0 +1,264 @@
+<!--
+title: 太陽系3D
+description: 彗星と惑星の軌道を3Dで見る太陽系ビュー。時間を動かして彗星がどこを回っているかを俯瞰する。
+scripts: astro.js data.js
+bodyclass: solar-page
+-->
+<div id="solar-wrap"><canvas id="solar-canvas"></canvas></div>
+
+<div id="solar-panel">
+  <div class="row">
+    <span id="solar-date" class="info"></span>
+    <span class="grow"></span>
+    <button id="solar-now" class="primary">今</button>
+  </div>
+  <div class="row">
+    <input type="range" id="solar-time" min="-18262" max="18262" step="1" value="0">
+  </div>
+  <div class="row toggles">
+    <label><input type="checkbox" id="solar-orbits" checked>惑星軌道</label>
+    <label><input type="checkbox" id="solar-comets" checked>彗星</label>
+    <label><input type="checkbox" id="solar-comet-orbits">彗星の軌道線</label>
+    <label><input type="checkbox" id="solar-names" checked>惑星名</label>
+  </div>
+  <div class="row"><span id="solar-pick" class="info"></span></div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "../assets/three.module.min.js" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "../assets/OrbitControls.js";
+
+// astro.js のグローバル (orbitPosition / heliocentric / PLANET_ELEMENTS / sunEclipticJ2000 /
+// julianDay / jdFromDate / schlyterDay / DEG) をそのまま使う。位置計算は望遠鏡モード(F3/F4)と
+// 同じで、Horizons と Vesta 4.6″/彗星 0.26′ 一致を確認済みのもの。
+
+const AU = 1;                       // 1 天文単位 = three.js の 1 単位
+const TZ_MIN = 9 * 60;              // JST
+const J0 = julianDay(2000, 1, 1, 12); // 基準 (スライダー 0 = J2000)
+
+// 黄道直交 (x,y,z) → three.js (黄道面を水平・北黄極を上に)
+const toV = (h) => new THREE.Vector3(h.x, h.z, -h.y);
+
+// ---- シーン ----
+const canvas = document.getElementById("solar-canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070d);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.005, 6000);
+camera.position.set(0, 7, 13);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+// 太陽
+const sun = new THREE.Mesh(
+  new THREE.SphereGeometry(0.28, 24, 24),
+  new THREE.MeshBasicMaterial({ color: 0xffdf70 }));
+scene.add(sun);
+scene.add(new THREE.PointLight(0xffffff, 1.4, 0, 0));
+scene.add(new THREE.AmbientLight(0x668, 0.6));
+
+// 黄道面のうっすらグリッド (向きの手がかり)
+const grid = new THREE.PolarGridHelper(30, 8, 12, 64, 0x223, 0x18213a);
+scene.add(grid);
+
+// ---- 惑星 ----
+const PLANETS = [
+  ["Mercury", 0xcfd3d8, "水星", 0.05],
+  ["Venus", 0xfdf6e0, "金星", 0.08],
+  ["Earth", 0x6b93d6, "地球", 0.085],
+  ["Mars", 0xf0705a, "火星", 0.06],
+  ["Jupiter", 0xf5e6bf, "木星", 0.16],
+  ["Saturn", 0xe9d27a, "土星", 0.14],
+];
+const planetMeshes = [], planetLabels = [], orbitLines = [];
+
+/** 惑星の日心位置 (地球は太陽の地心位置の逆)。 */
+function planetHelio(name, jd) {
+  if (name === "Earth") {
+    const s = sunEclipticJ2000(jd);
+    return { x: -s.x, y: -s.y, z: -s.z };
+  }
+  return heliocentric(PLANET_ELEMENTS[name](schlyterDay(jd)));
+}
+
+for (const [name, color, ja, size] of PLANETS) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(size, 16, 16),
+    new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25 }));
+  scene.add(m); planetMeshes.push({ name, mesh: m });
+
+  // 軌道線 (M を一周させてサンプル)
+  const pts = [];
+  for (let deg = 0; deg <= 360; deg += 3) {
+    let h;
+    if (name === "Earth") {
+      const s = sunEclipticJ2000(J0 + deg / 360 * 365.25);
+      h = { x: -s.x, y: -s.y, z: -s.z };
+    } else {
+      h = heliocentric({ ...PLANET_ELEMENTS[name](schlyterDay(J0)), M: deg });
+    }
+    pts.push(toV(h));
+  }
+  const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.28 }));
+  scene.add(line); orbitLines.push(line);
+
+  // ラベル (スプライト)
+  const label = makeLabel(ja, color);
+  scene.add(label); planetLabels.push(label);
+}
+
+/** 文字スプライトを作る。 */
+function makeLabel(text, color) {
+  const c = document.createElement("canvas");
+  const s = 128; c.width = 256; c.height = 64;
+  const g = c.getContext("2d");
+  g.font = "28px sans-serif"; g.fillStyle = "#" + color.toString(16).padStart(6, "0");
+  g.textBaseline = "middle"; g.fillText(text, 6, 34);
+  const tex = new THREE.CanvasTexture(c);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sp.scale.set(1.6, 0.4, 1);
+  return sp;
+}
+
+// ---- 彗星 ----
+let comets = null;                  // [[name,e,q,i,node,peri,tp,M1,K1], ...]
+let cometPoints = null;             // THREE.Points (全彗星の現在位置)
+let cometOrbitGroup = new THREE.Group(); scene.add(cometOrbitGroup);
+
+fetch("../comets.json").then((r) => r.json()).then((d) => {
+  comets = d;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(d.length * 3), 3));
+  cometPoints = new THREE.Points(geo, new THREE.PointsMaterial({
+    color: 0x8effcd, size: 3.2, sizeAttenuation: false, transparent: true, opacity: 0.9,
+  }));
+  scene.add(cometPoints);
+  buildCometOrbits();
+  update();
+}).catch(() => {});
+
+/** 近日点が内惑星系に届く彗星の軌道線 (数が多いので q<8AU に絞る)。 */
+function buildCometOrbits() {
+  for (const c of comets) {
+    const q = c[2];
+    if (q > 8) continue;
+    const el = { e: c[1], q, i: c[3], node: c[4], peri: c[5], tp: c[6] };
+    const pts = [];
+    // 楕円は一周、放物線/双曲線は近日点前後だけ描く
+    const span = el.e < 0.98 ? [0, 360] : [-160, 160];
+    for (let f = span[0]; f <= span[1]; f += 4) {
+      const h = orbitAtTrueAnomaly(el, f);
+      if (h) pts.push(toV(h));
+    }
+    if (pts.length < 2) continue;
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: 0x3a7d6a, transparent: true, opacity: 0.35 }));
+    line.visible = false;
+    cometOrbitGroup.add(line);
+  }
+}
+
+/** 真近点角 f [度] での日心位置 (軌道線用。時刻に依らず形だけ描く)。 */
+function orbitAtTrueAnomaly(el, f) {
+  const e = el.e, q = el.q;
+  const denom = 1 + e * Math.cos(f * DEG);
+  if (denom <= 1e-4) return null;               // 双曲線の漸近方向
+  const r = q * (1 + e) / denom;                // r = p/(1+e cos f), p = q(1+e)
+  const u = (f + el.peri) * DEG, N = el.node * DEG, i = el.i * DEG;
+  return {
+    x: r * (Math.cos(N) * Math.cos(u) - Math.sin(N) * Math.sin(u) * Math.cos(i)),
+    y: r * (Math.sin(N) * Math.cos(u) + Math.cos(N) * Math.sin(u) * Math.cos(i)),
+    z: r * Math.sin(u) * Math.sin(i),
+  };
+}
+
+// ---- 時間と更新 ----
+let curJd = jdFromDate(new Date());
+
+function update() {
+  const jd = curJd;
+  sun.position.set(0, 0, 0);
+  for (let i = 0; i < PLANETS.length; i++) {
+    const v = toV(planetHelio(PLANETS[i][0], jd));
+    planetMeshes[i].mesh.position.copy(v);
+    planetLabels[i].position.copy(v).add(new THREE.Vector3(0, PLANETS[i][3] + 0.15, 0));
+  }
+  if (cometPoints && comets) {
+    const pos = cometPoints.geometry.getAttribute("position");
+    for (let i = 0; i < comets.length; i++) {
+      const c = comets[i];
+      const h = orbitPosition({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
+      pos.setXYZ(i, h.x, h.z, -h.y);
+    }
+    pos.needsUpdate = true;
+  }
+  const d = new Date((jd - 2440587.5) * 86400000 + TZ_MIN * 60000);
+  document.getElementById("solar-date").textContent =
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} JST`;
+}
+
+const el = (id) => document.getElementById(id);
+el("solar-time").addEventListener("input", () => {
+  curJd = J0 + Number(el("solar-time").value);
+  update();
+});
+el("solar-now").addEventListener("click", () => {
+  curJd = jdFromDate(new Date());
+  el("solar-time").value = Math.round(curJd - J0);
+  update();
+});
+el("solar-orbits").addEventListener("change", () => orbitLines.forEach((l) => (l.visible = el("solar-orbits").checked)));
+el("solar-names").addEventListener("change", () => planetLabels.forEach((l) => (l.visible = el("solar-names").checked)));
+el("solar-comets").addEventListener("change", () => { if (cometPoints) cometPoints.visible = el("solar-comets").checked; });
+el("solar-comet-orbits").addEventListener("change", () =>
+  cometOrbitGroup.children.forEach((l) => (l.visible = el("solar-comet-orbits").checked)));
+
+// 初期スライダー位置
+el("solar-time").value = Math.round(curJd - J0);
+
+// ---- 彗星クリックで情報 ----
+canvas.addEventListener("click", (ev) => {
+  if (!cometPoints || !comets || !cometPoints.visible) return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+  const pos = cometPoints.geometry.getAttribute("position");
+  const v = new THREE.Vector3();
+  let best = -1, bestD = 14 * 14; // 14px 以内で最近傍
+  for (let i = 0; i < comets.length; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).project(camera);
+    if (v.z > 1) continue; // カメラの裏
+    const sx = (v.x * 0.5 + 0.5) * rect.width, sy = (-v.y * 0.5 + 0.5) * rect.height;
+    const d = (sx - mx) ** 2 + (sy - my) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  const out = el("solar-pick");
+  if (best < 0) { out.textContent = ""; return; }
+  const c = comets[best];
+  // 地心距離(delta)と等級には orbitalToRaDec を使う (orbitPosition は日心 x,y,z,r のみ)
+  const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, curJd);
+  const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
+  out.textContent = `${c[0]}　日心 ${g.r.toFixed(2)} AU / 地心 ${g.delta.toFixed(2)} AU / 約${mag.toFixed(1)}等`;
+});
+
+// ---- 描画ループ・リサイズ ----
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w || canvas.height !== h) {
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+}
+function tick() {
+  resize();
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+update();
+tick();
+</script>

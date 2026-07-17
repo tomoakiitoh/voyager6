@@ -82,6 +82,18 @@ body { display: flex; flex-direction: column; min-height: 100%; }
   padding: 8px;
 }
 #sky { display: block; touch-action: manipulation; }
+
+/* ---- 太陽系3D ---- */
+.solar-page #site-footer { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#solar-wrap { flex: 1 1 auto; min-height: 0; position: relative; }
+#solar-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+#solar-panel {
+  flex: 0 0 auto;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  font-size: 13px;
+}
 #panel {
   flex: 0 0 auto;
   background: var(--panel);
