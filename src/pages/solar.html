@@ -69,8 +69,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070d);
-const camera = new THREE.PerspectiveCamera(50, 1, 0.005, 6000);
-camera.position.set(0, 7, 13);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.005, 8000);
+camera.position.set(0, 22, 42); // 海王星軌道(30AU)まで見える俯瞰。ズームで内側へ
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
@@ -84,7 +84,7 @@ scene.add(new THREE.PointLight(0xffffff, 1.4, 0, 0));
 scene.add(new THREE.AmbientLight(0x668, 0.6));
 
 // 黄道面のうっすらグリッド (向きの手がかり)
-const grid = new THREE.PolarGridHelper(30, 8, 12, 64, 0x223, 0x18213a);
+const grid = new THREE.PolarGridHelper(45, 8, 9, 64, 0x223, 0x18213a);
 scene.add(grid);
 
 // ---- 惑星 ----
@@ -95,6 +95,9 @@ const PLANETS = [
   ["Mars", 0xf0705a, "火星", 0.06],
   ["Jupiter", 0xf5e6bf, "木星", 0.16],
   ["Saturn", 0xe9d27a, "土星", 0.14],
+  ["Uranus", 0xa8e0e6, "天王星", 0.11],
+  ["Neptune", 0x4b70dd, "海王星", 0.11],
+  ["Pluto", 0xc9b8a8, "冥王星", 0.04],
 ];
 const planetMeshes = [], planetLabels = [], orbitLines = [];
 
@@ -175,7 +178,7 @@ function classifyComet(e, q, i, w) {
   return "lp";
 }
 
-fetch("../comets.json").then((r) => r.json()).then((d) => {
+fetch("../comets_all.json").then((r) => r.json()).then((d) => {
   comets = d;
   const geo = new THREE.BufferGeometry();
   const col = new Float32Array(d.length * 3);

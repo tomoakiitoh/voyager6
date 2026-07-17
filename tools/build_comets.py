@@ -32,7 +32,8 @@ import sys
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent
-OUT = ROOT.parent / "src" / "comets.json"
+OUT = ROOT.parent / "src" / "comets.json"          # 望遠鏡モード用 (現行の観測対象)
+OUT_ALL = ROOT.parent / "src" / "comets_all.json"   # 太陽系3D用 (歴史的・SOHOクロイツ群込み全量)
 SOURCE_URL = "https://www.minorplanetcenter.net/Extended_Files/cometels.json.gz"
 SBDB_URL = "https://ssd-api.jpl.nasa.gov/sbdb_query.api"
 
@@ -49,24 +50,29 @@ def desig_key(s: str) -> str:
     return s.split(" (")[0].strip()
 
 
-def fetch_sbdb_mags() -> dict[str, tuple[float, float]]:
-    """JPL SBDB から彗星の M1/K1 を {符号キー: (M1,K1)} で得る。引けなければ空。"""
+def fetch_sbdb() -> dict[str, dict]:
+    """JPL SBDB の全彗星の軌道要素＋M1/K1 を {符号キー: dict} で得る。引けなければ空。"""
     try:
-        url = f"{SBDB_URL}?fields=full_name,M1,K1&sb-kind=c"
+        url = f"{SBDB_URL}?fields=full_name,e,q,i,w,om,tp,M1,K1&sb-kind=c"
         req = urllib.request.Request(url, headers={"User-Agent": "voyager6-build"})
         with urllib.request.urlopen(req, timeout=120) as res:
             d = json.load(res)
         out = {}
-        for name, m1, k1 in d["data"]:
-            if m1 in (None, ""):
-                continue
+        for name, e, q, i, w, om, tp, m1, k1 in d["data"]:
             try:
-                out[desig_key(name)] = (float(m1), float(k1) if k1 not in (None, "") else 8.0)
-            except ValueError:
+                rec = {
+                    "name": (name or "").strip(),
+                    "e": float(e), "q": float(q), "i": float(i),
+                    "node": float(om), "peri": float(w), "tp": float(tp),
+                    "m1": float(m1) if m1 not in (None, "") else None,
+                    "k1": float(k1) if k1 not in (None, "") else None,
+                }
+            except (ValueError, TypeError):
                 continue
+            out[desig_key(name)] = rec
         return out
     except Exception as e:  # noqa: BLE001  SBDB が落ちていても MPC だけで続行する
-        print(f"  ! SBDB 取得失敗 ({e})。MPC の光度パラメータを使う。", file=sys.stderr)
+        print(f"  ! SBDB 取得失敗 ({e})。MPC だけで続行。", file=sys.stderr)
         return {}
 
 
@@ -88,12 +94,12 @@ def main() -> int:
         raw = res.read()
     data = json.load(gzip.GzipFile(fileobj=io.BytesIO(raw)))
 
-    print(f"  download: {SBDB_URL} (光度パラメータ)")
-    sbdb = fetch_sbdb_mags()
+    print(f"  download: {SBDB_URL} (全彗星の軌道要素＋光度)")
+    sbdb = fetch_sbdb()
 
-    out = []
-    skipped = 0
-    overridden = 0
+    # comets.json = MPC cometels(現行元期で位置が正確)。光度は SBDB で上書き。望遠鏡モード用。
+    out, mpc_keys = [], set()
+    skipped = overridden = 0
     for c in data:
         try:
             e = float(c["e"])
@@ -103,15 +109,18 @@ def main() -> int:
             peri = float(c["Peri"])
             tp = julian_day(int(c["Year_of_perihelion"]), int(c["Month_of_perihelion"]),
                             float(c["Day_of_perihelion"]))
-            m1 = float(c["H"])   # MPC の "H"/"G" は不確かなので下で SBDB 値に上書きする
+            m1 = float(c["H"])
             k1 = float(c["G"])
         except (KeyError, ValueError, TypeError):
             skipped += 1
             continue
         name = str(c.get("Designation_and_name", "")).strip()
-        sb = sbdb.get(desig_key(name))
-        if sb:                       # JPL の curated な M1/K1 を優先 (Horizons と一致)
-            m1, k1 = sb
+        key = desig_key(name)
+        mpc_keys.add(key)
+        sb = sbdb.get(key)
+        if sb and sb["m1"] is not None:
+            m1 = sb["m1"]
+            k1 = sb["k1"] if sb["k1"] is not None else 8.0
             overridden += 1
         out.append([name, round(e, 6), round(q, 6), round(i, 4), round(node, 4),
                     round(peri, 4), round(tp, 4), round(m1, 2), round(k1, 2)])
@@ -120,10 +129,25 @@ def main() -> int:
         print(f"エラー: 彗星が {len(out)} 件しか取れず異常。中止。", file=sys.stderr)
         return 1
 
-    OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")),
-                   encoding="utf-8")
-    print(f"  彗星: {len(out)} 件 (SBDB光度で上書き {overridden} / スキップ {skipped}) "
-          f"-> {OUT.relative_to(ROOT.parent)} ({OUT.stat().st_size:,} bytes)")
+    OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"  comets.json(望遠鏡用): {len(out)} 件 (SBDB光度で上書き {overridden}) "
+          f"({OUT.stat().st_size:,} bytes)")
+
+    # comets_all.json = MPC 964 ＋ SBDB にしか無い彗星(歴史的・SOHOクロイツ群など)。太陽系3D用。
+    # SBDB の周期彗星の要素は古い元期で位置が概略になるが、可視化用途では許容。
+    all_out = list(out)
+    added = 0
+    for key, sb in sbdb.items():
+        if key in mpc_keys:
+            continue
+        all_out.append([sb["name"], round(sb["e"], 6), round(sb["q"], 6), round(sb["i"], 4),
+                        round(sb["node"], 4), round(sb["peri"], 4), round(sb["tp"], 4),
+                        round(sb["m1"] if sb["m1"] is not None else 15.0, 2),
+                        round(sb["k1"] if sb["k1"] is not None else 8.0, 2)])
+        added += 1
+    OUT_ALL.write_text(json.dumps(all_out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"  comets_all.json(3D用): {len(all_out)} 件 (SBDB追加 {added}) "
+          f"({OUT_ALL.stat().st_size:,} bytes)")
     return 0
 
 
