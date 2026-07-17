@@ -25,12 +25,14 @@ import sys
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent
-OUT = ROOT.parent / "src" / "asteroids.json"
+OUT = ROOT.parent / "src" / "asteroids.json"          # 望遠鏡モード用 (現在 V≤11)
+OUT_SOLAR = ROOT.parent / "src" / "asteroids_solar.json"  # 太陽系3D用 (H≤12 の要素)
 SOURCE_URL = "https://www.minorplanetcenter.net/iau/MPCORB/MPCORB.DAT.gz"
 
 MAG_LIMIT = 11.0
 H_PRESCREEN = 10.5   # これより暗い絶対等級は V≤11 に届かないので位置計算を省く
 BIG_FOUR = {"00001", "00002", "00003", "00004"}  # Ceres/Pallas/Juno/Vesta は常時掲載
+SOLAR_H_LIMIT = 12.0  # 太陽系3D用: この絶対等級以下の小惑星を要素だけ配信 (メインベルト俯瞰)
 
 DEG = math.pi / 180
 
@@ -127,6 +129,12 @@ def main() -> int:
         now = dt.datetime.now(dt.timezone.utc)
         jd = julian_day(now.year, now.month, now.day + now.hour / 24)
 
+    # 太陽系3D用 (SBDB, 確実)。MPCORB より先に出しておく。
+    try:
+        build_solar_asteroids()
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! 3D用小惑星の取得失敗 ({e})。前回データを維持。", file=sys.stderr)
+
     print(f"  download: {SOURCE_URL} (基準JD {jd:.1f})")
     req = urllib.request.Request(SOURCE_URL, headers={"User-Agent": "voyager6-build"})
     sx, sy, sz, rs = sun_ecl_j2000(jd)
@@ -167,9 +175,36 @@ def main() -> int:
 
     out.sort(key=lambda a: a[8])  # H 昇順 (明るい代表が先頭)
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"  小惑星: {n_lines:,} 個中 V≤{MAG_LIMIT} が {len(out)} 個 "
-          f"-> {OUT.relative_to(ROOT.parent)} ({OUT.stat().st_size:,} bytes)")
+    print(f"  小惑星(望遠鏡用): {n_lines:,} 個中 V≤{MAG_LIMIT} が {len(out)} 個 "
+          f"({OUT.stat().st_size:,} bytes)")
     return 0
+
+
+def build_solar_asteroids() -> None:
+    """JPL SBDB から H≤12 の小惑星要素を asteroids_solar.json に出力 (太陽系3D俯瞰用)。
+    MPCORB(93MB)より軽く確実。要素は SBDB の現行元期。"""
+    import urllib.parse
+    params = urllib.parse.urlencode({
+        "fields": "a,e,i,w,om,ma,epoch,H", "sb-kind": "a",
+        "sb-cdata": json.dumps({"AND": [f"H|LT|{SOLAR_H_LIMIT}"]}),
+    })
+    url = f"https://ssd-api.jpl.nasa.gov/sbdb_query.api?{params}"
+    req = urllib.request.Request(url, headers={"User-Agent": "voyager6-build"})
+    with urllib.request.urlopen(req, timeout=180) as res:
+        d = json.load(res)
+    out = []
+    for row in d.get("data", []):
+        try:
+            a, e, i, w, om, ma, ep, H = (float(x) for x in row)
+        except (TypeError, ValueError):
+            continue
+        # [a, e, i, Ω(node), ω(peri), M0, epoch, H]
+        out.append([round(a, 5), round(e, 6), round(i, 4), round(om, 4),
+                    round(w, 4), round(ma, 5), round(ep, 1), round(H, 2)])
+    if len(out) < 1000:
+        raise RuntimeError(f"SBDB 小惑星が {len(out)} 個しか取れず異常")
+    OUT_SOLAR.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    print(f"  小惑星(3D用): H≤{SOLAR_H_LIMIT} が {len(out):,} 個 (SBDB, {OUT_SOLAR.stat().st_size:,} bytes)")
 
 
 if __name__ == "__main__":
