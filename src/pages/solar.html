@@ -15,10 +15,31 @@ bodyclass: solar-page
   <div class="row">
     <input type="range" id="solar-time" min="-18262" max="18262" step="1" value="0">
   </div>
+  <div class="row">
+    <button id="solar-play" title="再生 / 停止">▶</button>
+    <select id="solar-speed" title="再生速度">
+      <option value="5">5日/秒</option>
+      <option value="30" selected>30日/秒</option>
+      <option value="120">120日/秒</option>
+      <option value="600">600日/秒</option>
+    </select>
+    <label class="info">彗星群
+      <select id="comet-group">
+        <option value="all">すべて</option>
+        <option value="jfc">木星族</option>
+        <option value="halley">ハレー型</option>
+        <option value="lp">長周期</option>
+        <option value="hyp">双曲線・恒星間</option>
+        <option value="sungrazer">太陽をかすめる群</option>
+        <option value="kreutz">クロイツ群</option>
+      </select></label>
+    <input type="text" id="comet-search" placeholder="彗星名で選択" maxlength="30">
+    <button id="comet-search-btn">選択</button>
+  </div>
   <div class="row toggles">
     <label><input type="checkbox" id="solar-orbits" checked>惑星軌道</label>
     <label><input type="checkbox" id="solar-comets" checked>彗星</label>
-    <label><input type="checkbox" id="solar-comet-orbits">彗星の軌道線</label>
+    <label><input type="checkbox" id="solar-comet-orbits">全彗星の軌道線</label>
     <label><input type="checkbox" id="solar-names" checked>惑星名</label>
   </div>
   <div class="row"><span id="solar-pick" class="info"></span></div>
@@ -127,15 +148,47 @@ function makeLabel(text, color) {
 
 // ---- 彗星 ----
 let comets = null;                  // [[name,e,q,i,node,peri,tp,M1,K1], ...]
+let cometGroup = [];                // 各彗星の力学群 (kreutz/sungrazer/jfc/halley/lp/hyp)
 let cometPoints = null;             // THREE.Points (全彗星の現在位置)
 let cometOrbitGroup = new THREE.Group(); scene.add(cometOrbitGroup);
+let activeGroup = "all";            // 群フィルタ (all=全部表示)
+
+// 群ごとの色 (RGB 0-1)
+const GROUP_COLOR = {
+  kreutz: [1.0, 0.40, 0.40], sungrazer: [1.0, 0.66, 0.30], jfc: [0.55, 1.0, 0.80],
+  halley: [0.80, 0.62, 1.0], lp: [0.60, 0.78, 1.0], hyp: [0.95, 0.95, 0.60],
+};
+
+/** 力学群の判定。クロイツ群は微小近日点＋特徴的な i・ω で見分ける。 */
+function classifyComet(e, q, i, w) {
+  if (q < 0.03 && i > 130 && i < 155 && w > 55 && w < 95) return "kreutz";
+  if (q < 0.05) return "sungrazer";
+  if (e > 1.02) return "hyp";
+  if (e < 0.98) {
+    const a = q / (1 - e);
+    if (a > 0 && a < 40) {
+      const Tj = 5.2028 / a + 2 * Math.cos(i * DEG) * Math.sqrt(a / 5.2028 * (1 - e * e));
+      if (Tj > 2 && Tj < 3) return "jfc";
+      if (Tj < 2) return "halley";
+    }
+  }
+  return "lp";
+}
 
 fetch("../comets.json").then((r) => r.json()).then((d) => {
   comets = d;
   const geo = new THREE.BufferGeometry();
+  const col = new Float32Array(d.length * 3);
+  cometGroup = d.map((c, i) => {
+    const g = classifyComet(c[1], c[2], c[3], c[5]);
+    const rgb = GROUP_COLOR[g];
+    col[i * 3] = rgb[0]; col[i * 3 + 1] = rgb[1]; col[i * 3 + 2] = rgb[2];
+    return g;
+  });
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(d.length * 3), 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   cometPoints = new THREE.Points(geo, new THREE.PointsMaterial({
-    color: 0x8effcd, size: 3.2, sizeAttenuation: false, transparent: true, opacity: 0.9,
+    size: 3.4, sizeAttenuation: false, transparent: true, opacity: 0.95, vertexColors: true,
   }));
   scene.add(cometPoints);
   buildCometOrbits();
@@ -191,12 +244,16 @@ function update() {
   if (cometPoints && comets) {
     const pos = cometPoints.geometry.getAttribute("position");
     for (let i = 0; i < comets.length; i++) {
+      if (activeGroup !== "all" && cometGroup[i] !== activeGroup) {
+        pos.setXYZ(i, 0, 0, 0); continue; // 群フィルタで隠す (太陽の中に畳む)
+      }
       const c = comets[i];
       const h = orbitPosition({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
       pos.setXYZ(i, h.x, h.z, -h.y);
     }
     pos.needsUpdate = true;
   }
+  if (selectedIndex >= 0) updateSelectedMarker(jd);
   const d = new Date((jd - 2440587.5) * 86400000 + TZ_MIN * 60000);
   document.getElementById("solar-date").textContent =
     `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} JST`;
@@ -218,10 +275,66 @@ el("solar-comets").addEventListener("change", () => { if (cometPoints) cometPoin
 el("solar-comet-orbits").addEventListener("change", () =>
   cometOrbitGroup.children.forEach((l) => (l.visible = el("solar-comet-orbits").checked)));
 
+// 群フィルタ
+el("comet-group").addEventListener("change", () => { activeGroup = el("comet-group").value; update(); });
+
+// 彗星名で検索して選択
+function searchComet() {
+  if (!comets) return;
+  const q = el("comet-search").value.trim().toLowerCase();
+  if (!q) return;
+  const idx = comets.findIndex((c) => c[0].toLowerCase().includes(q));
+  if (idx < 0) { el("solar-pick").textContent = "見つかりません"; return; }
+  selectComet(idx);
+}
+el("comet-search-btn").addEventListener("click", searchComet);
+el("comet-search").addEventListener("keydown", (e) => { if (e.key === "Enter") searchComet(); });
+
+// 再生 (時間を進めて彗星の動きを見る)
+let playing = false, lastT = 0;
+el("solar-play").addEventListener("click", () => {
+  playing = !playing; el("solar-play").textContent = playing ? "■" : "▶"; lastT = 0;
+});
+
 // 初期スライダー位置
 el("solar-time").value = Math.round(curJd - J0);
 
-// ---- 彗星クリックで情報 ----
+// ---- 彗星の選択 (軌道線＋強調マーカー＋追尾情報) ----
+let selectedIndex = -1;
+let selectedOrbitLine = null;
+const selMarker = new THREE.Mesh(new THREE.SphereGeometry(0.07, 14, 14),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.9 }));
+selMarker.visible = false; scene.add(selMarker);
+
+const elOf = (c) => ({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] });
+
+function selectComet(idx) {
+  selectedIndex = idx;
+  if (selectedOrbitLine) { scene.remove(selectedOrbitLine); selectedOrbitLine.geometry.dispose(); selectedOrbitLine = null; }
+  if (idx < 0) { selMarker.visible = false; el("solar-pick").textContent = ""; return; }
+  const e2 = elOf(comets[idx]);
+  const pts = [], span = e2.e < 0.98 ? [0, 360] : [-170, 170];
+  for (let f = span[0]; f <= span[1]; f += 2) { const h = orbitAtTrueAnomaly(e2, f); if (h) pts.push(toV(h)); }
+  if (pts.length > 1) {
+    selectedOrbitLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: 0xffe066 }));
+    scene.add(selectedOrbitLine);
+  }
+  selMarker.visible = true;
+  updateSelectedMarker(curJd);
+}
+
+function updateSelectedMarker(jd) {
+  const c = comets[selectedIndex];
+  const h = orbitPosition(elOf(c), jd);
+  selMarker.position.set(h.x, h.z, -h.y);
+  const g = orbitalToRaDec(elOf(c), jd);
+  const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
+  el("solar-pick").textContent =
+    `★ ${c[0]}　日心 ${g.r.toFixed(2)} AU / 地心 ${g.delta.toFixed(2)} AU / 約${mag.toFixed(1)}等`;
+}
+
+// ---- 彗星クリックで選択 ----
 canvas.addEventListener("click", (ev) => {
   if (!cometPoints || !comets || !cometPoints.visible) return;
   const rect = canvas.getBoundingClientRect();
@@ -230,19 +343,14 @@ canvas.addEventListener("click", (ev) => {
   const v = new THREE.Vector3();
   let best = -1, bestD = 14 * 14; // 14px 以内で最近傍
   for (let i = 0; i < comets.length; i++) {
+    if (activeGroup !== "all" && cometGroup[i] !== activeGroup) continue; // 隠れている彗星は拾わない
     v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).project(camera);
-    if (v.z > 1) continue; // カメラの裏
+    if (v.z > 1) continue;
     const sx = (v.x * 0.5 + 0.5) * rect.width, sy = (-v.y * 0.5 + 0.5) * rect.height;
     const d = (sx - mx) ** 2 + (sy - my) ** 2;
     if (d < bestD) { bestD = d; best = i; }
   }
-  const out = el("solar-pick");
-  if (best < 0) { out.textContent = ""; return; }
-  const c = comets[best];
-  // 地心距離(delta)と等級には orbitalToRaDec を使う (orbitPosition は日心 x,y,z,r のみ)
-  const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, curJd);
-  const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
-  out.textContent = `${c[0]}　日心 ${g.r.toFixed(2)} AU / 地心 ${g.delta.toFixed(2)} AU / 約${mag.toFixed(1)}等`;
+  if (best >= 0) selectComet(best);
 });
 
 // ---- 描画ループ・リサイズ ----
@@ -253,8 +361,19 @@ function resize() {
     camera.aspect = w / h; camera.updateProjectionMatrix();
   }
 }
-function tick() {
+function tick(now) {
   resize();
+  if (playing) {
+    const dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
+    let val = (curJd - J0) + dt * Number(el("solar-speed").value);
+    if (val > 18262 || val < -18262) {
+      val = Math.max(-18262, Math.min(18262, val));
+      playing = false; el("solar-play").textContent = "▶";
+    }
+    curJd = J0 + val;
+    el("solar-time").value = Math.round(val);
+    update();
+  }
   controls.update();
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
