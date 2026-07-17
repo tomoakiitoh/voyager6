@@ -54,7 +54,8 @@ jobs:
         run: |
           git config user.name "voyager6-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/comets.json src/asteroids.json 2>/dev/null || true
+          git add src/comets.json src/comets_all.json \
+                  src/asteroids.json src/asteroids_solar.json src/asteroids_tier2.bin 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "変更なし。"
           else

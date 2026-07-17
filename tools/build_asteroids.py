@@ -27,12 +27,15 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT.parent / "src" / "asteroids.json"          # 望遠鏡モード用 (現在 V≤11)
 OUT_SOLAR = ROOT.parent / "src" / "asteroids_solar.json"  # 太陽系3D用 (H≤12 の要素)
+OUT_TIER2 = ROOT.parent / "src" / "asteroids_tier2.bin"   # 太陽系3D GPU全量用 (H≤15 バイナリ)
 SOURCE_URL = "https://www.minorplanetcenter.net/iau/MPCORB/MPCORB.DAT.gz"
 
 MAG_LIMIT = 11.0
 H_PRESCREEN = 10.5   # これより暗い絶対等級は V≤11 に届かないので位置計算を省く
 BIG_FOUR = {"00001", "00002", "00003", "00004"}  # Ceres/Pallas/Juno/Vesta は常時掲載
 SOLAR_H_LIMIT = 12.0  # 太陽系3D用: この絶対等級以下の小惑星を要素だけ配信 (メインベルト俯瞰)
+TIER2_H_LIMIT = 15.0  # GPU全量用: H≤15 の要素を Float32 バイナリで配信 (トロヤ群/ヒルダ群の雲)
+J2000 = 2451545.0     # Tier2 の epoch はこの基準日からの相対日数で持つ (float32 精度対策)
 
 DEG = math.pi / 180
 
@@ -135,6 +138,12 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         print(f"  ! 3D用小惑星の取得失敗 ({e})。前回データを維持。", file=sys.stderr)
 
+    # 太陽系3D GPU全量用 (SBDB H≤15, バイナリ)。取得失敗時は前回 .bin を維持。
+    try:
+        build_tier2_asteroids()
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! Tier2小惑星の取得失敗 ({e})。前回データを維持。", file=sys.stderr)
+
     print(f"  download: {SOURCE_URL} (基準JD {jd:.1f})")
     req = urllib.request.Request(SOURCE_URL, headers={"User-Agent": "voyager6-build"})
     sx, sy, sz, rs = sun_ecl_j2000(jd)
@@ -205,6 +214,44 @@ def build_solar_asteroids() -> None:
         raise RuntimeError(f"SBDB 小惑星が {len(out)} 個しか取れず異常")
     OUT_SOLAR.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
     print(f"  小惑星(3D用): H≤{SOLAR_H_LIMIT} が {len(out):,} 個 (SBDB, {OUT_SOLAR.stat().st_size:,} bytes)")
+
+
+def build_tier2_asteroids() -> None:
+    """JPL SBDB から H≤15 の小惑星要素を Float32 バイナリ asteroids_tier2.bin に出力。
+
+    太陽系3D の「全量表示 (GPU)」用。位置はクライアントの頂点シェーダで都度ケプラーを解く
+    ので、要素だけを詰める。1件 = 7×float32 (little-endian):
+        [a(AU), e, i(deg), Ω node(deg), ω peri(deg), M0(deg), epochRel(=epoch JD − J2000)]
+    epoch を J2000 からの相対日数にするのは float32 の仮数24bit を近点角計算で使い切らない
+    ため (絶対 JD の 245万を float32 に入れると 0.03 日ぶんの丸めが出る)。
+    """
+    import struct
+    import urllib.parse
+    params = urllib.parse.urlencode({
+        "fields": "a,e,i,w,om,ma,epoch", "sb-kind": "a",
+        "sb-cdata": json.dumps({"AND": [f"H|LT|{TIER2_H_LIMIT}"]}),
+    })
+    url = f"https://ssd-api.jpl.nasa.gov/sbdb_query.api?{params}"
+    req = urllib.request.Request(url, headers={"User-Agent": "voyager6-build"})
+    with urllib.request.urlopen(req, timeout=300) as res:
+        d = json.load(res)
+    buf = bytearray()
+    n = dropped = 0
+    for row in d.get("data", []):
+        try:
+            a, e, i, w, om, ma, ep = (float(x) for x in row)
+        except (TypeError, ValueError):
+            continue
+        if not (0.0 < a < 100.0) or e >= 0.99:
+            dropped += 1  # 双曲線・準放物線・極端な遠方は俯瞰に不要 (巨大距離/NaN を避ける)
+            continue
+        buf += struct.pack("<7f", a, e, i, om, w, ma, ep - J2000)
+        n += 1
+    if n < 5000:
+        raise RuntimeError(f"SBDB Tier2 小惑星が {n} 個しか取れず異常")
+    OUT_TIER2.write_bytes(bytes(buf))
+    print(f"  小惑星(Tier2/GPU): H≤{TIER2_H_LIMIT} が {n:,} 個 (除外 {dropped}) "
+          f"(SBDB, {OUT_TIER2.stat().st_size:,} bytes)")
 
 
 if __name__ == "__main__":

@@ -41,6 +41,8 @@ bodyclass: solar-page
     <label><input type="checkbox" id="solar-comets" checked>彗星</label>
     <label><input type="checkbox" id="solar-comet-orbits">全彗星の軌道線</label>
     <label><input type="checkbox" id="solar-asteroids">小惑星</label>
+    <label><input type="checkbox" id="solar-asteroids2">全量 (GPU)</label>
+    <label><input type="checkbox" id="solar-corotate">木星固定（回転座標系）</label>
     <label><input type="checkbox" id="solar-names" checked>惑星名</label>
   </div>
   <div class="row"><span id="solar-pick" class="info"></span></div>
@@ -88,6 +90,12 @@ scene.add(new THREE.AmbientLight(0x668, 0.6));
 const grid = new THREE.PolarGridHelper(45, 8, 9, 64, 0x223, 0x18213a);
 scene.add(grid);
 
+// 公転する天体はすべてこのグループに入れる。回転座標系(木星固定)では
+// このグループごと木星の黄経ぶん回すことで、木星を止めて見せる。
+const orbitingGroup = new THREE.Group();
+scene.add(orbitingGroup);
+let coRotating = false;
+
 // ---- 惑星 ----
 const PLANETS = [
   ["Mercury", 0xcfd3d8, "水星", 0.05],
@@ -114,7 +122,7 @@ function planetHelio(name, jd) {
 for (const [name, color, ja, size] of PLANETS) {
   const m = new THREE.Mesh(new THREE.SphereGeometry(size, 16, 16),
     new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25 }));
-  scene.add(m); planetMeshes.push({ name, mesh: m });
+  orbitingGroup.add(m); planetMeshes.push({ name, mesh: m });
 
   // 軌道線 (M を一周させてサンプル)
   const pts = [];
@@ -130,11 +138,11 @@ for (const [name, color, ja, size] of PLANETS) {
   }
   const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.28 }));
-  scene.add(line); orbitLines.push(line);
+  orbitingGroup.add(line); orbitLines.push(line);
 
   // ラベル (スプライト)
   const label = makeLabel(ja, color);
-  scene.add(label); planetLabels.push(label);
+  orbitingGroup.add(label); planetLabels.push(label);
 }
 
 /** 文字スプライトを作る。 */
@@ -154,7 +162,7 @@ function makeLabel(text, color) {
 let comets = null;                  // [[name,e,q,i,node,peri,tp,M1,K1], ...]
 let cometGroup = [];                // 各彗星の力学群 (kreutz/sungrazer/jfc/halley/lp/hyp)
 let cometPoints = null;             // THREE.Points (全彗星の現在位置)
-let cometOrbitGroup = new THREE.Group(); scene.add(cometOrbitGroup);
+let cometOrbitGroup = new THREE.Group(); orbitingGroup.add(cometOrbitGroup);
 let activeGroup = "all";            // 群フィルタ (all=全部表示)
 
 // 群ごとの色 (RGB 0-1)
@@ -194,7 +202,7 @@ fetch("../comets_all.json").then((r) => r.json()).then((d) => {
   cometPoints = new THREE.Points(geo, new THREE.PointsMaterial({
     size: 3.4, sizeAttenuation: false, transparent: true, opacity: 0.95, vertexColors: true,
   }));
-  scene.add(cometPoints);
+  orbitingGroup.add(cometPoints);
   buildCometOrbits();
   update();
 }).catch(() => {});
@@ -247,7 +255,7 @@ function loadAsteroids() {
     asteroidPoints = new THREE.Points(geo, new THREE.PointsMaterial({
       color: 0xb9a67e, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0.7,
     }));
-    scene.add(asteroidPoints);
+    orbitingGroup.add(asteroidPoints);
     update();
   }).catch(() => { /* 無くても動く */ });
 }
@@ -257,6 +265,79 @@ function asteroidHelio(a, jd) {
   const n = 0.9856076686 / Math.pow(a[0], 1.5);
   const M = a[5] + n * (jd - a[6]);
   return heliocentric({ N: a[3], i: a[2], w: a[4], a: a[0], e: a[1], M });
+}
+
+// ---- 小惑星 Tier2 (H≤15 を GPU で全量描画。位置は頂点シェーダで都度ケプラーを解く) ----
+// asteroids_tier2.bin: 1件 = 7×float32 [a, e, i, Ω, ω, M0, epochRel(=epoch−J2000)]。
+// 頂点シェーダは CPU 版 asteroidHelio と同じ式 (Schlyter/heliocentric) をラジアンで解く。
+// 点群を orbitingGroup に載せるので、回転座標系(木星固定)もカメラも自動で効く。
+let tier2Points = null, tier2Mat = null, tier2Tried = false;
+
+const TIER2_VERT = `
+uniform float uT;      // curJd − J2000 [日]
+uniform float uSize;   // 点の大きさ [px]
+attribute vec4 orbA;   // a, e, i(deg), Ω node(deg)
+attribute vec3 orbB;   // ω peri(deg), M0(deg), epochRel(日)
+varying vec3 vCol;
+const float DEG = 0.017453292519943295;
+const float TAU = 6.283185307179586;
+void main() {
+  float a = orbA.x, e = orbA.y;
+  float inc = orbA.z * DEG, node = orbA.w * DEG, peri = orbB.x * DEG;
+  float nDeg = 0.9856076686 / pow(a, 1.5);          // 平均日運動 [deg/日]
+  float M = mod((orbB.y + nDeg * (uT - orbB.z)) * DEG, TAU);
+  float E = M + e * sin(M);                          // ケプラー方程式 (Newton)
+  for (int k = 0; k < 6; k++) { E -= (E - e * sin(E) - M) / (1.0 - e * cos(E)); }
+  float xv = a * (cos(E) - e);
+  float yv = a * sqrt(1.0 - e * e) * sin(E);
+  float v = atan(yv, xv);
+  float r = length(vec2(xv, yv));
+  float u = v + peri;
+  float cN = cos(node), sN = sin(node), cu = cos(u), su = sin(u), ci = cos(inc), si = sin(inc);
+  float x = r * (cN * cu - sN * su * ci);
+  float y = r * (sN * cu + cN * su * ci);
+  float z = r * su * si;
+  vec3 pos = vec3(x, z, -y);                         // 黄道直交 → three (toV と同じ)
+  vec3 c = vec3(0.72, 0.65, 0.49);                   // メインベルト (砂色)
+  if (a > 5.0 && a < 5.4) c = vec3(0.55, 1.0, 0.80);            // トロヤ群 (緑)
+  else if (a > 3.9 && a < 4.02 && e < 0.30) c = vec3(1.0, 0.72, 0.35); // ヒルダ群 (橙)
+  vCol = c;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  gl_PointSize = uSize;
+}`;
+
+const TIER2_FRAG = `
+precision mediump float;
+varying vec3 vCol;
+void main() {
+  vec2 d = gl_PointCoord - vec2(0.5);
+  if (dot(d, d) > 0.25) discard;                     // 丸い点にする
+  gl_FragColor = vec4(vCol, 0.85);
+}`;
+
+function loadAsteroidsTier2() {
+  if (tier2Tried) return;
+  tier2Tried = true;
+  fetch("../asteroids_tier2.bin").then((r) => r.arrayBuffer()).then((buf) => {
+    const arr = new Float32Array(buf);            // [a,e,i,Ω,ω,M0,epochRel] × N
+    const ib = new THREE.InterleavedBuffer(arr, 7);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("orbA", new THREE.InterleavedBufferAttribute(ib, 4, 0));
+    geo.setAttribute("orbB", new THREE.InterleavedBufferAttribute(ib, 3, 4));
+    // position は頂点シェーダで上書きするが three が頂点数を得るために要る (ダミー)
+    geo.setAttribute("position", new THREE.InterleavedBufferAttribute(ib, 3, 0));
+    tier2Mat = new THREE.ShaderMaterial({
+      uniforms: {
+        uT: { value: curJd - J0 },
+        uSize: { value: 1.5 * Math.min(2, window.devicePixelRatio || 1) },
+      },
+      vertexShader: TIER2_VERT, fragmentShader: TIER2_FRAG, transparent: true,
+    });
+    tier2Points = new THREE.Points(geo, tier2Mat);
+    tier2Points.frustumCulled = false;            // ダミー position でのカリングを止める
+    tier2Points.visible = el("solar-asteroids2").checked;
+    orbitingGroup.add(tier2Points);
+  }).catch(() => { /* 無くても動く */ });
 }
 
 // ---- 時間と更新 ----
@@ -291,6 +372,12 @@ function update() {
     pos.needsUpdate = true;
   }
   if (selectedIndex >= 0) updateSelectedMarker(jd);
+  if (tier2Mat) tier2Mat.uniforms.uT.value = jd - J0; // GPU全量: 時刻を渡す (位置はシェーダが計算)
+  // 回転座標系: グループごと木星の黄経ぶん逆回転させて木星を固定 (トロヤ群/ヒルダ群が浮かぶ)
+  orbitingGroup.rotation.y = coRotating
+    ? -Math.atan2(heliocentric(PLANET_ELEMENTS.Jupiter(schlyterDay(jd))).y,
+                  heliocentric(PLANET_ELEMENTS.Jupiter(schlyterDay(jd))).x)
+    : 0;
   const d = new Date((jd - 2440587.5) * 86400000 + TZ_MIN * 60000);
   document.getElementById("solar-date").textContent =
     `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} JST`;
@@ -315,6 +402,15 @@ el("solar-asteroids").addEventListener("change", () => {
   const on = el("solar-asteroids").checked;
   if (on && !asteroidPoints) loadAsteroids();
   if (asteroidPoints) asteroidPoints.visible = on;
+});
+el("solar-asteroids2").addEventListener("change", () => {
+  const on = el("solar-asteroids2").checked;
+  if (on && !tier2Points) loadAsteroidsTier2();
+  if (tier2Points) tier2Points.visible = on;
+});
+el("solar-corotate").addEventListener("change", () => {
+  coRotating = el("solar-corotate").checked;
+  update();
 });
 
 // 群フィルタ
@@ -346,13 +442,13 @@ let selectedIndex = -1;
 let selectedOrbitLine = null;
 const selMarker = new THREE.Mesh(new THREE.SphereGeometry(0.07, 14, 14),
   new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.9 }));
-selMarker.visible = false; scene.add(selMarker);
+selMarker.visible = false; orbitingGroup.add(selMarker);
 
 const elOf = (c) => ({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] });
 
 function selectComet(idx) {
   selectedIndex = idx;
-  if (selectedOrbitLine) { scene.remove(selectedOrbitLine); selectedOrbitLine.geometry.dispose(); selectedOrbitLine = null; }
+  if (selectedOrbitLine) { orbitingGroup.remove(selectedOrbitLine); selectedOrbitLine.geometry.dispose(); selectedOrbitLine = null; }
   if (idx < 0) { selMarker.visible = false; el("solar-pick").textContent = ""; return; }
   const e2 = elOf(comets[idx]);
   const pts = [], span = e2.e < 0.98 ? [0, 360] : [-170, 170];
@@ -360,7 +456,7 @@ function selectComet(idx) {
   if (pts.length > 1) {
     selectedOrbitLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
       new THREE.LineBasicMaterial({ color: 0xffe066 }));
-    scene.add(selectedOrbitLine);
+    orbitingGroup.add(selectedOrbitLine);
   }
   selMarker.visible = true;
   updateSelectedMarker(curJd);

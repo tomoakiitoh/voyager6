@@ -19,7 +19,8 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const astro = readFileSync(path.join(ROOT, "src", "astro.js"), "utf8");
 const A = new Function(
   `${astro}\nreturn {julianDay, eqToHorizon, sunPosition, moonPosition,
-   moonTopocentric, planetPosition, moonPhase, norm360};`
+   moonTopocentric, planetPosition, moonPhase, norm360,
+   heliocentric, schlyterDay, PLANET_ELEMENTS};`
 )();
 
 const LAT = 35.68, LON = 139.77;
@@ -94,6 +95,38 @@ test("惑星の等級がそれらしい値になる", () => {
   assert.ok(venus.mag < -3.5 && venus.mag > -4.9, `金星 ${venus.mag}`);
   assert.ok(jupiter.mag < -1.5 && jupiter.mag > -2.6, `木星 ${jupiter.mag}`);
   assert.ok(mars.mag > 0.5 && mars.mag < 2.0, `火星 ${mars.mag}`);
+});
+
+// ---- 太陽系3D: 回転座標系 (木星固定) ----
+// solar.html は orbitingGroup.rotation.y = -atan2(hj.y, hj.x) でグループごと逆回転させる。
+// three 座標は toV(h)=(h.x, h.z, -h.y) なので木星の水平面方位角は φ=atan2(-h.y, h.x)。
+// rotation.y=θ は方位角を φ-θ に変えるため、θ=-atan2(h.y,h.x)=φ を入れると φ-θ=0 で常に固定。
+// ここでは astro.js 側だけで完結する不変量 (回転後の木星方位角が時刻に依らない) を確かめる。
+test("回転座標系: 木星の方位角が時刻に依らず一定になる", () => {
+  const jupAngle = (jd) => {
+    const h = A.heliocentric(A.PLANET_ELEMENTS.Jupiter(A.schlyterDay(jd)));
+    const phi = Math.atan2(-h.y, h.x);          // toV 適用後の方位角
+    const theta = -Math.atan2(h.y, h.x);        // solar.html の rotation.y
+    return Math.atan2(Math.sin(phi - theta), Math.cos(phi - theta)); // 正規化した回転後角
+  };
+  const base = jupAngle(A.julianDay(2000, 1, 1, 12));
+  // 木星は約11.9年周期。半周期ぶん (6年) 進めても方位角が動かないことを見る。
+  for (const dj of [365, 365 * 3, 365 * 6, 365 * 11]) {
+    const a = jupAngle(A.julianDay(2000, 1, 1, 12) + dj);
+    const diff = Math.abs(Math.atan2(Math.sin(a - base), Math.cos(a - base)));
+    assert.ok(diff < 1e-9, `+${dj}日で木星の方位角が ${(diff * 180 / Math.PI).toFixed(4)}° 動いた`);
+  }
+});
+
+test("非回転系なら木星は半周期で反対側へ回る (回転補正が効いている確認)", () => {
+  const jd0 = A.julianDay(2000, 1, 1, 12);
+  const raw = (jd) => {
+    const h = A.heliocentric(A.PLANET_ELEMENTS.Jupiter(A.schlyterDay(jd)));
+    return Math.atan2(-h.y, h.x);
+  };
+  const a0 = raw(jd0), a1 = raw(jd0 + 365.25 * 5.93); // 約半周期
+  const diff = Math.abs(Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0)));
+  assert.ok(diff > Math.PI * 0.8, `半周期で方位角が ${(diff * 180 / Math.PI).toFixed(1)}° しか動いていない`);
 });
 
 test("月相: 2026-07-14 ごろが新月 (前後で輝面比が底を打つ)", () => {
