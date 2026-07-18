@@ -1,0 +1,218 @@
+[
+ {
+  "desig": "C/1965 S1",
+  "name_ja": "池谷・関",
+  "max_mag": -10.0,
+  "note": "",
+  "source": "sbdb",
+  "elements": [
+   1.0,
+   0.00779,
+   142.0,
+   347.0,
+   69.0,
+   2439054.684
+  ],
+  "peri_jd": 2439054.684,
+  "best_date": "1965-10-21",
+  "name_en": "C/1965 S1-A (Ikeya-Seki)"
+ },
+ {
+  "desig": "C/1969 Y1",
+  "name_ja": "ベネット",
+  "max_mag": 0.0,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   0.9963,
+   0.538,
+   90.04,
+   224.66,
+   354.15,
+   2440665.55
+  ],
+  "peri_jd": 2440665.55,
+  "best_date": "1970-03-20",
+  "name_en": "C/1969 Y1"
+ },
+ {
+  "desig": "C/1975 V1",
+  "name_ja": "ウェスト",
+  "max_mag": -3.0,
+  "note": "",
+  "source": "sbdb",
+  "elements": [
+   1.0,
+   0.197,
+   43.1,
+   119.0,
+   358.0,
+   2442833.722
+  ],
+  "peri_jd": 2442833.722,
+  "best_date": "1976-02-25",
+  "name_en": "C/1975 V1-A (West)"
+ },
+ {
+  "desig": "1P",
+  "name_ja": "ハレー",
+  "max_mag": 2.1,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   0.968018,
+   0.571155,
+   162.1831,
+   59.3268,
+   112.2268,
+   2474040.9242
+  ],
+  "peri_jd": 2474040.9242,
+  "best_date": "1986-02-09",
+  "name_en": "1P/Halley"
+ },
+ {
+  "desig": "C/1996 B2",
+  "name_ja": "百武",
+  "max_mag": 0.0,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   0.9999,
+   0.23,
+   124.92,
+   188.05,
+   130.18,
+   2450204.89
+  ],
+  "peri_jd": 2450204.89,
+  "best_date": "1996-03-25",
+  "name_en": "C/1996 B2"
+ },
+ {
+  "desig": "C/1995 O1",
+  "name_ja": "ヘール・ボップ",
+  "max_mag": -1.0,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   0.994902,
+   0.923434,
+   89.7463,
+   281.7839,
+   130.7097,
+   2450536.5354
+  ],
+  "peri_jd": 2450536.5354,
+  "best_date": "1997-03-29",
+  "name_en": "C/1995 O1"
+ },
+ {
+  "desig": "C/2002 C1",
+  "name_ja": "池谷・張",
+  "max_mag": 3.0,
+  "note": "",
+  "source": "sbdb",
+  "elements": [
+   0.99,
+   0.507,
+   28.1,
+   93.4,
+   34.7,
+   2452352.48
+  ],
+  "peri_jd": 2452352.48,
+  "best_date": "2002-03-18",
+  "name_en": "153P/Ikeya-Zhang (2002 C1)"
+ },
+ {
+  "desig": "C/2006 P1",
+  "name_ja": "マックノート",
+  "max_mag": -5.0,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   1.0,
+   0.171,
+   77.84,
+   267.41,
+   155.97,
+   2454113.3
+  ],
+  "peri_jd": 2454113.3,
+  "best_date": "2007-01-12",
+  "name_en": "C/2006 P1"
+ },
+ {
+  "desig": "17P",
+  "name_ja": "ホームズ",
+  "max_mag": 2.8,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   0.426028,
+   2.091095,
+   19.004,
+   326.5957,
+   24.57,
+   2461802.2692
+  ],
+  "peri_jd": 2461802.2692,
+  "best_date": "2007-10-24",
+  "name_en": "17P/Holmes"
+ },
+ {
+  "desig": "C/2011 W3",
+  "name_ja": "ラブジョイ",
+  "max_mag": -4.0,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   0.9999,
+   0.006,
+   134.36,
+   326.37,
+   53.51,
+   2455911.51
+  ],
+  "peri_jd": 2455911.51,
+  "best_date": "2011-12-16",
+  "name_en": "C/2011 W3"
+ },
+ {
+  "desig": "C/2020 F3",
+  "name_ja": "ネオワイズ",
+  "max_mag": 1.0,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   0.9992,
+   0.295,
+   128.94,
+   61.01,
+   37.28,
+   2459034.18
+  ],
+  "peri_jd": 2459034.18,
+  "best_date": "2020-07-03",
+  "name_en": "C/2020 F3"
+ },
+ {
+  "desig": "C/2023 A3",
+  "name_ja": "紫金山・ATLAS",
+  "max_mag": 0.0,
+  "note": "",
+  "source": "comets_all",
+  "elements": [
+   1.000174,
+   0.391412,
+   139.1023,
+   21.6553,
+   308.5712,
+   2460581.3089
+  ],
+  "peri_jd": 2460581.3089,
+  "best_date": "2024-09-27",
+  "name_en": "C/2023 A3"
+ }
+]
