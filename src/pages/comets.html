@@ -1,0 +1,220 @@
+<!--
+title: 彗星カタログ
+description: 収録している彗星の一覧。符号・名前・和名で検索でき、近日点通過や周期で並べ替え。行を開くと軌道の要点と3Dビューへの導線が出る。
+scripts: astro.js
+bodyclass: comets-page
+-->
+<main class="doc comets">
+
+<h1>彗星カタログ</h1>
+<p>
+  収録している彗星の一覧です。符号・英名・和名で検索でき、近日点通過や周期で並べ替えられます。
+  行をタップすると軌道の要点と、太陽系3Dで軌道を見る導線が出ます。
+  <span class="dim">★ は歴史的な肉眼彗星（和名つき）。</span>
+</p>
+
+<div class="controls">
+  <input id="q" type="search" placeholder="符号・名前・和名で検索（例: ハレー / 1996 / Hale）" autocomplete="off">
+  <select id="sort" title="並べ替え">
+    <option value="tp-desc">近日点通過（新しい順）</option>
+    <option value="tp-asc">近日点通過（古い順）</option>
+    <option value="period">周期（短い順）</option>
+    <option value="desig">符号順</option>
+  </select>
+  <label class="chk"><input type="checkbox" id="notable-only">★著名のみ</label>
+  <span id="count" class="info"></span>
+</div>
+
+<div class="tbl-wrap">
+  <table id="tbl">
+    <thead>
+      <tr><th>符号 / 名前</th><th>近日点通過</th><th class="num">q (AU)</th><th>軌道</th><th class="num">光度</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<p id="empty" class="dim" hidden>該当する彗星がありません。</p>
+
+</main>
+
+<style>
+  .comets .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 10px; }
+  .comets .controls input[type="search"] { flex: 1 1 240px; min-width: 160px; }
+  .comets .controls .chk { display: inline-flex; align-items: center; gap: 5px; color: var(--dim);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+  .comets .controls .chk input { accent-color: var(--accent); margin: 0; }
+  .comets #count { margin-left: auto; }
+  .comets .tbl-wrap { overflow-x: auto; }
+  .comets table { font-size: 13px; }
+  .comets th.num, .comets td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .comets td { padding: 7px 10px; }
+  .comets tr.crow { cursor: pointer; }
+  .comets tr.crow:hover td { background: #121a30; }
+  .comets tr.crow.open td { background: #17233f; }
+  .comets .nm { font-weight: 600; color: #dbe4f7; }
+  .comets .ja { color: var(--accent); font-weight: 600; }
+  .comets .star { color: #ffcf5a; margin-right: 3px; }
+  .comets td.date, .comets td.orbit { white-space: nowrap; color: var(--fg); }
+  .comets tr.detail td { background: #0b1120; padding: 0; }
+  .comets .card { padding: 12px 14px 14px; border-top: 1px solid var(--line); }
+  .comets .card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0 0 10px; }
+  .comets .card dt { color: var(--dim); }
+  .comets .card dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .comets .card .note { color: var(--fg); background: #131b30; border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; }
+  .comets .card .actions a { display: inline-block; background: #23407a; border: 1px solid #35589c;
+    color: #e6eeff; border-radius: 6px; padding: 6px 12px; margin-right: 8px; font-size: 13px; }
+  .comets .card .actions a.ghost { background: transparent; color: var(--accent); }
+  .comets .prov { color: var(--dim); font-size: 12px; }
+</style>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const DEG = Math.PI / 180;
+
+  // 符号を照合キーに正規化 (build_comets.py の desig_key と同じ規則)
+  function desigKey(s) {
+    s = s.trim();
+    let m = s.match(/^(\d+[PDI])\b/);
+    if (m) return m[1];
+    m = s.match(/^([CPXAI]\/\d{4}\s+[A-Z]{1,2}\d*(?:-[A-Z])?)/);
+    if (m) return m[1].replace(/\s+/g, " ");
+    return s.split(" (")[0].trim();
+  }
+
+  // JD → 'YYYY-MM-DD'
+  function jdToYmd(jd) {
+    let z = Math.floor(jd + 0.5), a = z;
+    if (z >= 2299161) { const al = Math.floor((z - 1867216.25) / 36524.25); a = z + 1 + al - Math.floor(al / 4); }
+    const b = a + 1524, c = Math.floor((b - 122.1) / 365.25), d = Math.floor(365.25 * c),
+          e = Math.floor((b - d) / 30.6001);
+    const day = b - d - Math.floor(30.6001 * e);
+    const mon = e < 14 ? e - 1 : e - 13;
+    const year = mon > 2 ? c - 4716 : c - 4715;
+    return `${year}-${String(mon).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  function orbit(e, q) {
+    if (e < 1) {
+      const a = q / (1 - e), P = Math.pow(a, 1.5);
+      if (P < 200) return { label: `周期 ${P < 10 ? P.toFixed(1) : Math.round(P)}年`, sort: P };
+      return { label: `長周期 ~${Math.round(P).toLocaleString()}年`, sort: P };
+    }
+    if (e <= 1.02) return { label: "非周期（放物線）", sort: 1e12 };
+    return { label: "非周期（双曲線）", sort: 1e13 };
+  }
+
+  let rows = [];
+
+  Promise.all([
+    fetch("../comets_all.json").then((r) => r.json()),
+    fetch("../comets_notable.json").then((r) => r.json()).catch(() => []),
+  ]).then(([all, notable]) => {
+    const nb = {};
+    for (const n of notable) nb[desigKey(n.desig)] = n;
+    rows = all.map((c) => {
+      const key = desigKey(c[0]);
+      const n = nb[key];
+      const ob = orbit(c[1], c[2]);
+      return {
+        name: c[0], key, e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6],
+        M1: c[7], K1: c[8], orbit: ob,
+        ja: n ? n.name_ja : "", maxmag: n ? n.max_mag : null,
+        best: n ? n.best_date : null, note: n ? n.note : "",
+        notable: !!n,
+        search: (c[0] + " " + (n ? n.name_ja : "")).toLowerCase(),
+      };
+    });
+    // comets_all に無い著名彗星 (歴史的で SBDB のみ) を補う。要素は comets_notable 側 [e,q,i,Ω,ω,Tp]。
+    const have = new Set(rows.map((r) => r.key));
+    for (const n of notable) {
+      const key = desigKey(n.desig);
+      if (have.has(key) || !n.elements) continue;
+      const [e, q, i, node, peri, tp] = n.elements;
+      rows.push({
+        name: n.name_en || n.desig, key, e, q, i, node, peri, tp, M1: null, K1: null,
+        orbit: orbit(e, q), ja: n.name_ja, maxmag: n.max_mag, best: n.best_date,
+        note: n.note, notable: true,
+        search: (n.name_en + " " + n.desig + " " + n.name_ja).toLowerCase(),
+      });
+    }
+    render();
+  });
+
+  function currentSort() {
+    const v = $("sort").value;
+    if (v === "tp-asc") return (a, b) => a.tp - b.tp;
+    if (v === "tp-desc") return (a, b) => b.tp - a.tp;
+    if (v === "period") return (a, b) => a.orbit.sort - b.orbit.sort;
+    return (a, b) => a.key.localeCompare(b.key); // 符号順
+  }
+
+  function render() {
+    const q = $("q").value.trim().toLowerCase();
+    const onlyNotable = $("notable-only").checked;
+    let list = rows.filter((r) => (!onlyNotable || r.notable) && (!q || r.search.includes(q)));
+    list.sort(currentSort());
+
+    const html = list.map((r, i) => {
+      const star = r.notable ? '<span class="star">★</span>' : "";
+      const ja = r.ja ? ` <span class="ja">（${r.ja}）</span>` : "";
+      const mag = (r.notable && r.maxmag != null) ? `最大 ${r.maxmag}等` : `M1 ${r.M1}`;
+      return `<tr class="crow" data-k="${r.key}">
+        <td>${star}<span class="nm">${r.name}</span>${ja}</td>
+        <td class="date">${jdToYmd(r.tp)}</td>
+        <td class="num">${r.q.toFixed(3)}</td>
+        <td class="orbit">${r.orbit.label}</td>
+        <td class="num">${mag}</td></tr>`;
+    }).join("");
+    $("rows").innerHTML = html;
+    $("count").textContent = `${list.length.toLocaleString()} 件`;
+    $("empty").hidden = list.length > 0;
+
+    // 行クリックで詳細カードを開閉
+    for (const tr of $("rows").querySelectorAll("tr.crow")) {
+      tr.addEventListener("click", () => toggle(tr));
+    }
+  }
+
+  function toggle(tr) {
+    if (tr.classList.contains("open")) {
+      tr.classList.remove("open"); tr.nextElementSibling?.remove(); return;
+    }
+    // 他の開いているものは閉じる
+    const openTr = $("rows").querySelector("tr.crow.open");
+    if (openTr) { openTr.classList.remove("open"); openTr.nextElementSibling?.remove(); }
+
+    const r = rows.find((x) => x.key === tr.dataset.k);
+    tr.classList.add("open");
+    const a = r.e < 1 ? (r.q / (1 - r.e)) : null;
+    const rmag = (r.notable && r.maxmag != null)
+      ? `最大 約${r.maxmag}等 <span class="prov">（監修前の仮値）</span>` : "—";
+    const detail = document.createElement("tr");
+    detail.className = "detail";
+    detail.innerHTML = `<td colspan="5"><div class="card">
+      <dl>
+        <dt>符号</dt><dd>${r.name}</dd>
+        ${r.ja ? `<dt>和名</dt><dd class="ja">${r.ja}</dd>` : ""}
+        <dt>軌道</dt><dd>${r.orbit.label}</dd>
+        <dt>近日点通過</dt><dd>${jdToYmd(r.tp)}　<span class="prov">JD ${r.tp}</span></dd>
+        <dt>近日点距離 q</dt><dd>${r.q.toFixed(4)} AU</dd>
+        <dt>離心率 e</dt><dd>${r.e}</dd>
+        ${a ? `<dt>軌道長半径 a</dt><dd>${a.toFixed(3)} AU</dd>` : ""}
+        <dt>軌道傾斜 i</dt><dd>${r.i}°</dd>
+        ${r.M1 != null ? `<dt>絶対全光度 M1</dt><dd>${r.M1}</dd>` : ""}
+        ${r.notable ? `<dt>最大光度</dt><dd>${rmag}</dd>` : ""}
+        ${r.best ? `<dt>最良観測期</dt><dd>${r.best}</dd>` : ""}
+      </dl>
+      ${r.note ? `<div class="note">${r.note}</div>` : ""}
+      <div class="actions">
+        <a href="../solar/?comet=${encodeURIComponent(r.key)}">軌道を3Dで見る →</a>
+      </div>
+    </div></td>`;
+    tr.after(detail);
+  }
+
+  $("q").addEventListener("input", render);
+  $("sort").addEventListener("change", render);
+  $("notable-only").addEventListener("change", render);
+})();
+</script>

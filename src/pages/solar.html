@@ -205,7 +205,28 @@ fetch("../comets_all.json").then((r) => r.json()).then((d) => {
   orbitingGroup.add(cometPoints);
   buildCometOrbits();
   update();
+  selectFromUrl();   // 彗星カタログから ?comet=符号 で来たら選択・追尾
 }).catch(() => {});
+
+// 符号を照合キーに正規化 (build_comets.py / comets ページと同じ規則)
+function desigKeyOf(s) {
+  s = s.trim();
+  let m = s.match(/^(\d+[PDI])\b/);
+  if (m) return m[1];
+  m = s.match(/^([CPXAI]\/\d{4}\s+[A-Z]{1,2}\d*(?:-[A-Z])?)/);
+  if (m) return m[1].replace(/\s+/g, " ");
+  return s.split(" (")[0].trim();
+}
+
+// URL の ?comet=<符号キー> に一致する彗星を選ぶ (彗星カタログ /comets/ からの導線)
+function selectFromUrl() {
+  const key = new URLSearchParams(location.search).get("comet");
+  if (!key || !comets) return;
+  const kl = key.toLowerCase();
+  let idx = comets.findIndex((c) => desigKeyOf(c[0]).toLowerCase() === kl);
+  if (idx < 0) idx = comets.findIndex((c) => c[0].toLowerCase().includes(kl));
+  if (idx >= 0) selectComet(idx);
+}
 
 /** 近日点が内惑星系に届く彗星の軌道線 (数が多いので q<8AU に絞る)。 */
 function buildCometOrbits() {
