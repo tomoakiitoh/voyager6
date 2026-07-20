@@ -1,0 +1,197 @@
+<!--
+title: 小惑星カタログ
+description: 探査機が訪れた小惑星（イトカワ・リュウグウ・ベンヌ・エロスなど）を軸にした小惑星の一覧。名前や番号で検索でき、行を開くと軌道の要点と3Dビューへの導線が出る。
+scripts: astro.js
+bodyclass: aster-page
+-->
+<main class="doc aster">
+
+<h1>小惑星カタログ</h1>
+<p>
+  小惑星は数十万を超えるので全部は並べません。ここでは
+  <b>探査機が訪れた（これから訪れる）小惑星</b>を軸に、名前・番号での検索を用意しています。
+  行をタップすると軌道の要点と、太陽系3Dで軌道を見る導線が出ます。
+</p>
+
+<h2>探査機が訪れた小惑星</h2>
+<p class="dim">はやぶさ・はやぶさ2・DESTINY+（日本）をはじめ、各国のミッションが実際に行った／向かう小惑星です。</p>
+<div class="tbl-wrap">
+  <table id="ntbl">
+    <thead><tr><th>名前</th><th>探査機</th><th>時期</th><th>分類</th><th class="num">a (AU)</th></tr></thead>
+    <tbody id="nrows"></tbody>
+  </table>
+</div>
+
+<h2>名前・番号で検索</h2>
+<p class="dim">命名済み（約2.6万）＋地球接近小惑星（約4.2万）から。英名・番号・仮符号で。日本語名は上の探査機リストの天体に対応。</p>
+<div class="controls">
+  <input id="q" type="search" placeholder="名前・番号・仮符号で検索（例: Vesta / 433 / 2024 YR）" autocomplete="off">
+  <span id="count" class="info"></span>
+</div>
+<div class="tbl-wrap">
+  <table id="stbl">
+    <thead><tr><th>番号 / 名前</th><th>仮符号</th><th>分類</th><th class="num">a (AU)</th><th class="num">H</th></tr></thead>
+    <tbody id="srows"></tbody>
+  </table>
+</div>
+<p id="hint" class="dim"></p>
+
+</main>
+
+<style>
+  .aster h2 { margin-top: 30px; }
+  .aster .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+  .aster .controls input[type="search"] { flex: 1 1 260px; min-width: 160px; }
+  .aster #count { margin-left: auto; }
+  .aster .tbl-wrap { overflow-x: auto; }
+  .aster table { font-size: 13px; }
+  .aster th.num, .aster td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .aster td { padding: 7px 10px; }
+  .aster tr.arow { cursor: pointer; }
+  .aster tr.arow:hover td { background: #121a30; }
+  .aster tr.arow.open td { background: #17233f; }
+  .aster .nm { font-weight: 600; color: #dbe4f7; }
+  .aster .ja { color: var(--accent); font-weight: 600; }
+  .aster .craft { color: var(--fg); white-space: nowrap; }
+  .aster td.orbit, .aster td.year { white-space: nowrap; color: var(--fg); }
+  .aster .badge { font-size: 11px; border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+  .aster .badge.plan { background: #3a2d12; color: #ffcf5a; border: 1px solid #6b5220; }
+  .aster tr.detail td { background: #0b1120; padding: 0; }
+  .aster .card { padding: 12px 14px 14px; border-top: 1px solid var(--line); }
+  .aster .card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0 0 10px; max-width: 520px; }
+  .aster .card dt { color: var(--dim); }
+  .aster .card dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .aster .card .note { color: var(--fg); background: #131b30; border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; }
+  .aster .card .actions a { display: inline-block; background: #23407a; border: 1px solid #35589c;
+    color: #e6eeff; border-radius: 6px; padding: 6px 12px; font-size: 13px; }
+</style>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const CLASS_JA = {
+    MBA: "メインベルト", IMB: "内側メインベルト", OMB: "外側メインベルト", MCA: "火星横断",
+    APO: "地球近傍(アポロ)", ATE: "地球近傍(アテン)", AMO: "地球近傍(アモール)", IEO: "地球内側",
+    TJN: "木星トロヤ群", CEN: "ケンタウルス族", TNO: "太陽系外縁", AST: "小惑星",
+  };
+  const cls = (c) => CLASS_JA[c] ? `${CLASS_JA[c]}` : (c || "—");
+
+  // 3Dリンク: ?ael=a,e,i,Ω,ω,M0,epoch &aname=名前
+  function solarLink(elm, name) {
+    return `../solar/?ael=${elm.map((x) => +(+x).toFixed(6)).join(",")}&aname=${encodeURIComponent(name)}`;
+  }
+
+  function detailCard(o) {
+    const e = o.el; // [a,e,i,Ω,ω,M0,epoch]
+    const dispName = o.name_ja ? `${o.name_ja}（${o.name_en}）` : o.name_en;
+    const rows = [
+      ["番号", o.num != null ? `(${o.num})` : "—"],
+      o.name_ja ? ["和名", `<span class="ja">${o.name_ja}</span>`] : null,
+      o.craft ? ["探査機", o.craft] : null,
+      o.year ? ["時期", o.year] : null,
+      ["軌道分類", cls(o.class)],
+      ["軌道長半径 a", `${e[0]} AU`],
+      ["離心率 e", `${e[1]}`],
+      ["軌道傾斜 i", `${e[2]}°`],
+      o.H != null ? ["絶対等級 H", `${o.H}`] : null,
+      o.diameter != null ? ["直径", `${o.diameter} km`] : null,
+    ].filter(Boolean);
+    return `<div class="card">
+      <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+      ${o.note ? `<div class="note">${o.note}</div>` : ""}
+      <div class="actions"><a href="${solarLink(e, dispName)}">軌道を3Dで見る →</a></div>
+    </div>`;
+  }
+
+  function bindRows(tbody, lookup) {
+    for (const tr of tbody.querySelectorAll("tr.arow")) {
+      tr.addEventListener("click", () => {
+        if (tr.classList.contains("open")) {
+          tr.classList.remove("open"); tr.nextElementSibling?.remove(); return;
+        }
+        const openTr = tbody.querySelector("tr.arow.open");
+        if (openTr) { openTr.classList.remove("open"); openTr.nextElementSibling?.remove(); }
+        tr.classList.add("open");
+        const detail = document.createElement("tr");
+        detail.className = "detail";
+        detail.innerHTML = `<td colspan="5">${detailCard(lookup(tr.dataset.id))}</td>`;
+        tr.after(detail);
+      });
+    }
+  }
+
+  let catalog = [], neo = [], notable = [], search = [], byId = {};
+
+  Promise.all([
+    fetch("../asteroids_notable.json").then((r) => r.json()).catch(() => []),
+    fetch("../asteroids_catalog.json").then((r) => r.json()),
+    fetch("../asteroids_neo.json").then((r) => r.json()).catch(() => []),
+  ]).then(([nt, cat, ne]) => {
+    notable = nt; catalog = cat; neo = ne;
+    const jaByNum = {};
+    for (const n of notable) jaByNum[n.num] = n.name_ja;
+
+    // 検索用: 命名済み + NEA を番号/仮符号で重複除去。1件 = [num,name,pdes,class,a,e,i,Ω,ω,M0,epoch,H,diam]
+    const seen = new Set();
+    const toObj = (r) => ({
+      num: r[0], name_en: r[1], pdes: r[2], class: r[3],
+      el: [r[4], r[5], r[6], r[7], r[8], r[9], r[10]], H: r[11], diameter: r[12],
+      name_ja: jaByNum[r[0]] || "",
+    });
+    for (const r of catalog.concat(neo)) {
+      const id = r[0] != null ? `n${r[0]}` : `d${r[2]}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const o = toObj(r);
+      o.id = id;
+      o.search = `${o.num || ""} ${o.name_en} ${o.pdes} ${o.name_ja}`.toLowerCase();
+      byId[id] = o; search.push(o);
+    }
+    renderNotable();
+    renderSearch();
+  });
+
+  // --- 探査機リスト ---
+  function renderNotable() {
+    const nById = {};
+    $("nrows").innerHTML = notable.map((n) => {
+      const id = `nt${n.num}`;
+      nById[id] = { ...n, name_en: n.name_en, name_ja: n.name_ja, class: n.class,
+        el: n.elements, H: n.H, diameter: n.diameter };
+      const badge = n.planned ? '<span class="badge plan">予定</span>' : "";
+      return `<tr class="arow" data-id="${id}">
+        <td><span class="ja">${n.name_ja}</span> <span class="nm">${n.name_en}</span>${badge}</td>
+        <td class="craft">${n.craft}</td>
+        <td class="year">${n.year}</td>
+        <td class="orbit">${cls(n.class)}</td>
+        <td class="num">${n.elements[0].toFixed(3)}</td></tr>`;
+    }).join("");
+    bindRows($("nrows"), (id) => nById[id]);
+  }
+
+  // --- 検索 ---
+  function renderSearch() {
+    const q = $("q").value.trim().toLowerCase();
+    let list;
+    if (!q) {
+      list = search.slice().sort((a, b) => (a.H ?? 99) - (b.H ?? 99)).slice(0, 50); // 既定=明るい50
+    } else {
+      list = search.filter((o) => o.search.includes(q));
+    }
+    const total = list.length;
+    const shown = list.slice(0, 200);
+    $("srows").innerHTML = shown.map((o) => `<tr class="arow" data-id="${o.id}">
+        <td>${o.num != null ? `<span class="nm">(${o.num})</span> ` : ""}${o.name_en || o.pdes}
+            ${o.name_ja ? `<span class="ja">（${o.name_ja}）</span>` : ""}</td>
+        <td>${o.pdes || "—"}</td>
+        <td class="orbit">${cls(o.class)}</td>
+        <td class="num">${o.el[0].toFixed(3)}</td>
+        <td class="num">${o.H != null ? o.H : "—"}</td></tr>`).join("");
+    bindRows($("srows"), (id) => byId[id]);
+    $("count").textContent = q ? `${total.toLocaleString()} 件` : "明るい順 50件";
+    $("hint").textContent = total > 200 ? `上位200件を表示中。さらに絞り込むには入力を足してください（全${total.toLocaleString()}件該当）。` : "";
+  }
+
+  $("q").addEventListener("input", renderSearch);
+})();
+</script>

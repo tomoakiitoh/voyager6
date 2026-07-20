@@ -288,6 +288,45 @@ function asteroidHelio(a, jd) {
   return heliocentric({ N: a[3], i: a[2], w: a[4], a: a[0], e: a[1], M });
 }
 
+// ---- 特定の小惑星を軌道つきで表示 (小惑星カタログ /asteroids/ からの ?ael= 導線) ----
+let selAst = null;                          // { el:[a,e,i,Ω,ω,M0,epoch], name }
+let selAstOrbit = null;
+const selAstMarker = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 14),
+  new THREE.MeshBasicMaterial({ color: 0x9fffe0, wireframe: true, transparent: true, opacity: 0.95 }));
+selAstMarker.visible = false; orbitingGroup.add(selAstMarker);
+
+function showAsteroid(el, name) {
+  selAst = { el, name };
+  if (selAstOrbit) { orbitingGroup.remove(selAstOrbit); selAstOrbit.geometry.dispose(); }
+  const pts = [];  // M を一周させて軌道を描く (形は時刻に依らない)
+  for (let M = 0; M <= 360; M += 2) {
+    pts.push(toV(heliocentric({ N: el[3], i: el[2], w: el[4], a: el[0], e: el[1], M })));
+  }
+  selAstOrbit = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x2fd6a6 }));
+  orbitingGroup.add(selAstOrbit);
+  selAstMarker.visible = true;
+  updateAsteroidMarker(curJd);
+}
+
+function updateAsteroidMarker(jd) {
+  if (!selAst) return;
+  const h = asteroidHelio(selAst.el, jd);
+  selAstMarker.position.set(h.x, h.z, -h.y);
+  const r = Math.hypot(h.x, h.y, h.z);
+  el("solar-pick").textContent = `★ ${selAst.name}　日心 ${r.toFixed(3)} AU`;
+}
+
+// URL の ?ael=a,e,i,Ω,ω,M0,epoch &aname=名前 で小惑星を軌道つき表示
+function showAsteroidFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const ael = p.get("ael");
+  if (!ael) return;
+  const elems = ael.split(",").map(Number);
+  if (elems.length < 7 || elems.some((x) => !isFinite(x))) return;
+  showAsteroid(elems, p.get("aname") || "小惑星");
+}
+
 // ---- 小惑星 Tier2 (H≤15 を GPU で全量描画。位置は頂点シェーダで都度ケプラーを解く) ----
 // asteroids_tier2.bin: 1件 = 7×float32 [a, e, i, Ω, ω, M0, epochRel(=epoch−J2000)]。
 // 頂点シェーダは CPU 版 asteroidHelio と同じ式 (Schlyter/heliocentric) をラジアンで解く。
@@ -393,6 +432,7 @@ function update() {
     pos.needsUpdate = true;
   }
   if (selectedIndex >= 0) updateSelectedMarker(jd);
+  if (selAst) updateAsteroidMarker(jd);
   if (tier2Mat) tier2Mat.uniforms.uT.value = jd - J0; // GPU全量: 時刻を渡す (位置はシェーダが計算)
   // 回転座標系: グループごと木星の黄経ぶん逆回転させて木星を固定 (トロヤ群/ヒルダ群が浮かぶ)
   orbitingGroup.rotation.y = coRotating
@@ -537,6 +577,7 @@ function tick(now) {
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
+showAsteroidFromUrl();  // ?ael= で小惑星を軌道つき表示 (彗星は fetch 後に selectFromUrl)
 update();
 tick();
 </script>
