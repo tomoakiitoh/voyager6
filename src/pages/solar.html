@@ -10,6 +10,7 @@ bodyclass: solar-page
   <div class="row">
     <span id="solar-date" class="info"></span>
     <span class="grow"></span>
+    <button id="solar-vr" hidden>VRで見る</button>
     <button id="solar-now" class="primary">今</button>
   </div>
   <div class="row">
@@ -70,6 +71,7 @@ const toV = (h) => new THREE.Vector3(h.x, h.z, -h.y);
 const canvas = document.getElementById("solar-canvas");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.xr.enabled = true;                 // WebXR (VRモード) を有効化
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070d);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.005, 8000);
@@ -78,22 +80,27 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
+// 太陽系ぜんぶを載せる器。VRではこの world ごと縮小して目の前に浮かべる
+// (desktop では scale 1・原点のままなので見え方は不変)。
+const world = new THREE.Group();
+scene.add(world);
+scene.add(new THREE.AmbientLight(0x668, 0.6));   // 環境光だけは頭側に固定
+
 // 太陽
 const sun = new THREE.Mesh(
   new THREE.SphereGeometry(0.28, 24, 24),
   new THREE.MeshBasicMaterial({ color: 0xffdf70 }));
-scene.add(sun);
-scene.add(new THREE.PointLight(0xffffff, 1.4, 0, 0));
-scene.add(new THREE.AmbientLight(0x668, 0.6));
+world.add(sun);
+world.add(new THREE.PointLight(0xffffff, 1.4, 0, 0));
 
 // 黄道面のうっすらグリッド (向きの手がかり)
 const grid = new THREE.PolarGridHelper(45, 8, 9, 64, 0x223, 0x18213a);
-scene.add(grid);
+world.add(grid);
 
 // 公転する天体はすべてこのグループに入れる。回転座標系(木星固定)では
 // このグループごと木星の黄経ぶん回すことで、木星を止めて見せる。
 const orbitingGroup = new THREE.Group();
-scene.add(orbitingGroup);
+world.add(orbitingGroup);
 let coRotating = false;
 
 // ---- 惑星 ----
@@ -554,6 +561,7 @@ canvas.addEventListener("click", (ev) => {
 
 // ---- 描画ループ・リサイズ ----
 function resize() {
+  if (renderer.xr.isPresenting) return;   // VR中は three が描画面を管理するので触らない
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== w || canvas.height !== h) {
     renderer.setSize(w, h, false);
@@ -573,11 +581,62 @@ function tick(now) {
     el("solar-time").value = Math.round(val);
     update();
   }
-  controls.update();
+  if (!renderer.xr.isPresenting) controls.update();  // VR中は頭の動きが視点
   renderer.render(scene, camera);
-  requestAnimationFrame(tick);
 }
+renderer.setAnimationLoop(tick);   // WebXR では requestAnimationFrame でなくこれを使う
 showAsteroidFromUrl();  // ?ael= で小惑星を軌道つき表示 (彗星は fetch 後に selectFromUrl)
-update();
-tick();
+
+// ---- VRモード (WebXR。最小: 太陽系を目の前に浮かべて見回す) ----
+setupVR();
+function setupVR() {
+  const btn = el("solar-vr");
+  if (!navigator.xr) return;  // WebXR 非対応ブラウザではボタンを出さない
+  navigator.xr.isSessionSupported("immersive-vr").then((ok) => {
+    if (!ok) return;
+    btn.hidden = false;
+    let session = null;
+    // VR入場前の状態を退避して、退場時に戻す
+    const saved = {};
+    const heavy = ["solar-comets", "solar-asteroids", "solar-asteroids2"];
+    btn.addEventListener("click", async () => {
+      if (session) { session.end(); return; }
+      try {
+        session = await navigator.xr.requestSession("immersive-vr",
+          { optionalFeatures: ["local-floor"] });
+      } catch (e) { alert("VRを開始できませんでした。Quest のブラウザで開いてください。"); return; }
+      renderer.xr.setReferenceSpaceType("local");   // 頭の初期位置が原点 (着席/立位どちらでも可)
+      await renderer.xr.setSession(session);
+      btn.textContent = "VRを終了";
+      enterVR(saved, heavy);
+      session.addEventListener("end", () => {
+        session = null; btn.textContent = "VRで見る"; exitVR(saved, heavy);
+      });
+    });
+  });
+}
+function enterVR(saved, heavy) {
+  // 太陽系ぜんぶを縮小して、立っている人の目の前(約1m先・胸〜目の高さ)に浮かべる
+  saved.scale = world.scale.x; saved.pos = world.position.clone();
+  world.scale.setScalar(0.03);            // 30AU ≈ 0.9m。系全体を"手のひら〜抱えるサイズ"に
+  world.position.set(0, 0, -1.3);         // 頭の正面 約1.3m先に浮かべる
+  scene.background = new THREE.Color(0x02030a);
+  controls.enabled = false;
+  // 最小ループは軽さ優先: 重いレイヤ(彗星/小惑星/GPU全量)は退避して隠す
+  saved.heavy = {};
+  for (const id of heavy) { saved.heavy[id] = el(id).checked; if (el(id).checked) { el(id).checked = false; el(id).dispatchEvent(new Event("change")); } }
+  // 惑星が動いて見えるよう、ゆっくり自動再生
+  saved.playing = playing; saved.speed = el("solar-speed").value;
+  el("solar-speed").value = "30"; lastT = 0;
+  playing = true; el("solar-play").textContent = "■";
+}
+function exitVR(saved, heavy) {
+  world.scale.setScalar(saved.scale); world.position.copy(saved.pos);
+  scene.background = new THREE.Color(0x05070d);
+  controls.enabled = true;
+  for (const id of heavy) { if (saved.heavy[id]) { el(id).checked = true; el(id).dispatchEvent(new Event("change")); } }
+  el("solar-speed").value = saved.speed;
+  playing = saved.playing; el("solar-play").textContent = playing ? "■" : "▶";
+}
+update();   // 初期配置 (以降の描画は setAnimationLoop(tick) が駆動)
 </script>
