@@ -34,7 +34,7 @@ bodyclass: planetarium-page
     <label><input type="checkbox" id="pl-lines" checked>星座線</label>
     <label><input type="checkbox" id="pl-names">星座名</label>
     <label><input type="checkbox" id="pl-planets" checked>惑星・月</label>
-    <label><input type="checkbox" id="pl-mw" checked>天の川</label>
+    <label><input type="checkbox" id="pl-mw">天の川の輪郭</label>
   </div>
 </div>
 
@@ -83,29 +83,41 @@ function bvRGB(bv) {
 
 // ---- 恒星 (シェーダで等級ごとに大きさ、B-Vで色) ----
 const STAR_VERT = `
-attribute float aSize; attribute vec3 aColor; varying vec3 vColor;
-void main(){ vColor=aColor; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); gl_PointSize=aSize; }`;
+attribute float aSize; attribute vec3 aColor; attribute float aBright;
+varying vec3 vColor; varying float vBright;
+void main(){ vColor=aColor; vBright=aBright;
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); gl_PointSize=aSize; }`;
 const STAR_FRAG = `
-precision mediump float; varying vec3 vColor;
+precision mediump float; varying vec3 vColor; varying float vBright;
 void main(){ vec2 d=gl_PointCoord-vec2(0.5); float r2=dot(d,d); if(r2>0.25) discard;
-  gl_FragColor=vec4(vColor, smoothstep(0.25,0.02,r2)); }`;
+  float m=smoothstep(0.25,0.0,r2);           // 丸くソフトな点
+  gl_FragColor=vec4(vColor*vBright*m, 1.0);   // 加算合成: 明るさは等級由来。密集で天の川が光る
+}`;
+// 等級 → 見かけの大きさ・明るさ。明暗差を大きく取り、星座(明るい星)が埋もれないように。
+const starSize = (mag) => Math.max(1.2, Math.min(13.0, 1.3 + Math.max(0, 5.5 - mag) * 1.35));
+// ≒ 実際の光度比。暗い星に下限を与え、天の川の密集域で加算されて帯が光るようにする。
+const starBright = (mag) => Math.min(8.0, Math.max(0.06, Math.pow(2.512, 4.2 - mag)));
+const starMaterial = () => new THREE.ShaderMaterial({
+  vertexShader: STAR_VERT, fragmentShader: STAR_FRAG,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
 
 {
   const n = STARS.length;
-  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), siz = new Float32Array(n);
+  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  const siz = new Float32Array(n), bri = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const s = STARS[i];               // [ra, dec, mag, B-V]
     const v = raDecToVec(s[0], s[1]);
     pos[i * 3] = v[0] * R; pos[i * 3 + 1] = v[1] * R; pos[i * 3 + 2] = v[2] * R;
     const c = bvRGB(s[3]); col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
-    siz[i] = Math.max(2.0, Math.min(15.0, (6.6 - s[2]) * 2.0));  // 明るいほど大きい
+    siz[i] = starSize(s[2]); bri[i] = starBright(s[2]);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   g.setAttribute("aColor", new THREE.BufferAttribute(col, 3));
   g.setAttribute("aSize", new THREE.BufferAttribute(siz, 1));
-  const stars = new THREE.Points(g, new THREE.ShaderMaterial({
-    vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, transparent: true, depthWrite: false }));
+  g.setAttribute("aBright", new THREE.BufferAttribute(bri, 1));
+  const stars = new THREE.Points(g, starMaterial());
   stars.frustumCulled = false;
   skyGroup.add(stars);
 }
@@ -116,7 +128,8 @@ function loadDeepStars() {
   fetch("../stars_deep.bin").then((r) => r.arrayBuffer()).then((buf) => {
     const dv = new DataView(buf), n = Math.floor(buf.byteLength / 10);
     const MLO = 5, MHI = 10, BLO = -0.5, BHI = 2.5;   // build_stars.py の量子化レンジ
-    const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), siz = new Float32Array(n);
+    const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+    const siz = new Float32Array(n), bri = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const o = i * 10;
       const ra = dv.getFloat32(o, true), dec = dv.getFloat32(o + 4, true);
@@ -125,14 +138,14 @@ function loadDeepStars() {
       const v = raDecToVec(ra, dec);
       pos[i * 3] = v[0] * R; pos[i * 3 + 1] = v[1] * R; pos[i * 3 + 2] = v[2] * R;
       const c = bvRGB(bv); col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
-      siz[i] = Math.max(1.4, Math.min(9.0, (7.6 - mag) * 1.4));   // 暗いほど小さく
+      siz[i] = starSize(mag); bri[i] = starBright(mag);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     g.setAttribute("aColor", new THREE.BufferAttribute(col, 3));
     g.setAttribute("aSize", new THREE.BufferAttribute(siz, 1));
-    deepStars = new THREE.Points(g, new THREE.ShaderMaterial({
-      vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, transparent: true, depthWrite: false }));
+    g.setAttribute("aBright", new THREE.BufferAttribute(bri, 1));
+    deepStars = new THREE.Points(g, starMaterial());
     deepStars.frustumCulled = false;
     deepStars.visible = el("pl-deep").checked;
     skyGroup.add(deepStars);
@@ -178,6 +191,7 @@ const milkyway = (() => {
     color: 0x1c2740, transparent: true, opacity: 0.5 }));
   line.frustumCulled = false; skyGroup.add(line); return line;
 })();
+milkyway.visible = false;   // 深い星で本物の天の川が出るので、輪郭線は既定オフ
 
 // ---- 星座名スプライト ----
 function makeLabel(text, color, size = 0.5) {
