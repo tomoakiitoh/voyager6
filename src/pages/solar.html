@@ -568,6 +568,30 @@ function resize() {
     camera.aspect = w / h; camera.updateProjectionMatrix();
   }
 }
+// VR中のコントローラ操作: スティック左右で時間送り、A/X(またはトリガ)で「今」に戻す
+let vrPrevReset = false, vrPrevNow = 0;
+function vrInput(now) {
+  const s = renderer.xr.getSession();
+  if (!s) return;
+  const dt = vrPrevNow ? Math.min(0.1, (now - vrPrevNow) / 1000) : 0; vrPrevNow = now;
+  let stick = 0, reset = false;
+  for (const src of s.inputSources) {
+    const gp = src.gamepad;
+    if (!gp) continue;
+    const ax = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);  // サムスティックX
+    if (Math.abs(ax) > Math.abs(stick)) stick = ax;
+    if ((gp.buttons[4] && gp.buttons[4].pressed) || (gp.buttons[0] && gp.buttons[0].pressed)) reset = true;
+  }
+  let changed = false;
+  if (Math.abs(stick) > 0.15) {                       // 全倒し≒60日/秒
+    let val = (curJd - J0) + stick * Math.abs(stick) * 60 * dt;
+    val = Math.max(-18262, Math.min(18262, val));
+    curJd = J0 + val; el("solar-time").value = Math.round(val); changed = true;
+  }
+  if (reset && !vrPrevReset) { curJd = jdFromDate(new Date()); el("solar-time").value = Math.round(curJd - J0); changed = true; }
+  vrPrevReset = reset;
+  if (changed) update();
+}
 function tick(now) {
   resize();
   if (playing) {
@@ -581,7 +605,8 @@ function tick(now) {
     el("solar-time").value = Math.round(val);
     update();
   }
-  if (!renderer.xr.isPresenting) controls.update();  // VR中は頭の動きが視点
+  if (renderer.xr.isPresenting) vrInput(now);
+  else controls.update();                            // VR中は頭の動きが視点
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(tick);   // WebXR では requestAnimationFrame でなくこれを使う

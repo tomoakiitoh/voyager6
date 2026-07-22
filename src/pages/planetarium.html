@@ -349,17 +349,35 @@ function resize() {
     renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
   }
 }
+// VR中のコントローラ操作: スティック左右で時間送り、A/X(またはトリガ)で「今」に戻す
+let vrPrevReset = false;
+function vrInput(dt) {
+  const s = renderer.xr.getSession();
+  if (!s) return false;
+  let stick = 0, reset = false;
+  for (const src of s.inputSources) {
+    const gp = src.gamepad;
+    if (!gp) continue;
+    const ax = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);  // サムスティックX
+    if (Math.abs(ax) > Math.abs(stick)) stick = ax;
+    if ((gp.buttons[4] && gp.buttons[4].pressed) || (gp.buttons[0] && gp.buttons[0].pressed)) reset = true;
+  }
+  let changed = false;
+  if (Math.abs(stick) > 0.15) { curJd += stick * Math.abs(stick) * 0.3 * dt; changed = true; }  // 全倒し≒6時間/秒
+  if (reset && !vrPrevReset) { curJd = jdFromDate(new Date()); changed = true; }
+  vrPrevReset = reset;
+  return changed;
+}
+
+let prevNow = 0;
 function tick(now) {
   resize();
-  if (playing) {
-    const dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
-    curJd += (Number(el("pl-speed").value) / 1440) * dt;   // 分/秒 → 日
-    syncControls(); update();
-  }
-  if (!renderer.xr.isPresenting) {
-    camera.rotation.set(pitch, yaw, 0, "YXZ");
-    camera.position.set(0, 1.6, 0);
-  }
+  const dt = prevNow ? Math.min(0.1, (now - prevNow) / 1000) : 0; prevNow = now;
+  let changed = false;
+  if (playing) { curJd += (Number(el("pl-speed").value) / 1440) * dt; changed = true; }  // 分/秒→日
+  if (renderer.xr.isPresenting) { if (vrInput(dt)) changed = true; }
+  else { camera.rotation.set(pitch, yaw, 0, "YXZ"); camera.position.set(0, 1.6, 0); }
+  if (changed) { syncControls(); update(); }
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(tick);
