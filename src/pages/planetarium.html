@@ -30,6 +30,7 @@ bodyclass: planetarium-page
     <input type="range" id="pl-time" min="0" max="1439" step="1" value="0">
   </div>
   <div class="row toggles">
+    <label><input type="checkbox" id="pl-deep" checked>深い星 V≤10</label>
     <label><input type="checkbox" id="pl-lines" checked>星座線</label>
     <label><input type="checkbox" id="pl-names">星座名</label>
     <label><input type="checkbox" id="pl-planets" checked>惑星・月</label>
@@ -108,6 +109,38 @@ void main(){ vec2 d=gl_PointCoord-vec2(0.5); float r2=dot(d,d); if(r2>0.25) disc
   stars.frustumCulled = false;
   skyGroup.add(stars);
 }
+
+// ---- 深い星 V≤10 (全天一括ロード。stars_deep.bin = ra f32, dec f32, magQ u8, bvQ u8) ----
+let deepStars = null;
+function loadDeepStars() {
+  fetch("../stars_deep.bin").then((r) => r.arrayBuffer()).then((buf) => {
+    const dv = new DataView(buf), n = Math.floor(buf.byteLength / 10);
+    const MLO = 5, MHI = 10, BLO = -0.5, BHI = 2.5;   // build_stars.py の量子化レンジ
+    const pos = new Float32Array(n * 3), col = new Float32Array(n * 3), siz = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const o = i * 10;
+      const ra = dv.getFloat32(o, true), dec = dv.getFloat32(o + 4, true);
+      const mag = MLO + dv.getUint8(o + 8) / 255 * (MHI - MLO);
+      const bv = BLO + dv.getUint8(o + 9) / 255 * (BHI - BLO);
+      const v = raDecToVec(ra, dec);
+      pos[i * 3] = v[0] * R; pos[i * 3 + 1] = v[1] * R; pos[i * 3 + 2] = v[2] * R;
+      const c = bvRGB(bv); col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+      siz[i] = Math.max(1.4, Math.min(9.0, (7.6 - mag) * 1.4));   // 暗いほど小さく
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("aColor", new THREE.BufferAttribute(col, 3));
+    g.setAttribute("aSize", new THREE.BufferAttribute(siz, 1));
+    deepStars = new THREE.Points(g, new THREE.ShaderMaterial({
+      vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, transparent: true, depthWrite: false }));
+    deepStars.frustumCulled = false;
+    deepStars.visible = el("pl-deep").checked;
+    skyGroup.add(deepStars);
+    el("pl-deep").parentElement.classList.remove("loading");
+  }).catch(() => { el("pl-deep").parentElement.classList.remove("loading"); });
+}
+el("pl-deep").parentElement.classList.add("loading");
+loadDeepStars();
 
 // ---- 星座線 ----
 const constLines = (() => {
@@ -255,6 +288,7 @@ el("pl-date").addEventListener("change", () => { curJd = jdFromControls(); updat
 el("pl-time").addEventListener("input", () => { curJd = jdFromControls(); update(); });
 el("pl-now").addEventListener("click", () => { curJd = jdFromDate(new Date()); syncControls(); update(); });
 
+el("pl-deep").addEventListener("change", () => { if (deepStars) deepStars.visible = el("pl-deep").checked; });
 el("pl-lines").addEventListener("change", () => constLines.visible = el("pl-lines").checked);
 el("pl-names").addEventListener("change", () => constNames.visible = el("pl-names").checked);
 el("pl-planets").addEventListener("change", () => bodyGroup.visible = el("pl-planets").checked);
@@ -357,4 +391,5 @@ function setupVR() {
   }
   #pl-panel .toggles input { accent-color: var(--accent); margin: 0 4px 0 0; }
   #pl-panel .toggles label:has(input:checked) { color: var(--fg); border-color: #35589c; background: #17233f; }
+  #pl-panel .toggles label.loading { opacity: 0.5; }
 </style>

@@ -114,6 +114,7 @@ def main() -> int:
     # tiles[layer][tileKey] = [ (mag, ra, dec, bv), ... ]
     tiles: list[dict[str, list]] = [dict() for _ in LAYERS]
     highpm = []  # [ra, dec, pm_ra, pm_dec, mag, bv] 高固有運動星
+    deep_all = []  # 全深層星 (ra,dec,mag,bv)。全天一括ロード用 stars_deep.bin (VRプラネタリウム)
     total = 0
     skipped_nomag = 0
 
@@ -136,6 +137,7 @@ def main() -> int:
             ra = float(row["ra"]) * 15.0 % 360.0   # AT-HYG の ra は「時」単位
             dec = float(row["dec"])
             bv = fnum(row, "ci", 0.6)
+            deep_all.append((ra, dec, mag, bv))     # 全天一括用 (高μ星も含めて全部)
             pmra = fnum(row, "pm_ra")   # mas/yr (μα* = μα·cosδ, Gaia由来)
             pmdec = fnum(row, "pm_dec")
             if math.hypot(pmra, pmdec) > PM_THRESHOLD:
@@ -171,6 +173,15 @@ def main() -> int:
             nfiles += 1
             nbytes += len(buf)
         manifest_tiles.append(counts)
+
+    # 全天一括ロード用の1ファイル (VRプラネタリウムが領域分割なしで全深層星を読む)。
+    # レコードはタイルと同形式 (<ffBB: ra, dec, magQ, bvQ)、レンジは manifest と同じ。
+    deep_all.sort(key=lambda s: s[2])   # 明るい順 (クライアントが限界等級で早切りできる)
+    deep_buf = bytearray()
+    for ra, dec, mag, bv in deep_all:
+        deep_buf += struct.pack("<ffBB", ra, dec, quant(mag, MAG_LO, MAG_HI), quant(bv, BV_LO, BV_HI))
+    (DIST / "stars_deep.bin").write_bytes(deep_buf)
+    print(f"  stars_deep.bin (全天一括): {len(deep_all):,} 個 ({len(deep_buf):,} bytes)")
 
     manifest = {
         "version": 1,
