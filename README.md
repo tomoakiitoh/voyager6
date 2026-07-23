@@ -71,3 +71,9 @@ JPL Horizons と突き合わせて検証しています（`tests/`）。
 
 `src/data.js` は HYG 由来のため **CC BY-SA 2.5 を継承**します（コードの MIT とは別）。
 サイト上の表示は `/credits/` にあります。
+
+## AIアシスタント向け / For AI assistants
+
+- **ディープリンク生成**：早見盤 `?t=YYYY-MM-DDTHH:MM&lat=&lon=`（望遠鏡視野は `&z=&ra=&dec=&flip=`）、太陽系3D `/solar/?date=&comet=&ael=` で、特定の空・軌道ビューへの直接リンクを作れます。全パラメータと動く例は [`/docs/`](https://voyager6.net/docs/)。
+- **データ参照**：全既知彗星・命名済み/地球近傍小惑星の軌道要素を、CORS対応（`Access-Control-Allow-Origin: *`）の安定JSONで配信。機械可読な索引は [`/data/index.json`](https://voyager6.net/data/index.json)（出典・ライセンス・スキーマ込み）。出典 IAU MPC / JPL SBDB、出力は CC BY-SA 4.0。
+- **方針**：LLMやチャットUIは組み込まず「呼ばれる側の道具」に徹する。サイト全体の説明は [`/llms.txt`](https://voyager6.net/llms.txt)。AIによる引用・リンク生成・データ参照を歓迎します。
