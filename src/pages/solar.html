@@ -250,9 +250,12 @@ function buildCometOrbits() {
       if (h) pts.push(toV(h));
     }
     if (pts.length < 2) continue;
+    const g = classifyComet(c[1], c[2], c[3], c[5]);
+    const rgb = GROUP_COLOR[g] || [0.23, 0.49, 0.42];
     const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: 0x3a7d6a, transparent: true, opacity: 0.35 }));
+      new THREE.LineBasicMaterial({ color: new THREE.Color(rgb[0], rgb[1], rgb[2]), transparent: true, opacity: 0.4 }));
     line.visible = false;
+    line.userData.g = g;   // 群フィルタ連動用
     cometOrbitGroup.add(line);
   }
 }
@@ -483,8 +486,11 @@ el("solar-now").addEventListener("click", () => {
 el("solar-orbits").addEventListener("change", () => orbitLines.forEach((l) => (l.visible = el("solar-orbits").checked)));
 el("solar-names").addEventListener("change", () => planetLabels.forEach((l) => (l.visible = el("solar-names").checked)));
 el("solar-comets").addEventListener("change", () => { if (cometPoints) cometPoints.visible = el("solar-comets").checked; });
-el("solar-comet-orbits").addEventListener("change", () =>
-  cometOrbitGroup.children.forEach((l) => (l.visible = el("solar-comet-orbits").checked)));
+function updateOrbitVis() {   // 軌道線: トグルON かつ 群フィルタに一致するものだけ表示
+  const on = el("solar-comet-orbits").checked;
+  cometOrbitGroup.children.forEach((l) => (l.visible = on && (activeGroup === "all" || l.userData.g === activeGroup)));
+}
+el("solar-comet-orbits").addEventListener("change", updateOrbitVis);
 el("solar-asteroids").addEventListener("change", () => {
   const on = el("solar-asteroids").checked;
   if (on && !asteroidPoints) loadAsteroids();
@@ -501,7 +507,7 @@ el("solar-corotate").addEventListener("change", () => {
 });
 
 // 群フィルタ
-el("comet-group").addEventListener("change", () => { activeGroup = el("comet-group").value; update(); });
+el("comet-group").addEventListener("change", () => { activeGroup = el("comet-group").value; updateOrbitVis(); update(); });
 
 // 彗星名で検索して選択
 function searchComet() {
@@ -696,6 +702,8 @@ function cineRender(p) {
   };
   setTog("solar-orbits", p.orbits); setTog("solar-comets", p.comets);
   setTog("solar-asteroids", p.ast1); setTog("solar-asteroids2", p.tier2); setTog("solar-names", p.names);
+  setTog("solar-comet-orbits", p.cometOrbits);
+  if (p.cometGroup != null && p.cometGroup !== "") { el("comet-group").value = p.cometGroup; el("comet-group").dispatchEvent(new Event("change")); }
   if (p.corot != null && p.corot !== "") { coRotating = (p.corot === "1" || p.corot === 1); el("solar-corotate").checked = coRotating; }
   if (p.caz != null && p.cel != null && p.cdist != null) {
     const az = Number(p.caz) * DEG, elev = Number(p.cel) * DEG, d = Number(p.cdist);

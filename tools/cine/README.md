@@ -35,6 +35,10 @@ node tools/cine/render.mjs tools/cine/shots/trojan_journey.json
 ## 手動版（デバッグ用）
 `tools/cine/serve.py` を起動 → ブラウザで `/solar/?cine=1` → `tools/cine/capture.js` を実行 → `build.sh`。
 
+## 注意
+- 彗星の軌道線 (`cometOrbits:1`) を多数(数百本〜)表示するとヘッドレスのSwiftShaderが
+  コンテキストを失い真っ白になることがある。無人レンダでは点群主体にするか、群を絞る。
+
 ## 未対応（今後）
 - レンダ後のフレームを LLM に戻して批評→自己修正するレビュー枠。
 - 追尾カメラ（彗星を追う等）、複数ショット連結、ナレーション/BGM、CI定期生成。

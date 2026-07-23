@@ -1,0 +1,15 @@
+{
+  "name": "kreutz_dive",
+  "fps": 24,
+  "seconds": 8,
+  "jd0": 2453200,
+  "resolution": [1280, 720],
+  "layers": { "comets": 1, "cometGroup": "kreutz", "cometOrbits": 0, "corot": 0, "tier2": 0, "ast1": 0, "orbits": 1, "names": 0 },
+  "title": { "text": "クロイツ群の太陽ダイブ", "sub": "VOYAGER6 ・ 太陽系3D", "seconds": 1.6 },
+  "caption": { "text": "太陽をかすめる彗星が次々と ― クロイツ群", "in": 3.8, "out": 6.4 },
+  "camera": [
+    { "t": 0.00, "cel": 16, "cdist": 3.0, "caz": -32, "dJd": 0 },
+    { "t": 0.50, "cel": 11, "cdist": 2.0, "caz": 0,   "dJd": 1300 },
+    { "t": 1.00, "cel": 8,  "cdist": 1.5, "caz": 32,  "dJd": 2600 }
+  ]
+}
