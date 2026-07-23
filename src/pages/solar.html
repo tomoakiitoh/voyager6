@@ -710,6 +710,10 @@ function cineRender(p) {
     camera.position.set(d * Math.cos(elev) * Math.sin(az), d * Math.sin(elev), d * Math.cos(elev) * Math.cos(az));
     camera.lookAt(0, 0, 0);
   }
+  // 2倍バッファ用に点を大きめに (縮小後の見かけ大きさを保つ)。SSAA でチラつきが減る。
+  if (cometPoints) cometPoints.material.size = 6.8;
+  if (asteroidPoints) asteroidPoints.material.size = 3.2;
+  if (tier2Mat) tier2Mat.uniforms.uSize.value = 3.6;
   update();
   renderer.render(scene, camera);
 }
@@ -717,8 +721,8 @@ function cineRender(p) {
   const q = new URLSearchParams(location.search);
   if (q.get("cine") !== "1") return;
   cineMode = true; controls.enabled = false;
-  renderer.setPixelRatio(1);                 // シネマは固定解像度 1280×720 (動画向き)
-  renderer.setSize(1280, 720, true);
+  renderer.setPixelRatio(2);                 // 2倍で描いて後で縮小 (SSAA=点のチラつき対策)
+  renderer.setSize(1280, 720, true);         // 論理1280×720 → 描画バッファ2560×1440
   camera.aspect = 1280 / 720; camera.updateProjectionMatrix();
   const s = document.createElement("style");
   s.textContent = "body.cine #solar-panel,body.cine #site-header,body.cine #site-footer{display:none!important}body.cine{overflow:hidden}";

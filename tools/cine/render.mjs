@@ -112,9 +112,9 @@ async function main() {
   if (shot.caption) {
     inputs.push("-loop", "1", "-t", String(dur), "-framerate", String(fps), "-i", path.join(FRAMES, "caption.png")); const capIdx = idx; idx++;
     parts.push(`[${capIdx}:v]format=rgba,fade=t=in:st=${shot.caption.in}:d=0.5:alpha=1,fade=t=out:st=${shot.caption.out}:d=0.5:alpha=1[cap]`);
-    parts.push(`[${framesIdx}:v]setsar=1[m0];[m0][cap]overlay=0:0:eof_action=pass,format=yuv420p[main]`);
+    parts.push(`[${framesIdx}:v]scale=${W}:${H}:flags=lanczos,setsar=1[m0];[m0][cap]overlay=0:0:eof_action=pass,format=yuv420p[main]`);
     mainLabel = "[main]";
-  } else { parts.push(`[${framesIdx}:v]setsar=1,format=yuv420p[main]`); mainLabel = "[main]"; }
+  } else { parts.push(`[${framesIdx}:v]scale=${W}:${H}:flags=lanczos,setsar=1,format=yuv420p[main]`); mainLabel = "[main]"; }
   let map;
   if (shot.title) { parts.push(`[t]${mainLabel}concat=n=2:v=1:a=0[out]`); map = "[out]"; }
   else { map = mainLabel; }
