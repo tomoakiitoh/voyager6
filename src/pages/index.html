@@ -144,6 +144,7 @@ const state = {
   // dragMode='pan' はドラッグで移動 (回転なし・北が上)、'rotate' はドラッグで回転。
   view: { zoom: 1, center: { e: 0, n: 0, u: 1 }, flip: "upright", roll: 0, dragMode: "pan" },
 };
+let deepLinkComet = null;   // URL の ?comet= (彗星ディープリンク。書き戻しでも保持する)
 
 const ZOOM_MIN = 1, ZOOM_MAX = 90;
 const ZENITH_DIR = { e: 0, n: 0, u: 1 };
@@ -210,6 +211,7 @@ function normalizeView() {
     const roll = Number(q.get("roll"));
     if (Number.isFinite(roll)) state.view.roll = roll;
   }
+  deepLinkComet = q.get("comet");   // 彗星ディープリンク (レイヤ自動ON＋書き戻し保持)
 })();
 
 /** その座標に一致するプリセットがあれば、その名前を使う。 */
@@ -800,28 +802,51 @@ function drawMessier(M) {
 const COMET_URL = "comets.json";
 const COMET_MAG_LIMIT = 13.5; // 表示する全光度のしきい値。望遠鏡向けにやや暗いものまで
                               // (明るい彗星は本来まれ。彗星の予報等級は±1〜2等ばらつく)
-let comets = null;            // [[name,e,q,i,node,peri,tp,M1,K1], ...]
+let comets = null;            // [[name,e,q,i,node,peri,tp,M1,K1], ...] 現行(MPC)
+// 歴史的な肉眼彗星 (F2)。[..., 描画開始JD, 描画終了JD, 和名]。出現期の窓外は描かない。
+let cometsHistoric = null;
 let cometsTried = false;
 let cometCache = { jd: null, list: [] };
 
-function loadComets() {
-  if (comets || cometsTried) return;
-  cometsTried = true;
-  fetch(COMET_URL)
-    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((d) => { comets = d; cometCache.jd = null; draw(); })
-    .catch(() => { /* 彗星データ無しでも動く */ });
+/** 彗星の符号を照合キーに正規化 ('1P/Halley (1910)'→'1P', 'C/1996 B2 (…)'→'C/1996 B2')。 */
+function desigKey(s) {
+  s = s.trim();
+  let m = s.match(/^(\d+[PDI])\b/);
+  if (m) return m[1];
+  m = s.match(/^([CPXAI]\/\d{4}\s+[A-Z]{1,2}\d*(?:-[A-Z])?)/);
+  if (m) return m[1].replace(/\s+/g, " ");
+  return s.split(" (")[0].trim();
 }
 
-/** その日時の彗星の位置・等級を計算し、しきい値内だけ返す (日付でキャッシュ)。 */
+function loadComets() {
+  if (cometsTried) return;
+  cometsTried = true;
+  fetch(COMET_URL).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((d) => { comets = d; cometCache.jd = null; draw(); }).catch(() => {});
+  fetch("comets_historic.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((d) => { cometsHistoric = d; cometCache.jd = null; draw(); }).catch(() => {});
+}
+
+/** その日時の彗星の位置・等級を計算し、しきい値内だけ返す (現行＋歴史、日付でキャッシュ)。 */
 function cometPositions(jd) {
   if (cometCache.jd != null && Math.abs(jd - cometCache.jd) < 0.1) return cometCache.list;
   const list = [];
-  for (const c of comets) {
+  for (const c of (comets || [])) {
     const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
     const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
     if (!isFinite(mag) || mag > COMET_MAG_LIMIT) continue;
     list.push({ name: c[0], ra: g.ra, dec: g.dec, mag });
+  }
+  // 歴史的彗星: 出現期(窓)内かつ現行に無いものだけ。長周期要素を遠い日時へ外挿しない。
+  if (cometsHistoric) {
+    const shown = new Set(list.map((x) => desigKey(x.name)));
+    for (const c of cometsHistoric) {
+      if (jd < c[9] || jd > c[10] || shown.has(desigKey(c[0]))) continue;
+      const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
+      const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
+      if (!isFinite(mag) || mag > COMET_MAG_LIMIT) continue;
+      list.push({ name: c[11] || c[0], ra: g.ra, dec: g.dec, mag });   // 和名優先
+    }
   }
   cometCache = { jd, list };
   return list;
@@ -829,7 +854,8 @@ function cometPositions(jd) {
 
 /** 彗星を描く (コマ風のにじみ＋核)。ラベルは位置だけ返し呼び出し側で置く。 */
 function drawComets(M) {
-  if (!comets) { loadComets(); return []; }
+  loadComets();
+  if (!comets && !cometsHistoric) return [];
   const labels = [];
   const jd = jdFromDate(new Date(state.ms));
   for (const c of cometPositions(jd)) {
@@ -1415,6 +1441,7 @@ function writeUrl() {
     if (state.view.flip !== "upright") p.set("flip", state.view.flip);
     if (Math.abs(state.view.roll) > 1e-3) p.set("roll", state.view.roll.toFixed(3));
   }
+  if (show.comets && deepLinkComet) p.set("comet", deepLinkComet);   // 彗星ディープリンクを保持
   history.replaceState(null, "", location.pathname + "?" + p.toString());
 }
 
@@ -1708,6 +1735,9 @@ for (const [id, key] of [["t-lines", "constLines"], ["t-cnames", "constNames"],
                          ["t-dso", "dso"], ["t-guides", "guides"], ["t-grid", "grid"]]) {
   el(id).addEventListener("change", () => { show[key] = el(id).checked; draw(); });
 }
+
+// URLに comet= があれば彗星レイヤを自動ON (ディープリンクの意図を尊重, F2)
+if (deepLinkComet) { show.comets = true; el("t-comets").checked = true; }
 
 // 赤色ナイトモード: 観望中に目が眩まないよう画面全体を赤くする
 el("t-night").addEventListener("change", () => {

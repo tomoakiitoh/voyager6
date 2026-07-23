@@ -195,7 +195,14 @@ function classifyComet(e, q, i, w) {
   return "lp";
 }
 
-fetch("../comets_all.json").then((r) => r.json()).then((d) => {
+Promise.all([
+  fetch("../comets_all.json").then((r) => r.json()),
+  fetch("../comets_historic.json").then((r) => r.json()).catch(() => []),
+]).then(([all, hist]) => {
+  // comets_all に無い歴史的彗星(ウェスト・池谷関 等)を追加。要素の先頭9項目は同形式。
+  const have = new Set(all.map((c) => desigKeyOf(c[0])));
+  const extra = hist.filter((c) => !have.has(desigKeyOf(c[0]))).map((c) => c.slice(0, 9));
+  const d = all.concat(extra);
   comets = d;
   const geo = new THREE.BufferGeometry();
   const col = new Float32Array(d.length * 3);

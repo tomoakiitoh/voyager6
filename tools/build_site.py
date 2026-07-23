@@ -79,6 +79,12 @@ def write_data_index() -> None:
          "format": "JSON array of arrays",
          "fields": ["name", "e", "q_AU", "i_deg", "node_deg", "peri_deg", "Tp_JD", "M1", "K1"],
          "source": "IAU Minor Planet Center + JPL Small-Body Database", "cadence": "weekly"},
+        {"name": "comets_historic", "url": f"{origin}/comets_historic.json",
+         "description": "歴史的な肉眼彗星の出現時元期の軌道要素 / famous naked-eye comets' apparition-epoch elements (Halley per-apparition 1910/1986/2061)",
+         "format": "JSON array of arrays",
+         "fields": ["name", "e", "q_AU", "i_deg", "node_deg", "peri_deg", "Tp_JD", "M1", "K1",
+                    "draw_from_JD", "draw_to_JD", "name_ja"],
+         "source": "JPL Small-Body Database + JPL Horizons", "cadence": "static"},
         {"name": "asteroids_catalog", "url": f"{origin}/asteroids_catalog.json",
          "description": "命名済み小惑星 / named asteroids", "format": "JSON array of arrays",
          "fields": ["number", "name", "designation", "class", "a_AU", "e", "i_deg",
@@ -126,6 +132,7 @@ def main() -> int:
     # ルート直下に置くファイル (OGP 画像・favicon・天体データ)。
     # comets.json / asteroids.json は cron が更新する最新データ (無ければスキップ)。
     for name in ["og.png", "favicon.svg", "comets.json", "comets_all.json", "comets_notable.json",
+                 "comets_historic.json",
                  "asteroids.json", "asteroids_solar.json", "asteroids_tier2.bin",
                  "asteroids_catalog.json", "asteroids_neo.json", "asteroids_notable.json",
                  "dso.json", "voyager6-manual.pdf", "llms.txt"]:
