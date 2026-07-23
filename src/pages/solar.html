@@ -409,9 +409,27 @@ function loadAsteroidsTier2() {
 
 // ---- 時間と更新 ----
 let curJd = jdFromDate(new Date());
+{ // ?date=YYYY-MM-DD (JST) で日時指定 (彗星カタログ・共有リンクからの導線)
+  const dm = (new URLSearchParams(location.search).get("date") || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (dm) { const [, y, mo, d] = dm.map(Number); curJd = julianDay(y, mo, d, 3); }
+}
+
+// 現在の日時・選択天体を URL に書き戻す (コピーで同じ画面。彗星/小惑星のハイライトも保持)。
+let urlTimer = null;
+function scheduleUrlWrite() { clearTimeout(urlTimer); urlTimer = setTimeout(writeSolarUrl, 500); }
+function writeSolarUrl() {
+  const d = new Date((curJd - 2440587.5) * 86400000 + TZ_MIN * 60000);
+  const p2n = (n) => String(n).padStart(2, "0");
+  const p = new URLSearchParams();
+  p.set("date", `${d.getUTCFullYear()}-${p2n(d.getUTCMonth() + 1)}-${p2n(d.getUTCDate())}`);
+  if (selectedIndex >= 0 && comets) p.set("comet", desigKeyOf(comets[selectedIndex][0]));
+  if (selAst) { p.set("ael", selAst.el.map((x) => +(+x).toFixed(6)).join(",")); p.set("aname", selAst.name); }
+  history.replaceState(null, "", location.pathname + "?" + p.toString());
+}
 
 function update() {
   const jd = curJd;
+  scheduleUrlWrite();
   sun.position.set(0, 0, 0);
   for (let i = 0; i < PLANETS.length; i++) {
     const v = toV(planetHelio(PLANETS[i][0], jd));

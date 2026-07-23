@@ -179,6 +179,20 @@ function normalizeView() {
     SITE.lon = lon;
     SITE.name = siteNameAt(lat, lon);
   }
+  // 望遠鏡モードの視野: z=倍率, ra/dec=視野中心(J2000度), flip=向き, roll=回転(ラジアン)
+  const z = Number(q.get("z"));
+  if (Number.isFinite(z) && z > ZOOM_MIN) {
+    state.view.zoom = Math.min(ZOOM_MAX, z);
+    const ra = Number(q.get("ra")), dec = Number(q.get("dec"));
+    if (Number.isFinite(ra) && Number.isFinite(dec)) {
+      const M = skyMatrix(jdFromDate(new Date(state.ms)), SITE.lat, SITE.lon);
+      state.view.center = applySky(M, raDecToVec(ra, dec));   // 恒星と同じ分点で中心を復元
+    }
+    const flip = q.get("flip");
+    if (flip === "mirror" || flip === "inverted") state.view.flip = flip;
+    const roll = Number(q.get("roll"));
+    if (Number.isFinite(roll)) state.view.roll = roll;
+  }
 })();
 
 /** その座標に一致するプリセットがあれば、その名前を使う。 */
@@ -1367,7 +1381,28 @@ function raDecOf(h) {
   return vecToRaDec(applySkyInverse(M, h));
 }
 
+// 現在の日時・場所・視野を URL に書き戻す (コピーで同じ画面を再現。共有・ブログ連携の基盤)。
+let urlTimer = null;
+function scheduleUrlWrite() { clearTimeout(urlTimer); urlTimer = setTimeout(writeUrl, 400); }
+function writeUrl() {
+  const t = jstParts(state.ms);
+  const p = new URLSearchParams();
+  p.set("t", `${t.y}-${p2(t.mo)}-${p2(t.d)}T${p2(t.hh)}:${p2(t.mm)}`);
+  p.set("lat", SITE.lat.toFixed(4));
+  p.set("lon", SITE.lon.toFixed(4));
+  if (state.view.zoom > ZOOM_MIN + 1e-6) {
+    p.set("z", state.view.zoom.toFixed(2));
+    const [ra, dec] = raDecOf(state.view.center);
+    p.set("ra", ra.toFixed(3));
+    p.set("dec", dec.toFixed(3));
+    if (state.view.flip !== "upright") p.set("flip", state.view.flip);
+    if (Math.abs(state.view.roll) > 1e-3) p.set("roll", state.view.roll.toFixed(3));
+  }
+  history.replaceState(null, "", location.pathname + "?" + p.toString());
+}
+
 function updateInfo() {
+  scheduleUrlWrite();
   const t = jstParts(state.ms);
   const zoomed = state.view.zoom > ZOOM_MIN + 1e-6;
   let extra = "";
