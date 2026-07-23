@@ -17,6 +17,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
 <ul class="examples">
   <li><a href="/?t=2026-08-12T21:00&amp;lat=35.68&amp;lon=139.77">2026-08-12 21:00 JST・東京の空</a>（早見盤）</li>
   <li><a href="/?t=2026-11-01T20:00&amp;lat=35.68&amp;lon=139.77&amp;z=25&amp;ra=10.685&amp;dec=41.269&amp;flip=mirror">M31（アンドロメダ銀河）を望遠鏡視野で</a>（早見盤・ズーム＋鏡像）</li>
+  <li><a href="/?t=1996-03-25T03:00&amp;lat=35.68&amp;lon=139.77&amp;comet=C%2F1996%20B2">1996-03-25・百武彗星が見えた夜空</a>（早見盤・歴史的な肉眼彗星）</li>
   <li><a href="/solar/?date=1996-03-25&amp;comet=C%2F1996%20B2">1996年3月・百武彗星の軌道</a>（太陽系3D）</li>
   <li><a href="/solar/?date=2061-07-01&amp;comet=1P">2061年・ハレー彗星</a>（太陽系3D）</li>
   <li><a href="/solar/?date=2029-04-13&amp;ael=0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5&amp;aname=%E3%82%A2%E3%83%9D%E3%83%95%E3%82%A3%E3%82%B9">2029-04-13・アポフィスの地球接近</a>（太陽系3D）</li>
@@ -34,6 +35,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><code>ra</code></td><td>0〜360</td><td>視野中心の赤経[度・J2000]（<code>z</code>&gt;1のとき）</td><td><code>10.685</code></td></tr>
     <tr><td><code>dec</code></td><td>−90〜90</td><td>視野中心の赤緯[度・J2000]</td><td><code>41.269</code></td></tr>
     <tr><td><code>flip</code></td><td><code>upright</code>／<code>mirror</code>／<code>inverted</code></td><td>像の向き（正立／鏡像／倒立）</td><td><code>mirror</code></td></tr>
+    <tr><td><code>comet</code></td><td>符号</td><td>彗星レイヤを自動ON（歴史的な肉眼彗星も出現期は描かれる）</td><td><code>C/1996 B2</code></td></tr>
     <tr><td><code>roll</code></td><td>ラジアン</td><td>視野の回転（任意）</td><td><code>0.5</code></td></tr>
   </tbody>
 </table>
@@ -59,6 +61,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
   <thead><tr><th>エンドポイント</th><th>内容</th><th>スキーマ（配列）</th></tr></thead>
   <tbody>
     <tr><td><a href="/comets_all.json"><code>/comets_all.json</code></a></td><td>全既知彗星の軌道要素（MPC+JPL SBDB、週次更新）</td><td><code>[name, e, q, i, Ω, ω, Tp(JD), M1, K1]</code></td></tr>
+    <tr><td><a href="/comets_historic.json"><code>/comets_historic.json</code></a></td><td>歴史的な肉眼彗星の出現時元期（ハレーは1910/1986/2061）</td><td>上記＋<code>[描画開始JD, 描画終了JD, 和名]</code></td></tr>
     <tr><td><a href="/asteroids_catalog.json"><code>/asteroids_catalog.json</code></a></td><td>命名済み小惑星</td><td><code>[番号, 英名, 主仮符号, 分類, a, e, i, Ω, ω, M0, epoch, H, 直径km]</code></td></tr>
     <tr><td><a href="/asteroids_neo.json"><code>/asteroids_neo.json</code></a></td><td>地球近傍小惑星（同スキーマ）</td><td>同上</td></tr>
     <tr><td><a href="/dso.json"><code>/dso.json</code></a></td><td>星雲・星団・銀河（OpenNGC由来）</td><td>—</td></tr>

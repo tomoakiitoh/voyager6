@@ -35,7 +35,9 @@ An AI assistant can construct direct links to a specific sky or solar-system vie
 - `t` = 日時(JST) `YYYY-MM-DDTHH:MM`  ※タイムゾーン表記は付けない(JST固定)
 - `lat` = 緯度[度], `lon` = 経度[度]
 - `z` = 倍率(1=全天, >1=望遠鏡モード), `ra`/`dec` = 視野中心[度, J2000], `flip` = `upright`|`mirror`|`inverted`
+- `comet` = 彗星の符号 → 彗星レイヤを自動ONにする(歴史的な肉眼彗星も出現期は描かれる)
 - 例: 2026-08-12 21:00 JST の東京 → `https://voyager6.net/?t=2026-08-12T21:00&lat=35.68&lon=139.77`
+- 例(歴史): 1996-03-25 の百武彗星が見えた夜空 → `https://voyager6.net/?t=1996-03-25T03:00&lat=35.68&lon=139.77&comet=C/1996 B2`
 
 ### 太陽系3D / Solar system 3D — `https://voyager6.net/solar/`
 - `date` = 日付 `YYYY-MM-DD`
@@ -51,6 +53,7 @@ Stable, cross-origin-fetchable JSON. Machine-readable index with source / licens
 
 - **索引 / Index: https://voyager6.net/data/index.json**
 - `https://voyager6.net/comets_all.json` — 全既知彗星の軌道要素(MPC+JPL SBDB、週次更新)。配列 `[name, e, q(AU), i, Ω, ω, Tp(JD), M1, K1]`
+- `https://voyager6.net/comets_historic.json` — 歴史的な肉眼彗星の出現時元期の軌道要素(百武・ヘールボップ・ウェスト等。ハレーは1910/1986/2061の出現別)。配列は上記＋`[描画開始JD, 描画終了JD, 和名]`
 - `https://voyager6.net/asteroids_catalog.json` — 命名済み小惑星。配列 `[番号, 英名, 主仮符号, 分類, a, e, i, Ω, ω, M0, epoch(JD), H, 直径km]`
 - `https://voyager6.net/asteroids_neo.json` — 地球近傍小惑星(同スキーマ)
 - `https://voyager6.net/dso.json` — 星雲・星団・銀河(OpenNGC由来)
