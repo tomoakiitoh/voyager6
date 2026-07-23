@@ -2,3 +2,4 @@ tools/cache/
 dist/
 __pycache__/
 reports/
+node_modules/

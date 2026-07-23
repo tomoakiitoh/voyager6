@@ -1,21 +1,40 @@
 # シネマティック撮影 (PLAN4 §4)
 
 太陽系3D (/solar/) の実描画を1フレームずつ書き出し、ffmpeg で動画にする。
+**ショットJSONを書いて1コマンド**で mp4 が出る（GPU不要・完全自動）。
 
-## 流れ
-1. `python3 tools/build_site.py` で dist を作る（solar.html に `?cine=1` の描画モードが要る）。
-2. `python3 tools/cine/serve.py` を起動（http://127.0.0.1:8754、POST /__frame を frames/ に保存）。
-3. ブラウザで `http://127.0.0.1:8754/solar/?cine=1&tier2=1&corot=1&orbits=1&jd=2461230&caz=-25&cel=18&cdist=40` を開く。
-4. `tools/cine/capture.js` の中身を DevTools コンソールで実行 → frames/ に f0000.png… と title/caption が溜まる。
-5. `tools/cine/build.sh` → `tools/cine/trojan_journey.mp4`。
+## 無人レンダラ（推奨）
+```
+python3 tools/build_site.py                       # dist を作る (?cine=1 対応版)
+node tools/cine/render.mjs tools/cine/shots/trojan_journey.json
+# -> tools/cine/<name>.mp4
+```
+- 内蔵の静的サーバで dist を配り、システムChromeをヘッドレス(SwiftShader)で駆動。
+- `?cine=1` の描画モード + `window.cineRender()` を毎フレーム呼んでキャプチャ→ffmpeg。
+- 依存: `npm i`（puppeteer-core）。Chrome は /Applications の Google Chrome を使用。
 
-## しくみ
-- `?cine=1`：UI非表示・固定1280×720・スクリプト視点（OrbitControls/リサイズ/URL書戻し停止）。
-- `window.cineRender({jd,caz,cel,cdist,corot,tier2,orbits,comets,names})`：1枚描画。
-  カメラは原点(太陽)注視の球座標（caz=方位, cel=高度, cdist=距離[AU]）。
-- 捕獲は `canvas.toDataURL`（描画直後に同期呼び）→ ローカルサーバへ POST。
-- タイトル/字幕は 2Dキャンバスで生成（日本語フォント）→ ffmpeg で fade/overlay/concat。
+## ショットJSON スキーマ（＝動画の"台本"）
+```jsonc
+{
+  "name": "trojan_journey",           // 出力ファイル名
+  "fps": 24, "seconds": 7,            // フレームレートと本編尺
+  "jd0": 2461230,                    // 基準ユリウス日
+  "resolution": [1280, 720],
+  "layers": { "corot":1,"tier2":1,"orbits":1,"comets":0,"ast1":0,"names":0 },
+  "title":   { "text":"…","sub":"…","seconds":1.6 },   // 省略可
+  "caption": { "text":"…","in":4.3,"out":6.3 },         // 省略可 (秒。本編内の時刻)
+  "camera": [                        // キーフレーム (t=0→1 で補間)
+    { "t":0.0, "cel":18, "cdist":40, "caz":-25, "dJd":0 },   // cel=高度° cdist=距離AU
+    { "t":1.0, "cel":64, "cdist":12.5,"caz":45, "dJd":760 }  // caz=方位° dJd=経過日数
+  ]
+}
+```
+カメラは原点(太陽)注視の球座標。co-rotate ON で時間(dJd)を進めるとメインベルトが流れ、
+トロヤ群だけ静止＝リビールになる。**この台本を差し替えれば別の1本**（自然言語→JSON→動画の土台）。
+
+## 手動版（デバッグ用）
+`tools/cine/serve.py` を起動 → ブラウザで `/solar/?cine=1` → `tools/cine/capture.js` を実行 → `build.sh`。
 
 ## 未対応（今後）
-- 無人化（Playwright/puppeteer で load-once→loop）。現状は実ブラウザを手動/半自動で駆動。
-- ナレーション・BGM、複数ショットの連結、CI 定期生成。
+- レンダ後のフレームを LLM に戻して批評→自己修正するレビュー枠。
+- 追尾カメラ（彗星を追う等）、複数ショット連結、ナレーション/BGM、CI定期生成。
