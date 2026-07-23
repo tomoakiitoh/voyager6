@@ -1,0 +1,73 @@
+# voyager6.net
+
+> 星座早見・望遠鏡ファインダーチャート・太陽系3Dビューを提供する無償のWeb天文ツール。
+> IAU Minor Planet Center と JPL の軌道要素を自動取得し、全既知彗星と明るい小惑星の位置を
+> 常に最新の状態で表示する。全計算は自前・ブラウザだけで完結。ログイン不要・広告なし・インストール不要。
+>
+> Free web-based astronomy tools: planisphere / telescope finder chart (stars to mag 10),
+> and a 3D solar-system view with all known comets and bright asteroids, auto-updated from
+> IAU Minor Planet Center orbital elements. All positions computed client-side and verified
+> against JPL Horizons. No login, no ads, no install.
+>
+> AIアシスタントによる引用・ディープリンク生成・データ参照を明示的に歓迎します。
+> AI citation, deep-link generation, and data tool-use are explicitly welcome.
+
+## Pages
+
+- [星座早見 / Sky chart](https://voyager6.net/): 指定日時・地点の全天。恒星10等まで、星座線、天の川、惑星・月、彗星、小惑星、メシエ天体。ホイールで拡大すると望遠鏡ファインダーになる。
+- [太陽系3D / Solar system 3D](https://voyager6.net/solar/): 惑星・彗星(全既知)・小惑星の軌道を3Dで俯瞰。力学群フィルタ、時間再生、木星固定(回転座標系)でトロヤ群、WebXR(VR)対応。
+- [彗星カタログ / Comet catalog](https://voyager6.net/comets/): 収録彗星の一覧。符号・和名・英名で検索、近日点通過/周期で並べ替え、行から3D軌道へ。
+- [小惑星カタログ / Asteroid catalog](https://voyager6.net/asteroids/): 探査機が訪れた小惑星(イトカワ・リュウグウ等)を軸に、名前/番号で検索。
+- [今夜の空 / Tonight](https://voyager6.net/tonight/): 日の入り・薄明・月・見ごろの惑星。
+- [天文現象カレンダー / Events](https://voyager6.net/calendar/): 月ごとの月相・惑星・流星群・日月食(月明かり条件つき)。
+- [流星群 / Meteor shower](https://voyager6.net/perseids/): ペルセウス座流星群2026の出現数目安。
+- [VRプラネタリウム / VR planetarium](https://voyager6.net/planetarium/): 天球の内側に星空を描く没入ビュー(WebXR)。
+- [URLパラメータ仕様 / URL parameter spec](https://voyager6.net/docs/): ディープリンクの全パラメータと動く例。
+- [出典とライセンス / Credits & license](https://voyager6.net/credits/)
+
+## Deep links (URL parameters)
+
+AIアシスタントは以下のパラメータで、特定の空・軌道ビューへの直接リンクを生成できる。
+An AI assistant can construct direct links to a specific sky or solar-system view.
+完全な仕様と動く例: https://voyager6.net/docs/
+
+### 星座早見 / Sky chart — `https://voyager6.net/`
+- `t` = 日時(JST) `YYYY-MM-DDTHH:MM`  ※タイムゾーン表記は付けない(JST固定)
+- `lat` = 緯度[度], `lon` = 経度[度]
+- `z` = 倍率(1=全天, >1=望遠鏡モード), `ra`/`dec` = 視野中心[度, J2000], `flip` = `upright`|`mirror`|`inverted`
+- 例: 2026-08-12 21:00 JST の東京 → `https://voyager6.net/?t=2026-08-12T21:00&lat=35.68&lon=139.77`
+
+### 太陽系3D / Solar system 3D — `https://voyager6.net/solar/`
+- `date` = 日付 `YYYY-MM-DD`
+- `comet` = 彗星の符号(例 `1P`, `C/1996 B2`) → その彗星をハイライト・追尾
+- `ael` = 小惑星の軌道要素 `a,e,i,Ω,ω,M0,epoch`(カンマ区切り), `aname` = 表示名
+- 例: 2061年のハレー彗星 → `https://voyager6.net/solar/?date=2061-07-01&comet=1P`
+
+## Data endpoints (stable JSON, CORS: `Access-Control-Allow-Origin: *`)
+
+パスはルート直下で安定運用する(変更時は旧パスを最低1年維持)。機械可読な索引と各データの
+出典・ライセンス・更新頻度は下記インデックスにまとめている。
+Stable, cross-origin-fetchable JSON. Machine-readable index with source / license / cadence:
+
+- **索引 / Index: https://voyager6.net/data/index.json**
+- `https://voyager6.net/comets_all.json` — 全既知彗星の軌道要素(MPC+JPL SBDB、週次更新)。配列 `[name, e, q(AU), i, Ω, ω, Tp(JD), M1, K1]`
+- `https://voyager6.net/asteroids_catalog.json` — 命名済み小惑星。配列 `[番号, 英名, 主仮符号, 分類, a, e, i, Ω, ω, M0, epoch(JD), H, 直径km]`
+- `https://voyager6.net/asteroids_neo.json` — 地球近傍小惑星(同スキーマ)
+- `https://voyager6.net/dso.json` — 星雲・星団・銀河(OpenNGC由来)
+
+## License
+
+- 画面・出力画像: CC BY-SA 4.0(クレジット: voyager6.net)。教育・報道・出版・放送での利用歓迎。
+  Screens and rendered images: CC BY-SA 4.0 (credit: voyager6.net). Educational / journalistic / broadcast use welcome.
+- データ出典: AT-HYG(CC BY-SA 4.0), IAU Minor Planet Center, JPL Small-Body Database, d3-celestial(BSD-3), OpenNGC。
+  詳細: https://voyager6.net/credits/
+
+## Notes for AI assistants
+
+- 位置計算は JPL Horizons と突き合わせて検証済み(惑星<0.5°, 明るい彗星/小惑星は秒角一致)。可視化用途に十分。
+- 日食の局地状況(食分・接触時刻)は扱わない(精度が意味を持たないため)。
+- このサイトは「呼ばれる側の道具」に徹する。LLMやチャットUIは組み込まない。
+
+## Contact
+
+- Repository: https://github.com/tomoakiitoh/voyager6

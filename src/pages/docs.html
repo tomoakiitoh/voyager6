@@ -1,0 +1,100 @@
+<!--
+title: URLパラメータ仕様
+description: 早見盤・太陽系3Dへのディープリンクに使えるURLパラメータの一覧と、そのまま開ける例。AIアシスタントがシミュレーション結果への直接リンクを生成するための仕様。
+-->
+<main class="doc">
+
+<h1>URLパラメータ仕様（ディープリンク）</h1>
+
+<p>
+早見盤と太陽系3Dは、URLパラメータで「特定の日時・場所・視野」を直接開けます。
+リンクをコピーすれば、他の端末でも同じ画面が再現されます。
+AIアシスタントは、これらのパラメータでシミュレーション結果への直接リンクを生成できます。
+機械可読なサイト説明は <a href="/llms.txt"><code>/llms.txt</code></a> にあります。
+</p>
+
+<h2>そのまま開ける例</h2>
+<ul class="examples">
+  <li><a href="/?t=2026-08-12T21:00&amp;lat=35.68&amp;lon=139.77">2026-08-12 21:00 JST・東京の空</a>（早見盤）</li>
+  <li><a href="/?t=2026-11-01T20:00&amp;lat=35.68&amp;lon=139.77&amp;z=25&amp;ra=10.685&amp;dec=41.269&amp;flip=mirror">M31（アンドロメダ銀河）を望遠鏡視野で</a>（早見盤・ズーム＋鏡像）</li>
+  <li><a href="/solar/?date=1996-03-25&amp;comet=C%2F1996%20B2">1996年3月・百武彗星の軌道</a>（太陽系3D）</li>
+  <li><a href="/solar/?date=2061-07-01&amp;comet=1P">2061年・ハレー彗星</a>（太陽系3D）</li>
+  <li><a href="/solar/?date=2029-04-13&amp;ael=0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5&amp;aname=%E3%82%A2%E3%83%9D%E3%83%95%E3%82%A3%E3%82%B9">2029-04-13・アポフィスの地球接近</a>（太陽系3D）</li>
+  <li><a href="/solar/">太陽系3D（現在）</a></li>
+</ul>
+
+<h2>星座早見 <code>https://voyager6.net/</code></h2>
+<table>
+  <thead><tr><th>パラメータ</th><th>型・範囲</th><th>説明</th><th>例</th></tr></thead>
+  <tbody>
+    <tr><td><code>t</code></td><td><code>YYYY-MM-DDTHH:MM</code></td><td>日時（<b>JST固定</b>。タイムゾーン表記は付けない）。既定は現在時刻。</td><td><code>2026-08-12T21:00</code></td></tr>
+    <tr><td><code>lat</code></td><td>−90〜90</td><td>観測地の緯度[度]</td><td><code>35.68</code></td></tr>
+    <tr><td><code>lon</code></td><td>−180〜180</td><td>観測地の経度[度]</td><td><code>139.77</code></td></tr>
+    <tr><td><code>z</code></td><td>1〜90</td><td>倍率。1=全天図、&gt;1で望遠鏡モード（狭視野）</td><td><code>25</code></td></tr>
+    <tr><td><code>ra</code></td><td>0〜360</td><td>視野中心の赤経[度・J2000]（<code>z</code>&gt;1のとき）</td><td><code>10.685</code></td></tr>
+    <tr><td><code>dec</code></td><td>−90〜90</td><td>視野中心の赤緯[度・J2000]</td><td><code>41.269</code></td></tr>
+    <tr><td><code>flip</code></td><td><code>upright</code>／<code>mirror</code>／<code>inverted</code></td><td>像の向き（正立／鏡像／倒立）</td><td><code>mirror</code></td></tr>
+    <tr><td><code>roll</code></td><td>ラジアン</td><td>視野の回転（任意）</td><td><code>0.5</code></td></tr>
+  </tbody>
+</table>
+
+<h2>太陽系3D <code>https://voyager6.net/solar/</code></h2>
+<table>
+  <thead><tr><th>パラメータ</th><th>型</th><th>説明</th><th>例</th></tr></thead>
+  <tbody>
+    <tr><td><code>date</code></td><td><code>YYYY-MM-DD</code></td><td>表示日付（JST）。既定は現在。</td><td><code>2061-07-01</code></td></tr>
+    <tr><td><code>comet</code></td><td>符号</td><td>その彗星をハイライト・軌道表示。周期彗星は番号＋P、それ以外は仮符号。</td><td><code>1P</code>／<code>C/1996 B2</code></td></tr>
+    <tr><td><code>ael</code></td><td>7値・カンマ区切り</td><td>小惑星の軌道要素 <code>a,e,i,Ω,ω,M0,epoch(JD)</code> を渡すと軌道を描く。</td><td><code>0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5</code></td></tr>
+    <tr><td><code>aname</code></td><td>文字列</td><td><code>ael</code>で描いた天体の表示名</td><td><code>アポフィス</code></td></tr>
+  </tbody>
+</table>
+
+<h2>データ（安定JSON・CORS対応）</h2>
+<p>
+以下は外部オリジンから直接fetchできます（<code>Access-Control-Allow-Origin: *</code>）。
+出典・ライセンス・更新頻度を含む機械可読な索引は
+<a href="/data/index.json"><code>/data/index.json</code></a>。
+</p>
+<table>
+  <thead><tr><th>エンドポイント</th><th>内容</th><th>スキーマ（配列）</th></tr></thead>
+  <tbody>
+    <tr><td><a href="/comets_all.json"><code>/comets_all.json</code></a></td><td>全既知彗星の軌道要素（MPC+JPL SBDB、週次更新）</td><td><code>[name, e, q, i, Ω, ω, Tp(JD), M1, K1]</code></td></tr>
+    <tr><td><a href="/asteroids_catalog.json"><code>/asteroids_catalog.json</code></a></td><td>命名済み小惑星</td><td><code>[番号, 英名, 主仮符号, 分類, a, e, i, Ω, ω, M0, epoch, H, 直径km]</code></td></tr>
+    <tr><td><a href="/asteroids_neo.json"><code>/asteroids_neo.json</code></a></td><td>地球近傍小惑星（同スキーマ）</td><td>同上</td></tr>
+    <tr><td><a href="/dso.json"><code>/dso.json</code></a></td><td>星雲・星団・銀河（OpenNGC由来）</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<p class="dim">
+位置計算は JPL Horizons と突き合わせて検証済み（惑星 &lt;0.5°、明るい彗星・小惑星は秒角一致）。
+ライセンス・出典の詳細は <a href="/credits/">出典とライセンス</a>。
+</p>
+
+</main>
+
+<style>
+  .doc .examples { list-style: none; padding: 0; }
+  .doc .examples li { margin: 6px 0; }
+  .doc .examples a { font-size: 14px; }
+  .doc td code { white-space: nowrap; }
+</style>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Dataset",
+  "name": "Voyager6 天体軌道データ / celestial orbital elements",
+  "description": "全既知彗星と命名済み・地球近傍小惑星の軌道要素、星雲星団銀河のカタログ。IAU Minor Planet Center と JPL Small-Body Database の要素を自動取得し週次更新。CORS対応の安定JSONで配信。",
+  "url": "https://voyager6.net/docs/",
+  "license": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "creator": { "@type": "Organization", "name": "voyager6.net", "url": "https://voyager6.net" },
+  "isAccessibleForFree": true,
+  "keywords": ["comets", "asteroids", "orbital elements", "ephemeris", "astronomy", "彗星", "小惑星", "軌道要素"],
+  "distribution": [
+    { "@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "https://voyager6.net/comets_all.json", "name": "All known comets" },
+    { "@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "https://voyager6.net/asteroids_catalog.json", "name": "Named asteroids" },
+    { "@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "https://voyager6.net/asteroids_neo.json", "name": "Near-Earth asteroids" },
+    { "@type": "DataDownload", "encodingFormat": "application/json", "contentUrl": "https://voyager6.net/data/index.json", "name": "Machine-readable index" }
+  ]
+}
+</script>
