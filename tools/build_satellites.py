@@ -27,6 +27,9 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT.parent / "src" / "satellites.json"
+# Starlink は約1万機と大きいので commit せず (gitignore)、build 時に生成して dist に載せる。
+# 同定モードの全カタログ検索と地球周回3Dの「コンステレーション網」表示にオンデマンドで使う。
+OUT_STARLINK = ROOT.parent / "src" / "satellites_starlink.json"
 GP = "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
 GROUPS = ["stations", "visual"]   # stations を先に (ISS/CSS を上位に置く)
 
@@ -98,6 +101,18 @@ def main() -> int:
     OUT.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     withmag = sum(1 for r in out if r[4] is not None)
     print(f"src/satellites.json: {len(out)} 機 (標準等級つき {withmag})")
+
+    # Starlink (大きいので別ファイル・gitignore・失敗しても本編は壊さない)
+    try:
+        sl = parse_tle(fetch_tle("starlink"))
+        if len(sl) > 500:
+            arr = [[name, norad, l1, l2] for (name, norad, l1, l2) in sl]
+            OUT_STARLINK.write_text(json.dumps(arr, ensure_ascii=False), encoding="utf-8")
+            print(f"src/satellites_starlink.json: {len(arr)} 機")
+        else:
+            print(f"警告: starlink {len(sl)} 機は少なすぎる。生成をスキップ。", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"警告: starlink の取得に失敗 ({e})。スキップ。", file=sys.stderr)
     return 0
 
 

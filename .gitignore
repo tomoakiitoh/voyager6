@@ -3,3 +3,6 @@ dist/
 __pycache__/
 reports/
 node_modules/
+
+# Starlink TLE は大きい(~1万機)。build時に生成しdistに載せる。commitしない。
+src/satellites_starlink.json

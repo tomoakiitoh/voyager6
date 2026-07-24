@@ -148,6 +148,7 @@ bodyclass: sky-page
           <option value="180">3時間</option>
         </select>
       </label>
+      <label class="info"><input type="checkbox" id="id-starlink">Starlinkも含める（今この瞬間）</label>
     </div>
     <div class="row"><span class="info">「同定モード」をONにして、光が見えた方向を空でタップ。表示時刻からさかのぼって、その向きを通った衛星の候補を明るい順に出します（「さっき見たあれ」に）。時刻は上のスライダーで合わせられます。</span></div>
     <div id="id-list"></div>
@@ -1118,30 +1119,37 @@ function satShortName(name) {
   return name.replace(/\s*\(.*\)$/, "").trim() || name;
 }
 
-/** 直前 ~80 秒の軌跡を薄い尾で描く (動いている向きが分かるように)。 */
+/** 直前の軌跡を尾で描く。尾の長さは空での角速度に比例させる
+ *  (速い低軌道ほど長く尾を引いて流星のように見える)。頭ほど濃くフェードさせる。 */
 function drawSatTrail(s) {
-  const base = state.ms;
-  const gmstAt = (d) => satLib.gstime(d);
   const obs = { longitude: SITE.lon * DEG, latitude: SITE.lat * DEG, height: 0.05 };
-  const pts = [];
-  for (let k = 4; k >= 1; k--) {
-    const d = new Date(base - k * 20000);            // 20秒刻みで4点さかのぼる
+  const backAt = (dtSec) => {
+    const d = new Date(state.ms - dtSec * 1000);
     const pv = satLib.propagate(s.satrec, d);
-    if (!pv.position) continue;
-    const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, gmstAt(d)));
-    if (look.elevation < -0.03) continue;
-    const p = projectView(azAltToEnu(look.azimuth, look.elevation), view);
-    if (!p.behind) pts.push(p);
+    if (!pv.position) return null;
+    const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, satLib.gstime(d)));
+    if (look.elevation < -0.05) return null;
+    return azAltToEnu(look.azimuth, look.elevation);
+  };
+  const b = backAt(8);
+  if (!b) return;
+  const dot = b.e * s.enu.e + b.n * s.enu.n + b.u * s.enu.u;
+  const omega = Math.acos(Math.max(-1, Math.min(1, dot))) / 8;      // 角速度 [rad/s]
+  const trailSec = Math.max(10, Math.min(150, omega * 9000));       // 速い衛星ほど長い尾
+  const N = 8;
+  let prev = projectView(s.enu, view);
+  if (prev.behind) return;
+  for (let k = 1; k <= N; k++) {
+    const enu = backAt((trailSec * k) / N);
+    if (!enu) break;
+    const q = projectView(enu, view);
+    if (q.behind) break;
+    const a = (1 - (k - 1) / N) * 0.6;                             // 頭ほど濃い
+    ctx.strokeStyle = printMode ? `rgba(0,0,0,${a * 0.6})` : `rgba(95,214,255,${a})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+    prev = q;
   }
-  if (pts.length < 1) return;
-  const now = projectView(s.enu, view);
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.lineTo(now.x, now.y);
-  ctx.strokeStyle = printMode ? "rgba(0,0,0,0.35)" : "rgba(95,214,255,0.55)";
-  ctx.lineWidth = 1;
-  ctx.stroke();
 }
 
 /** 人工衛星を描く。地平座標なので enu を直接投影する。ラベルは位置だけ返す。 */
@@ -1329,6 +1337,56 @@ function identifySatellites(dir, opts) {
   return out;
 }
 
+// Starlink はオンデマンド (同定を全カタログ的に広げる。中点で地平線上のものだけに絞って探す)
+let idStarlink = null, idStarlinkTried = false;
+async function loadIdStarlink() {
+  if (idStarlinkTried || !satLib) return;
+  idStarlinkTried = true;
+  try {
+    const data = await fetch("satellites_starlink.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+    idStarlink = [];
+    for (const [name, norad, l1, l2] of data) {
+      const rec = satLib.twoline2satrec(l1, l2);
+      if (!rec.error) idStarlink.push({ name: name.trim(), norad, satrec: rec });
+    }
+  } catch (e) { idStarlink = null; }
+}
+
+/** Starlink を「今この瞬間」±2分で同定 (中点で地平線上のものだけ精査＝高速)。 */
+function identifyStarlinkNear(dir) {
+  if (!idStarlink) return [];
+  const WIN = 120000, step = 5000, TOL = 5 * DEG;
+  const obs = { longitude: SITE.lon * DEG, latitude: SITE.lat * DEG, height: 0.05 };
+  const mid = state.ms, midDate = new Date(mid), midGmst = satLib.gstime(midDate);
+  const cand = [];
+  for (const s of idStarlink) {                       // プレフィルタ: 中点で地平線上
+    const pv = satLib.propagate(s.satrec, midDate);
+    if (!pv.position) continue;
+    if (satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, midGmst)).elevation > 0) cand.push(s);
+  }
+  const out = [];
+  for (const s of cand) {
+    let best = null;
+    for (let ms = mid - WIN; ms <= mid + WIN; ms += step) {
+      const date = new Date(ms);
+      const pv = satLib.propagate(s.satrec, date);
+      if (!pv.position) continue;
+      const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, satLib.gstime(date)));
+      if (look.elevation <= 0) continue;
+      const enu = azAltToEnu(look.azimuth, look.elevation);
+      const sep = Math.acos(Math.max(-1, Math.min(1, enu.e * dir.e + enu.n * dir.n + enu.u * dir.u)));
+      if (!best || sep < best.sep) best = { sep, ms, alt: look.elevation, az: look.azimuth, range: look.rangeSat, pos: pv.position };
+    }
+    if (best && best.sep <= TOL) {
+      const sp = sunPosition(jdFromDate(new Date(best.ms)));
+      out.push({ name: s.name, norad: s.norad, stdMag: null, satrec: s.satrec, sepDeg: best.sep * RAD,
+        ms: best.ms, alt: best.alt * RAD, az: best.az * RAD, range: best.range,
+        sunlit: isSunlit(best.pos, raDecToVec(sp.ra, sp.dec)), mag: null });
+    }
+  }
+  return out;
+}
+
 /** 空をタップ → その方向を同定する。 */
 function identifyAt(px, py) {
   view = buildView();
@@ -1337,13 +1395,25 @@ function identifyAt(px, py) {
   const box = el("id-list");
   if (dir.u <= 0) { box.innerHTML = '<div class="info">地平線より下です。空の上のほうをタップしてください。</div>'; draw(); return; }
   if (!satRecs) { satTried = false; box.innerHTML = '<div class="info">衛星データを読み込み中… もう一度タップしてください。</div>'; loadSats(); draw(); return; }
-  box.innerHTML = '<div class="info">候補を検索中…</div>';
+  const withSL = el("id-starlink").checked;
+  box.innerHTML = withSL ? '<div class="info">候補を検索中…（Starlink 約1万機を含むので少しかかります）</div>'
+    : '<div class="info">候補を検索中…</div>';
   draw();
   const lookMin = Number(el("id-lookback").value);
-  setTimeout(() => {
-    const res = identifySatellites(dir, { lookbackMs: lookMin * 60000, aheadMs: 60000, tolDeg: 5, stepMs: 5000 });
+  const run = () => setTimeout(() => {
+    let res = identifySatellites(dir, { lookbackMs: lookMin * 60000, aheadMs: 60000, tolDeg: 5, stepMs: 5000 });
+    if (withSL && idStarlink) {
+      res = res.concat(identifyStarlinkNear(dir));
+      res.sort((a, b) => {
+        if (a.sunlit !== b.sunlit) return a.sunlit ? -1 : 1;
+        const am = a.mag == null ? 99 : a.mag, bm = b.mag == null ? 99 : b.mag;
+        if (am !== bm) return am - bm;
+        return a.sepDeg - b.sepDeg;
+      });
+    }
     renderIdentifyResults(res);
   }, 20);
+  if (withSL && !idStarlink) loadIdStarlink().then(run); else run();
 }
 
 function renderIdentifyResults(res) {

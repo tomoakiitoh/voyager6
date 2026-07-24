@@ -138,7 +138,7 @@ def main() -> int:
                  "comets_historic.json",
                  "asteroids.json", "asteroids_solar.json", "asteroids_tier2.bin",
                  "asteroids_catalog.json", "asteroids_neo.json", "asteroids_notable.json",
-                 "satellites.json",
+                 "satellites.json", "satellites_starlink.json",
                  "dso.json", "voyager6-manual.pdf", "llms.txt"]:
         f = SRC / name
         if f.exists():

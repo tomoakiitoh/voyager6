@@ -46,6 +46,11 @@ jobs:
       - name: 天文現象のテーブルを生成
         run: python3 tools/build_events.py
 
+      # 人工衛星の TLE を取り直す (Starlink 含む。satellites_starlink.json は gitignore=
+      # build 時生成で dist に載る)。取得失敗時は committed 版のまま続行する。
+      - name: 人工衛星の TLE を更新
+        run: python3 tools/build_satellites.py || echo "TLE の取得に失敗。committed 版で続行。"
+
       - name: テスト
         run: node --test tests/*.mjs
 

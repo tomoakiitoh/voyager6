@@ -28,6 +28,7 @@ bodyclass: solar-page
   <div class="row toggles">
     <label><input type="checkbox" id="earth-guides" checked>GEO軌道の輪・グリッド</label>
     <label><input type="checkbox" id="earth-orbit" checked>選択衛星の軌道</label>
+    <label><input type="checkbox" id="earth-starlink">Starlink網</label>
   </div>
   <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
 </div>
@@ -130,6 +131,29 @@ async function loadSats() {
   }
 }
 
+// Starlink 網 (大きいのでオンデマンド。間引いて ~3000 機を表示 = コンステレーション網)
+let starRecs = [], starPoints = null, starTried = false;
+async function loadStarlink() {
+  if (starTried || !satLib) return;
+  starTried = true;
+  try {
+    const data = await fetch("../satellites_starlink.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+    const step = Math.max(1, Math.ceil(data.length / 3000));
+    for (let i = 0; i < data.length; i += step) {
+      const rec = satLib.twoline2satrec(data[i][2], data[i][3]);
+      if (!rec.error) starRecs.push(rec);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(starRecs.length * 3), 3));
+    starPoints = new THREE.Points(geo, new THREE.PointsMaterial({
+      size: 0.32, sizeAttenuation: false, color: 0x9fb8d0, map: dot(),
+      transparent: true, opacity: 0.7, depthWrite: false }));
+    starPoints.visible = el("earth-starlink").checked;
+    scene.add(starPoints);
+    update();
+  } catch (e) { /* Starlink 無しでも動く */ }
+}
+
 /** 丸い柔らかい点スプライト。 */
 function dot() {
   const s = 64, c = document.createElement("canvas"); c.width = c.height = s;
@@ -205,6 +229,15 @@ function update() {
     pos.needsUpdate = true;
     satPoints.geometry.getAttribute("color").needsUpdate = true;
   }
+  if (starPoints && starPoints.visible) {
+    const pos = starPoints.geometry.getAttribute("position");
+    for (let i = 0; i < starRecs.length; i++) {
+      const p = eciOf(starRecs[i], date);
+      if (!p) { pos.setXYZ(i, 0, 0, 0); continue; }
+      const v = toV(p); pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    pos.needsUpdate = true;
+  }
   if (selected >= 0 && satLib) {
     const p = eciOf(sats[selected].satrec, date);
     if (p) {
@@ -229,6 +262,11 @@ el("earth-time").addEventListener("input", () => setOffset(Number(el("earth-time
 el("earth-now").addEventListener("click", () => { curMs = Date.now(); el("earth-time").value = 0; update(); });
 el("earth-guides").addEventListener("change", () => (guides.visible = el("earth-guides").checked));
 el("earth-orbit").addEventListener("change", () => { if (orbitLine) orbitLine.visible = el("earth-orbit").checked; });
+el("earth-starlink").addEventListener("change", () => {
+  const on = el("earth-starlink").checked;
+  if (on && !starPoints) loadStarlink();
+  if (starPoints) starPoints.visible = on;
+});
 function searchSat() {
   const q = el("earth-search").value.trim().toLowerCase();
   if (!q) return;
