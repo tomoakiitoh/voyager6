@@ -1,0 +1,286 @@
+<!--
+title: 地球周回3D
+description: 人工衛星の軌道を地球中心の3Dで俯瞰する。ISS など明るい衛星が地球のまわりをどう回るかを時間再生で見る。SGP4 で計算。
+scripts: astro.js
+bodyclass: solar-page
+-->
+<div id="solar-wrap"><canvas id="solar-canvas"></canvas></div>
+
+<div id="solar-panel">
+  <div class="row">
+    <span id="earth-date" class="info"></span>
+    <span class="grow"></span>
+    <button id="earth-now" class="primary">今</button>
+  </div>
+  <div class="row">
+    <input type="range" id="earth-time" min="-720" max="720" step="0.5" value="0">
+  </div>
+  <div class="row">
+    <button id="earth-play" title="再生 / 停止">▶</button>
+    <select id="earth-speed" title="再生速度">
+      <option value="1">1分/秒</option>
+      <option value="10" selected>10分/秒</option>
+      <option value="60">1時間/秒</option>
+    </select>
+    <input type="text" id="earth-search" placeholder="衛星名 / NORAD で選択" maxlength="30">
+    <button id="earth-search-btn">選択</button>
+  </div>
+  <div class="row toggles">
+    <label><input type="checkbox" id="earth-guides" checked>GEO軌道の輪・グリッド</label>
+    <label><input type="checkbox" id="earth-orbit" checked>選択衛星の軌道</label>
+  </div>
+  <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "../assets/three.module.min.js" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "../assets/OrbitControls.js";
+
+// astro.js のグローバル (sunPosition / raDecToVec / jdFromDate) を使う。
+// 衛星の位置は satellite.js の SGP4 (早見盤 F1 と同じ。Vallado 参照実装と照合済み)。
+const el = (id) => document.getElementById(id);
+const K = 1 / 1000;                 // km → three.js 単位 (1単位=1000km)
+const EARTH_R = 6371 * K;           // 地球半径
+const GEO_R = 42164 * K;            // 静止軌道半径
+const TZ_MIN = 9 * 60;
+
+// ECI(TEME) km (x,y,z) → three.js (地球の自転軸=ECI z を three の上(y)に)
+const toV = (p) => new THREE.Vector3(p.x * K, p.z * K, -p.y * K);
+
+const canvas = el("solar-canvas");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070d);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 4000);
+camera.position.set(0, 24, 58);     // 静止軌道(42単位)まで見える俯瞰
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+scene.add(new THREE.AmbientLight(0x99aacc, 0.8));   // 夜側も地球と分かる程度に持ち上げる
+const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+scene.add(sunLight);
+scene.add(sunLight.target);
+
+// ---- 地球 (テクスチャ＋昼夜。自転は GMST で回す) ----
+const earthTex = new THREE.TextureLoader().load("../assets/earth.jpg");
+earthTex.colorSpace = THREE.SRGBColorSpace;
+const earth = new THREE.Mesh(
+  new THREE.SphereGeometry(EARTH_R, 64, 48),
+  new THREE.MeshPhongMaterial({ map: earthTex, shininess: 8 }));
+scene.add(earth);
+// 赤道リング (静止軌道) と赤道面グリッド (向きの手がかり)
+const guides = new THREE.Group();
+scene.add(guides);
+const geoPts = [];
+for (let d = 0; d <= 360; d += 2) geoPts.push(new THREE.Vector3(GEO_R * Math.cos(d * Math.PI / 180), 0, GEO_R * Math.sin(d * Math.PI / 180)));
+guides.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(geoPts),
+  new THREE.LineBasicMaterial({ color: 0x884444, transparent: true, opacity: 0.5 })));
+guides.add(new THREE.PolarGridHelper(GEO_R, 8, 6, 64, 0x223, 0x18213a));
+
+// 地軸 (北極の向き)
+guides.add(new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -EARTH_R * 1.6, 0), new THREE.Vector3(0, EARTH_R * 1.6, 0)]),
+  new THREE.LineBasicMaterial({ color: 0x3a4a6a })));
+
+// ---- 衛星 ----
+let satLib = null, sats = [], satPoints = null, satColors = null;
+let selected = -1;
+const selMarker = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0xffffff }));
+selMarker.visible = false;
+scene.add(selMarker);
+let orbitLine = null;
+
+// 軌道高度で色分け (LEO=シアン / MEO=橙 / GEO付近=赤)
+function regimeColor(altKm) {
+  if (altKm > 30000) return [1.0, 0.45, 0.4];
+  if (altKm > 4000) return [1.0, 0.75, 0.35];
+  return [0.42, 0.86, 1.0];
+}
+
+async function loadSats() {
+  try {
+    const [lib, data] = await Promise.all([
+      import("../assets/satellite.es.js"),
+      fetch("../satellites.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+    ]);
+    satLib = lib;
+    for (const [name, norad, l1, l2, stdMag] of data) {
+      const satrec = lib.twoline2satrec(l1, l2);
+      if (satrec.error) continue;
+      sats.push({ name: name.trim(), norad, satrec, stdMag });
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(sats.length * 3), 3));
+    satColors = new Float32Array(sats.length * 3);
+    geo.setAttribute("color", new THREE.BufferAttribute(satColors, 3));
+    satPoints = new THREE.Points(geo, new THREE.PointsMaterial({
+      size: 0.5, sizeAttenuation: false, vertexColors: true, map: dot(), transparent: true, depthWrite: false }));
+    scene.add(satPoints);
+    el("earth-pick").textContent = `${sats.length} 機を表示中。衛星をクリックで軌道表示`;
+    selectFromUrl();
+    update();
+  } catch (e) {
+    el("earth-pick").textContent = "衛星データを読み込めませんでした。";
+  }
+}
+
+/** 丸い柔らかい点スプライト。 */
+function dot() {
+  const s = 64, c = document.createElement("canvas"); c.width = c.height = s;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  grad.addColorStop(0, "rgba(255,255,255,1)"); grad.addColorStop(0.5, "rgba(255,255,255,0.85)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad; g.beginPath(); g.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2); g.fill();
+  return new THREE.CanvasTexture(c);
+}
+
+// ---- 時間 ----
+const baseMs = Date.now();
+let curMs = baseMs;
+let playing = false, lastT = 0;
+
+function eciOf(satrec, date) {
+  const pv = satLib.propagate(satrec, date);
+  return pv.position ? pv.position : null;   // ECI km
+}
+
+/** 選択衛星の軌道線 (1周ぶんを ECI でサンプル。ECI では軌道はほぼ固定)。 */
+function buildOrbit(s) {
+  if (orbitLine) { scene.remove(orbitLine); orbitLine.geometry.dispose(); orbitLine = null; }
+  const periodMin = (2 * Math.PI) / s.satrec.no;   // no = 平均運動 [rad/min]
+  const pts = [];
+  for (let k = 0; k <= 180; k++) {
+    const d = new Date(curMs + (k / 180) * periodMin * 60000);
+    const p = eciOf(s.satrec, d);
+    if (p) pts.push(toV(p));
+  }
+  orbitLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.9 }));
+  orbitLine.visible = el("earth-orbit").checked;
+  scene.add(orbitLine);
+}
+
+function selectSat(i) {
+  selected = i;
+  buildOrbit(sats[i]);
+  update();
+}
+
+function selectFromUrl() {
+  const q = new URLSearchParams(location.search).get("sat");
+  if (!q) return;
+  const key = q.trim().toLowerCase();
+  let i = sats.findIndex((s) => String(s.norad) === key);
+  if (i < 0) i = sats.findIndex((s) => s.name.toLowerCase().includes(key));
+  if (i >= 0) selectSat(i);
+}
+
+function update() {
+  const date = new Date(curMs);
+  const jd = jdFromDate(date);
+  earth.rotation.y = satLib ? satLib.gstime(date) : 0;   // 自転
+  // 太陽方向 (ECI) → 平行光
+  const s = sunPosition(jd);
+  const sv = raDecToVec(s.ra, s.dec);
+  sunLight.position.copy(new THREE.Vector3(sv[0], sv[2], -sv[1]).multiplyScalar(200));
+
+  if (satPoints && satLib) {
+    const pos = satPoints.geometry.getAttribute("position");
+    for (let i = 0; i < sats.length; i++) {
+      const p = eciOf(sats[i].satrec, date);
+      if (!p) { pos.setXYZ(i, 0, 0, 0); continue; }
+      const v = toV(p);
+      pos.setXYZ(i, v.x, v.y, v.z);
+      const alt = Math.hypot(p.x, p.y, p.z) - 6371;
+      const c = regimeColor(alt);
+      satColors[i * 3] = c[0]; satColors[i * 3 + 1] = c[1]; satColors[i * 3 + 2] = c[2];
+    }
+    pos.needsUpdate = true;
+    satPoints.geometry.getAttribute("color").needsUpdate = true;
+  }
+  if (selected >= 0 && satLib) {
+    const p = eciOf(sats[selected].satrec, date);
+    if (p) {
+      selMarker.position.copy(toV(p)); selMarker.visible = true;
+      const alt = Math.hypot(p.x, p.y, p.z) - 6371;
+      const pv = satLib.propagate(sats[selected].satrec, date);
+      const spd = Math.hypot(pv.velocity.x, pv.velocity.y, pv.velocity.z);
+      const period = (2 * Math.PI) / sats[selected].satrec.no;
+      el("earth-pick").textContent =
+        `★ ${sats[selected].name}　高度 ${alt.toFixed(0)} km ・ 速度 ${spd.toFixed(2)} km/s ・ 周期 ${period.toFixed(0)}分 ・ NORAD ${sats[selected].norad}`;
+    }
+  }
+  const d = new Date(curMs + TZ_MIN * 60000);
+  el("earth-date").textContent =
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} `
+    + `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} JST`;
+}
+
+// ---- UI ----
+function setOffset(min) { curMs = baseMs + min * 60000; update(); }
+el("earth-time").addEventListener("input", () => setOffset(Number(el("earth-time").value)));
+el("earth-now").addEventListener("click", () => { curMs = Date.now(); el("earth-time").value = 0; update(); });
+el("earth-guides").addEventListener("change", () => (guides.visible = el("earth-guides").checked));
+el("earth-orbit").addEventListener("change", () => { if (orbitLine) orbitLine.visible = el("earth-orbit").checked; });
+function searchSat() {
+  const q = el("earth-search").value.trim().toLowerCase();
+  if (!q) return;
+  let i = sats.findIndex((s) => String(s.norad) === q);
+  if (i < 0) i = sats.findIndex((s) => s.name.toLowerCase().includes(q));
+  if (i >= 0) selectSat(i); else el("earth-pick").textContent = "見つかりません";
+}
+el("earth-search-btn").addEventListener("click", searchSat);
+el("earth-search").addEventListener("keydown", (e) => { if (e.key === "Enter") searchSat(); });
+el("earth-play").addEventListener("click", () => {
+  playing = !playing; el("earth-play").textContent = playing ? "■" : "▶"; lastT = 0;
+});
+
+// クリックで最寄りの衛星を選択
+canvas.addEventListener("click", (ev) => {
+  if (!satPoints) return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+  const pos = satPoints.geometry.getAttribute("position");
+  const v = new THREE.Vector3();
+  let best = -1, bestD = 16 * 16;
+  for (let i = 0; i < sats.length; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).project(camera);
+    if (v.z > 1) continue;
+    const sx = (v.x * 0.5 + 0.5) * rect.width, sy = (-v.y * 0.5 + 0.5) * rect.height;
+    const d = (sx - mx) ** 2 + (sy - my) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  if (best >= 0) selectSat(best);
+});
+
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w || canvas.height !== h) {
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+}
+function tick(now) {
+  resize();
+  if (playing && satLib) {
+    const dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
+    let min = (curMs - baseMs) / 60000 + dt * Number(el("earth-speed").value);
+    min = Math.max(-720, Math.min(720, min));
+    if (min >= 720 || min <= -720) { playing = false; el("earth-play").textContent = "▶"; }
+    curMs = baseMs + min * 60000;
+    el("earth-time").value = min;
+    update();
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+renderer.setAnimationLoop(tick);
+loadSats();
+</script>

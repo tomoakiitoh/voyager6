@@ -1632,7 +1632,8 @@ function pickObject(px, py) {
       const ageD = jd - s.epoch;
       const extra = `距離 ${Math.round(s.range)} km ・ 速度 ${s.speed.toFixed(1)} km/s<br>`
         + `NORAD ${s.norad} ・ ${s.sunlit ? "日照(見える)" : "地球影(見えない)"} ・ 元期 ${ageD.toFixed(1)}日前`;
-      consider(satShortName(s.name), s.stdMag == null ? 4 : s.stdMag, s.enu, extra);
+      consider(satShortName(s.name), s.stdMag == null ? 4 : s.stdMag, s.enu, extra, null,
+        { href: `earth/?sat=${s.norad}`, text: "地球周回3Dで軌道を見る →" });
     }
   }
   for (let i = 0; i < STARS.length; i++) {
