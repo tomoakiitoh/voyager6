@@ -126,6 +126,16 @@ bodyclass: sky-page
     <div class="row"><span id="place" class="info"></span></div>
   </details>
 
+  <details id="sat-pass-panel">
+    <summary>今夜見える人工衛星のパス</summary>
+    <div class="row">
+      <button id="btn-passes">これから24時間のパスを計算</button>
+      <span id="pass-note" class="info"></span>
+    </div>
+    <div id="pass-list"></div>
+    <div class="row"><span class="info">最大高度20°以上・観測地が暗い時間帯・衛星が日照中のパスを出します。等級・時刻は目安（TLEは日々更新。軌道機動・再突入直後は外れます）。</span></div>
+  </details>
+
   <details id="export-panel">
     <summary>チャートを出力（印刷・SVG）</summary>
     <div class="row">
@@ -404,6 +414,7 @@ function draw() {
   const dsoLabels = show.dso ? drawDSO(M) : [];
   const cometLabels = show.comets ? drawComets(M) : [];
   const asteroidLabels = show.asteroids ? drawAsteroids(M) : [];
+  if (show.sats && selectedPassPath) drawPassPath();
   const satLabels = show.sats ? drawSats() : [];
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
   if (telescope) drawHorizonShade(); // 地平線カーブ＋その下を暗く (地平線下の天体は描いたまま暗くなる)
@@ -1148,6 +1159,111 @@ function drawSats() {
     }
   }
   return labels;
+}
+
+// ---------------- 人工衛星 F2: 今夜見えるパス予報 ----------------
+const DIRS16 = ["北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
+  "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西"];
+const dir16 = (az) => DIRS16[Math.round(az / 22.5) % 16];
+let selectedPassPath = null;   // 選択中パスの地平サンプル [{e,n,u}] (早見盤に弧を描く)
+
+/** これから24時間で観測地から見える衛星パスを計算する (暗い時間帯・高度10°以上・日照中)。 */
+function computeVisiblePasses() {
+  if (!satRecs) return [];
+  const STEP = 30000;               // 30秒刻み
+  const HORIZON = 10;               // パスの出現/消失を測る高度 [度]
+  const MIN_MAX_EL = 20;            // ただし最大高度がこれ未満の低い擦過パスは一覧に出さない
+  const SUN_DARK = -4;              // 観測地の太陽高度がこれ以下で「暗い」とみなす
+  const start = Date.now();
+  const n = Math.round(24 * 3600 * 1000 / STEP);
+  const R2D = 180 / Math.PI;
+  // 各ステップの暗さと太陽方向を前計算 (太陽計算は 1回/ステップ)
+  const steps = new Array(n + 1);
+  for (let i = 0; i <= n; i++) {
+    const ms = start + i * STEP;
+    const jd = jdFromDate(new Date(ms));
+    const sun = sunPosition(jd);
+    const sunAlt = eqToHorizon(sun.ra, sun.dec, jd, SITE.lat, SITE.lon, false).alt;
+    steps[i] = { ms, dark: sunAlt < SUN_DARK, sunHat: raDecToVec(sun.ra, sun.dec) };
+  }
+  const obs = { longitude: SITE.lon * DEG, latitude: SITE.lat * DEG, height: 0.05 };
+  const passes = [];
+  for (const s of satRecs) {
+    let cur = null;                 // 進行中のパス
+    for (const st of steps) {
+      if (!st.dark) { if (cur) { passes.push(finalizePass(cur, s)); cur = null; } continue; }
+      const date = new Date(st.ms);
+      const pv = satLib.propagate(s.satrec, date);
+      if (!pv.position) { if (cur) { passes.push(finalizePass(cur, s)); cur = null; } continue; }
+      const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, satLib.gstime(date)));
+      const el = look.elevation * R2D;
+      const visible = el >= HORIZON && isSunlit(pv.position, st.sunHat);
+      if (visible) {
+        const pt = { ms: st.ms, el, az: look.azimuth * R2D, range: look.rangeSat };
+        if (!cur) cur = { pts: [pt], max: pt };
+        else { cur.pts.push(pt); if (pt.el > cur.max.el) cur.max = pt; }
+      } else if (cur) { passes.push(finalizePass(cur, s)); cur = null; }
+    }
+    if (cur) passes.push(finalizePass(cur, s));
+  }
+  const good = passes.filter((p) => p.maxEl >= MIN_MAX_EL);
+  good.sort((a, b) => a.startMs - b.startMs);
+  return good;
+}
+
+function finalizePass(cur, s) {
+  const first = cur.pts[0], last = cur.pts[cur.pts.length - 1];
+  // 予報等級 = 標準等級 + 5log10(距離/1000km) (距離補正のみ。位相は省略=目安)
+  const mag = s.stdMag == null ? null : s.stdMag + 5 * Math.log10(cur.max.range / 1000);
+  return {
+    name: satShortName(s.name), norad: s.norad, stdMag: s.stdMag, mag,
+    startMs: first.ms, startAz: first.az, endMs: last.ms, endAz: last.az,
+    maxMs: cur.max.ms, maxEl: cur.max.el, maxAz: cur.max.az, pts: cur.pts,
+  };
+}
+
+/** パス一覧を表に描く。行クリックでその時刻・弧を早見盤に表示。 */
+function renderPassList(passes) {
+  const box = el("pass-list");
+  if (!passes.length) {
+    el("pass-note").textContent = "これから24時間で見えるパスはありません（白夜期・悪条件を除く）。";
+    box.innerHTML = ""; return;
+  }
+  el("pass-note").textContent = `${passes.length}件 ・ 行をタップで早見盤に表示`;
+  const fmt = (ms) => { const t = jstParts(ms); return `${p2(t.hh)}:${p2(t.mm)}`; };
+  const rows = passes.map((p, i) => {
+    const mag = p.mag == null ? "—" : `${p.mag.toFixed(1)}等`;
+    return `<tr data-i="${i}"><td>${fmt(p.startMs)}</td><td class="pn">${p.name}</td>`
+      + `<td>${dir16(p.startAz)}→${dir16(p.endAz)}</td>`
+      + `<td>${p.maxEl.toFixed(0)}°(${dir16(p.maxAz)})</td><td>${mag}</td></tr>`;
+  }).join("");
+  box.innerHTML = `<table class="pass-table"><thead><tr><th>出現</th><th>衛星</th>`
+    + `<th>経路</th><th>最大高度</th><th>等級</th></tr></thead><tbody>${rows}</tbody></table>`;
+  box.querySelectorAll("tr[data-i]").forEach((tr) =>
+    tr.addEventListener("click", () => selectPass(passes[+tr.dataset.i])));
+}
+
+/** パスを選択: 衛星レイヤON、時刻を最大高度時にし、経路の弧を描く。 */
+function selectPass(p) {
+  if (!show.sats) { show.sats = true; el("t-sats").checked = true; loadSats(); startSatTicker(); }
+  selectedPassPath = p.pts.map((pt) => azAltToEnu(pt.az * DEG, pt.el * DEG));
+  setTime(p.maxMs);   // draw() が走り、弧＋衛星マーカーが出る
+}
+
+/** 選択中パスの経路を破線の弧で描く (地平座標なので enu を投影)。 */
+function drawPassPath() {
+  ctx.beginPath();
+  let started = false;
+  for (const h of selectedPassPath) {
+    const p = projectView(h, view);
+    if (p.behind) { started = false; continue; }
+    if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+  }
+  ctx.strokeStyle = printMode ? "rgba(0,0,0,0.6)" : "rgba(120,220,255,0.85)";
+  ctx.lineWidth = 1.6;
+  ctx.setLineDash([4, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 // ---------------- 星雲・星団・銀河 (F5: OpenNGC V≤12) ----------------
@@ -2003,6 +2119,14 @@ function startSatTicker() {
   }, 1000);
 }
 function stopSatTicker() { clearInterval(satTimer); satTimer = 0; }
+
+// F2: 今夜のパス予報。データ未ロードなら読み込んでから計算する。
+el("btn-passes").addEventListener("click", () => {
+  el("pass-note").textContent = "計算中…";
+  el("pass-list").innerHTML = "";
+  const run = () => setTimeout(() => renderPassList(computeVisiblePasses()), 20);
+  if (!satRecs) { satTried = false; loadSats().then(run); } else { run(); }
+});
 
 // URLに comet= があれば彗星レイヤを自動ON (ディープリンクの意図を尊重, F2)
 if (deepLinkComet) { show.comets = true; el("t-comets").checked = true; }

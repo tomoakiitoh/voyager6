@@ -145,6 +145,16 @@ details[open] summary { margin-bottom: 6px; }
   white-space: nowrap;
 }
 #popup b { color: #fff; font-size: 13px; }
+
+/* 衛星パス予報の一覧表 (PLAN6 F2) */
+#pass-list { max-height: 260px; overflow-y: auto; margin-top: 6px; }
+.pass-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pass-table th { text-align: left; color: var(--dim); font-weight: 500; padding: 3px 6px;
+  position: sticky; top: 0; background: var(--panel); }
+.pass-table td { padding: 3px 6px; border-top: 1px solid var(--line); white-space: nowrap; }
+.pass-table td.pn { white-space: normal; }
+.pass-table tbody tr { cursor: pointer; }
+.pass-table tbody tr:hover { background: rgba(120,180,255,0.12); }
 /* 親は pointer-events:none だが、リンクだけは押せるように戻す */
 #popup .popup-link { color: #8fd3ff; pointer-events: auto; text-decoration: none; }
 #popup .popup-link:hover { text-decoration: underline; }
