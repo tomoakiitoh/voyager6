@@ -227,6 +227,8 @@ function skyColor(sunAlt) {
  * 明るい側は必ず太陽の方を向くので、画面上の太陽方向を角度で渡して回転させる。
  */
 function drawMoon(x, y, r, illum, angleToSun) {
+  // 印刷(白地)テーマでは白い月は見えないので、輪郭付きのグレー描画にする。
+  const print = typeof printMode !== "undefined" && printMode;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angleToSun);
@@ -234,7 +236,7 @@ function drawMoon(x, y, r, illum, angleToSun) {
   // 影の側 (地球照ぶんだけ薄く見せる)
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(120,130,155,0.30)";
+  ctx.fillStyle = print ? "rgba(0,0,0,0.08)" : "rgba(120,130,155,0.30)";
   ctx.fill();
 
   // 明るい側: 太陽を向いた半円 + 明暗境界の楕円
@@ -243,9 +245,16 @@ function drawMoon(x, y, r, illum, angleToSun) {
   ctx.ellipse(0, 0, Math.abs(2 * illum - 1) * r, r, 0,
     Math.PI / 2, -Math.PI / 2, illum < 0.5); // 三日月なら境界が太陽側に膨らむ
   ctx.closePath();
-  ctx.fillStyle = "#f2efe2";
+  ctx.fillStyle = print ? "rgba(0,0,0,0.38)" : "#f2efe2";
   ctx.fill();
 
+  if (print) {   // 白地でも形が分かるよう全体に輪郭
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

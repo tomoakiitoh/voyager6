@@ -152,6 +152,20 @@ details[open] summary { margin-bottom: 6px; }
 /* 赤色ナイトモード: 暗順応を壊さないよう全体を赤単色にして落とす */
 body.night { filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(5) brightness(0.72); }
 
+/* チャート印刷 (F8): 画面では隠し、印刷時だけ盤面＋ヘッダを白地でA4に出す */
+#print-area { display: none; }
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  body { background: #fff; }
+  body > *:not(#print-area) { display: none !important; }
+  #print-area { display: block !important; color: #000; }
+  #print-header { font: 13px/1.6 "Hiragino Sans", sans-serif; margin-bottom: 5mm; }
+  #print-header .pt-title { font-size: 17px; font-weight: 600; }
+  #print-header .pt-meta { margin-top: 2mm; color: #222; }
+  #print-chart svg { width: 100%; height: auto; display: block; }
+  #print-foot { margin-top: 4mm; font: 10px/1.5 "Hiragino Sans", sans-serif; color: #444; }
+}
+
 /* スマホ (縦持ち): 盤面を目一杯、コントロールは下に詰める */
 @media (max-width: 560px) {
   /* ナビは詰めて 1画面に入れる (入りきらないぶんは横スクロール) */

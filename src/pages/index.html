@@ -124,6 +124,23 @@ bodyclass: sky-page
     </div>
     <div class="row"><span id="place" class="info"></span></div>
   </details>
+
+  <details id="export-panel">
+    <summary>チャートを出力（印刷・SVG）</summary>
+    <div class="row">
+      <button id="btn-print">印刷 / PDF</button>
+      <button id="btn-svg">SVGで保存</button>
+      <label class="info"><input type="checkbox" id="print-white" checked>SVGを白地にする</label>
+    </div>
+    <div class="row"><span class="info">いま表示中の視野をそのまま出力します。印刷/PDFは望遠鏡脇で読める白地。SVGはブログ・スライドのベクター図版にも使えます。</span></div>
+  </details>
+</div>
+
+<!-- 印刷/PDF 専用エリア (画面では非表示・@media print でのみ現れる)。中身は印刷時に組み立てる。 -->
+<div id="print-area" hidden>
+  <div id="print-header"></div>
+  <div id="print-chart"></div>
+  <div id="print-foot">voyager6.net — 恒星の位置は JPL Horizons と照合済み。彗星・小惑星・歴史的表示は接触軌道要素による概略。</div>
 </div>
 
 <script>
@@ -239,7 +256,38 @@ function msFromJst(y, mo, d, hh, mm) {
 }
 
 const canvas = document.getElementById("sky");
-const ctx = canvas.getContext("2d");
+let ctx = canvas.getContext("2d");   // チャート出力(F8)時だけ一時的にSVGコンテキストへ差し替える
+let printMode = false;               // 出力時の白地(印刷)テーマ。画面は常に false
+
+// 描画の意味別カラー。screen=現状の暗色 / print=白地に黒星の伝統的な星図配色。
+// 印刷テーマは望遠鏡脇で読めるよう、グロー(にじみ)を消し線とラベルをグレー〜黒にする。
+const PAINT = {
+  screen: {
+    bgOut: "#05070d", sky: null, horizon: "#39456b", glow: true, starMono: null,
+    constLine: "rgba(126,160,220,0.42)", constName: "rgba(150,190,255,0.62)",
+    starName: "rgba(226,236,255,0.85)", milkyway: "rgba(255,255,255,0.038)",
+    altaz: "rgba(140,165,210,0.18)", grid: "rgba(120,200,255,0.20)",
+    equator: "rgba(120,200,255,0.35)", ecliptic: "rgba(255,210,120,0.40)",
+    messierLabel: "rgba(220,230,250,0.55)", cometCore: "rgba(205,255,232,0.95)",
+    asteroid: "#e8c98a", asteroidRing: "rgba(232,201,138,0.6)", sun: "#ffdf70",
+    compass: "#93a2c4", horizonShade: "rgba(2,4,9,0.6)", horizonLine: "rgba(150,120,88,0.75)",
+    label: null,
+  },
+  print: {
+    bgOut: "#ffffff", sky: "#ffffff", horizon: "#8a8a8a", glow: false, starMono: "#000000",
+    constLine: "rgba(0,0,0,0.24)", constName: "rgba(0,0,0,0.55)",
+    starName: "rgba(0,0,0,0.9)", milkyway: "rgba(0,0,0,0.05)",
+    altaz: "rgba(0,0,0,0.14)", grid: "rgba(0,0,0,0.15)",
+    equator: "rgba(0,0,0,0.42)", ecliptic: "rgba(0,0,0,0.30)",
+    messierLabel: "rgba(0,0,0,0.6)", cometCore: "#000000",
+    asteroid: "#000000", asteroidRing: "rgba(0,0,0,0.5)", sun: "#000000",
+    compass: "#333333", horizonShade: "rgba(0,0,0,0.05)", horizonLine: "rgba(0,0,0,0.55)",
+    label: "#000000",
+  },
+};
+function pt() { return printMode ? PAINT.print : PAINT.screen; }
+/** 星の色: 画面はB-V由来、印刷は黒一色。 */
+function starFill(bv) { return printMode ? PAINT.print.starMono : bvColor(bv); }
 let R = 300, cx = 0, cy = 0;
 let view = null; // 現在の描画ビュー (draw / pickObject の直前に buildView() で更新)
 let telescopeMode = false; // 望遠鏡モードか (地平線下も描くカリング分岐に使う)
@@ -332,7 +380,7 @@ function draw() {
   const size = cx * 2;
 
   ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = "#05070d";
+  ctx.fillStyle = pt().bgOut;
   ctx.fillRect(0, 0, size, size);
 
   // 盤面 (薄明で地色が変わる)。全天図は真円、望遠鏡モードは画面全体。
@@ -340,7 +388,7 @@ function draw() {
   ctx.beginPath();
   if (telescope) ctx.rect(0, 0, size, size);
   else ctx.arc(cx, cy, R, 0, Math.PI * 2);
-  ctx.fillStyle = skyColor(sunAlt);
+  ctx.fillStyle = pt().sky || skyColor(sunAlt);
   ctx.fill();
   ctx.clip();
 
@@ -362,7 +410,7 @@ function draw() {
   if (!telescope) {
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.strokeStyle = "#39456b";
+    ctx.strokeStyle = pt().horizon;
     ctx.lineWidth = 1.2;
     ctx.stroke();
   }
@@ -391,9 +439,9 @@ function drawStars(M) {
     const rad = starRadius(mag, R);
     ctx.beginPath();
     ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-    ctx.fillStyle = bvColor(STARS[i][3]);
+    ctx.fillStyle = starFill(STARS[i][3]);
     ctx.fill();
-    if (mag <= 1.5) { // 1等星はうっすら光らせる
+    if (pt().glow && mag <= 1.5) { // 1等星はうっすら光らせる
       const g = ctx.createRadialGradient(p.x, p.y, rad * 0.5, p.x, p.y, rad * 3.4);
       g.addColorStop(0, "rgba(255,255,255,0.30)");
       g.addColorStop(1, "rgba(255,255,255,0)");
@@ -532,7 +580,7 @@ function drawDeepStars(M) {
         if (mg > 7.5) { faint.push(p.x, p.y); continue; }
         ctx.beginPath();
         ctx.arc(p.x, p.y, deepStarRadius(mg, R), 0, Math.PI * 2);
-        ctx.fillStyle = bvColor(bv[i]);
+        ctx.fillStyle = starFill(bv[i]);
         ctx.fill();
       }
     }
@@ -557,21 +605,21 @@ function drawDeepStars(M) {
       if (mg > 7.5) { faint.push(p.x, p.y); continue; }
       ctx.beginPath();
       ctx.arc(p.x, p.y, deepStarRadius(mg, R), 0, Math.PI * 2);
-      ctx.fillStyle = bvColor(hp.bv[i]);
+      ctx.fillStyle = starFill(hp.bv[i]);
       ctx.fill();
     }
   }
 
   // 暗い星は色を1つに固定して四角でまとめ描き (arc より速い)
   if (faint.length) {
-    ctx.fillStyle = "rgba(228,236,255,0.85)";
+    ctx.fillStyle = printMode ? PAINT.print.starMono : "rgba(228,236,255,0.85)";
     for (let i = 0; i < faint.length; i += 2) ctx.fillRect(faint[i] - 0.5, faint[i + 1] - 0.5, 1.1, 1.1);
   }
 }
 
 /** 星座線。地平線をまたぐ線分は地平線で切る。 */
 function drawConstLines(M) {
-  ctx.strokeStyle = "rgba(126,160,220,0.42)";
+  ctx.strokeStyle = pt().constLine;
   ctx.lineWidth = Math.max(0.6, R / 420);
   ctx.beginPath();
   for (const [, polylines] of LINE_VEC) {
@@ -601,7 +649,7 @@ function drawConstNames(M, place) {
   ctx.font = `${fs}px "Hiragino Sans", sans-serif`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(150,190,255,0.62)";
+  ctx.fillStyle = pt().constName;
 
   const cands = [];
   for (const c of CNAME_VEC) {
@@ -627,7 +675,7 @@ function drawStarNames(M, place) {
   ctx.font = `${fs}px "Hiragino Sans", sans-serif`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(226,236,255,0.85)";
+  ctx.fillStyle = pt().starName;
 
   for (const [idx, name] of STAR_NAMES) { // STARS は明るい順なので添字順 = 明るい順
     if (STARS[idx][2] > starNameMagLimit()) break;
@@ -650,7 +698,7 @@ function starNameMagLimit() {
 
 /** 天の川。濃度レベルごとに薄い白を重ね塗りする。 */
 function drawMilkyway(M) {
-  ctx.fillStyle = "rgba(255,255,255,0.038)";
+  ctx.fillStyle = pt().milkyway;
   for (const level of MW_VEC) {
     ctx.beginPath();
     for (const ring of level) {
@@ -671,7 +719,7 @@ function drawMilkyway(M) {
 function drawGuides(Mn, jd, telescope) {
   // 高度の同心円と方位線は天頂中心の全天図でのみ意味を持つ (望遠鏡モードでは出さない)
   if (!telescope) {
-    ctx.strokeStyle = "rgba(140,165,210,0.18)";
+    ctx.strokeStyle = pt().altaz;
     ctx.lineWidth = 1;
     for (const alt of [30, 60]) {
       ctx.beginPath();
@@ -690,11 +738,11 @@ function drawGuides(Mn, jd, telescope) {
 
   // 天の赤道 (赤緯0°) と黄道 (黄緯0°)。どちらも日付の分点で描く。
   const d = schlyterDay(jd);
-  drawGreatCircle(Mn, (t) => raDecToVec(t, 0), "rgba(120,200,255,0.35)");
+  drawGreatCircle(Mn, (t) => raDecToVec(t, 0), pt().equator);
   drawGreatCircle(Mn, (t) => {
     const eq = eclipticToEquatorial(t, 0, d);
     return raDecToVec(eq.ra, eq.dec);
-  }, "rgba(255,210,120,0.40)");
+  }, pt().ecliptic);
 }
 
 /**
@@ -725,7 +773,7 @@ function drawEquatorialGrid(M) {
   const zoom = state.view.zoom;
   const decStep = zoom > 25 ? 5 : (zoom > 6 ? 10 : 30);          // 緯線の間隔 [度]
   const raStep = zoom > 25 ? 3.75 : (zoom > 6 ? 15 : 30);         // 経線の間隔 [度] (15分/1時/2時)
-  ctx.strokeStyle = "rgba(120,200,255,0.20)";
+  ctx.strokeStyle = pt().grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let dec = -80; dec <= 80; dec += decStep) {               // Dec の緯線
@@ -780,7 +828,7 @@ function drawMessier(M) {
     const p = projectView(h, view);
     if (p.behind) continue;
     const style = MESSIER_STYLE[m.kind] || MESSIER_STYLE.other;
-    ctx.strokeStyle = style.color;
+    ctx.strokeStyle = printMode ? "rgba(0,0,0,0.55)" : style.color;
     ctx.setLineDash(style.shape === "circle" ? [2, 2] : []);
 
     ctx.beginPath();
@@ -792,7 +840,7 @@ function drawMessier(M) {
 
     // 双眼鏡で見える明るいものだけ番号を添える (盤面が小さいときは出さない)
     if (m.mag <= 6.5 && R > 260) {
-      ctx.fillStyle = "rgba(220,230,250,0.55)";
+      ctx.fillStyle = pt().messierLabel;
       ctx.fillText(m.id, p.x, p.y + s + 1);
     }
   }
@@ -867,13 +915,15 @@ function drawComets(M) {
     const p = projectView(h, view);
     if (p.behind) continue;
     const rad = Math.max(2.5, (6 - 0.35 * c.mag) * (R / 320));
-    const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad * 3);
-    glow.addColorStop(0, "rgba(140,255,205,0.5)");
-    glow.addColorStop(1, "rgba(140,255,205,0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(p.x, p.y, rad * 3, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(205,255,232,0.95)";
-    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, rad * 0.5), 0, Math.PI * 2); ctx.fill();
+    if (pt().glow) {
+      const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad * 3);
+      glow.addColorStop(0, "rgba(140,255,205,0.5)");
+      glow.addColorStop(1, "rgba(140,255,205,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(p.x, p.y, rad * 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = pt().cometCore;
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, rad * (printMode ? 0.8 : 0.5)), 0, Math.PI * 2); ctx.fill();
     // 仮符号だけでなく彗星名も出す (名前は "C/2024 J3 (ATLAS)" のように括弧内にある)
     labels.push({ text: `${c.name} ${c.mag.toFixed(1)}等`, x: p.x + rad + 3, y: p.y,
                   color: "rgba(170,255,220,0.95)" });
@@ -926,11 +976,11 @@ function drawAsteroids(M) {
     const rad = Math.max(2, (4.4 - 0.28 * a.mag) * (R / 320));
     ctx.beginPath();
     ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
-    ctx.fillStyle = "#e8c98a";
+    ctx.fillStyle = pt().asteroid;
     ctx.fill();
     ctx.beginPath();
     ctx.arc(p.x, p.y, rad + 2.2, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(232,201,138,0.6)";
+    ctx.strokeStyle = pt().asteroidRing;
     ctx.lineWidth = 1;
     ctx.stroke();
     const short = a.name.replace(/^\(\d+\)\s*/, ""); // 「(4) Vesta」→「Vesta」
@@ -983,7 +1033,7 @@ function drawDSO(M) {
     const p = projectView(h, view);
     if (p.behind || p.x < -20 || p.x > size + 20 || p.y < -20 || p.y > size + 20) continue;
     const cat = o[2], maj = o[4], minr = o[5], pa = o[6];
-    const color = DSO_COLOR[cat] || DSO_COLOR.other;
+    const color = printMode ? "rgba(0,0,0,0.55)" : (DSO_COLOR[cat] || DSO_COLOR.other);
     const rMaj = Math.min(R, Math.max(3.2, (maj / 2 / 60) * ppd)); // 長半径 [px]
     const rMin = maj > 0 && minr > 0 ? Math.max(2, rMaj * minr / maj) : rMaj * 0.7;
     ctx.strokeStyle = color;
@@ -1039,16 +1089,18 @@ function drawSolarSystem(Mn, sky, sunH) {
     const sp = projectView(sunH, view);
     if (!sp.behind) {
       const rad = Math.max(6, R / 26);
-      const glow = ctx.createRadialGradient(sp.x, sp.y, rad * 0.5, sp.x, sp.y, rad * 3.5);
-      glow.addColorStop(0, "rgba(255,236,160,0.55)");
-      glow.addColorStop(1, "rgba(255,236,160,0)");
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(sp.x, sp.y, rad * 3.5, 0, Math.PI * 2);
-      ctx.fill();
+      if (pt().glow) {
+        const glow = ctx.createRadialGradient(sp.x, sp.y, rad * 0.5, sp.x, sp.y, rad * 3.5);
+        glow.addColorStop(0, "rgba(255,236,160,0.55)");
+        glow.addColorStop(1, "rgba(255,236,160,0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, rad * 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.beginPath();
       ctx.arc(sp.x, sp.y, rad, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffdf70";
+      ctx.fillStyle = pt().sun;
       ctx.fill();
       labels.push({ text: "太陽", x: sp.x + rad + 4, y: sp.y, color: "rgba(255,238,180,0.95)" });
     }
@@ -1061,17 +1113,19 @@ function drawSolarSystem(Mn, sky, sunH) {
     if (pos.behind) continue;
     // 明るいものほど大きく (金星・木星がひときわ目立つように)
     const rad = Math.max(2.2, (4.4 - 0.75 * p.mag) * (R / 320));
-    const glow = ctx.createRadialGradient(pos.x, pos.y, rad * 0.4, pos.x, pos.y, rad * 3.2);
-    glow.addColorStop(0, "rgba(255,255,255,0.28)");
-    glow.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, rad * 3.2, 0, Math.PI * 2);
-    ctx.fill();
+    if (pt().glow) {
+      const glow = ctx.createRadialGradient(pos.x, pos.y, rad * 0.4, pos.x, pos.y, rad * 3.2);
+      glow.addColorStop(0, "rgba(255,255,255,0.28)");
+      glow.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, rad * 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, rad, 0, Math.PI * 2);
-    ctx.fillStyle = p.color;
+    ctx.fillStyle = printMode ? "#000000" : p.color;
     ctx.fill();
 
     labels.push({ text: p.ja, x: pos.x + rad + 3, y: pos.y, color: "rgba(255,240,210,0.92)" });
@@ -1102,7 +1156,7 @@ function drawSolarLabels(labels, place) {
     // 盤面からはみ出すなら星の左側に回す (西の地平線ぎわの金星などが切れないように)
     const x = (l.x + w > cx + R) ? l.x - w - fs * 1.4 : l.x;
     if (!place(x, l.y - fs / 2, w, fs)) continue;
-    ctx.fillStyle = l.color;
+    ctx.fillStyle = printMode ? PAINT.print.label : l.color;
     ctx.fillText(l.text, x, l.y);
   }
 }
@@ -1406,13 +1460,13 @@ function drawHorizonShade() {
   if (cu > 0) ctx.rect(0, 0, size, size);
   pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
   ctx.closePath();
-  ctx.fillStyle = "rgba(2,4,9,0.6)";
+  ctx.fillStyle = pt().horizonShade;
   ctx.fill("evenodd");
   ctx.restore();
   // 地平線そのもの
   ctx.beginPath();
   pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-  ctx.strokeStyle = "rgba(150,120,88,0.75)";
+  ctx.strokeStyle = pt().horizonLine;
   ctx.lineWidth = 1.4;
   ctx.stroke();
 }
@@ -1421,7 +1475,7 @@ function drawHorizonShade() {
 function drawCompass() {
   const labels = [["北", 0], ["東", 90], ["南", 180], ["西", 270]];
   ctx.font = `${Math.max(12, R / 22)}px "Hiragino Sans", sans-serif`;
-  ctx.fillStyle = "#93a2c4";
+  ctx.fillStyle = pt().compass;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const rr = R + 10;
@@ -1835,6 +1889,76 @@ function stop() {
 }
 
 el("play").addEventListener("click", () => (state.playing ? stop() : play()));
+
+// ---------------- チャート出力 (F8: SVG / 印刷PDF) ----------------
+// 既存レンダラーの描画先 ctx を一時的に svgcanvas の偽コンテキストへ差し替えるだけで
+// SVG を得る (描画コードは二重化しない)。ジオメトリは画面と同じ (SVGはベクターなので
+// 印刷時に無限にスケールする)。white=true で白地の印刷テーマに切り替える (Phase2)。
+
+/** 現在の視野を SVG 文字列にする。描画先を偽contextへ差し替え、終わったら画面を戻す。 */
+async function renderChartSvg(white) {
+  const { Context } = await import("./assets/svgcanvas.esm.js");
+  const size = Math.round(cx * 2);
+  const realCtx = ctx, prevPrint = printMode;
+  const svg = new Context(size, size);
+  ctx = svg;
+  printMode = !!white;
+  try {
+    draw();
+    // viewBox を付けておくと width/height を外しても縦横比が保たれる (印刷でCSS幅100%にできる)
+    return svg.getSerializedSvg().replace("<svg ", `<svg viewBox="0 0 ${size} ${size}" `);
+  } finally {
+    ctx = realCtx;
+    printMode = prevPrint;
+    draw();                       // 画面を元の色で描き直す
+  }
+}
+
+/** ファイル名 voyager6_YYYYMMDD_HHMM.<ext> (日時入りで観測記録と対応づく)。 */
+function chartFilename(ext) {
+  const t = jstParts(state.ms);
+  return `voyager6_${t.y}${p2(t.mo)}${p2(t.d)}_${p2(t.hh)}${p2(t.mm)}.${ext}`;
+}
+
+el("btn-svg").addEventListener("click", async () => {
+  const white = el("print-white").checked;
+  const svgText = await renderChartSvg(white);
+  const blob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = chartFilename("svg");
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+const flipJa = (f) => (f === "mirror" ? "鏡像" : f === "inverted" ? "倒立" : "正立");
+
+/** 印刷/PDF: ベクターSVG(白地)＋日時・観測地・視野のヘッダを @media print で A4 に出す。 */
+async function openPrint() {
+  const t = jstParts(state.ms);
+  const dateStr = `${t.y}-${p2(t.mo)}-${p2(t.d)} ${p2(t.hh)}:${p2(t.mm)} JST`;
+  const place = ((el("place").textContent || "").split(" / ")[0].trim())
+    || `緯度 ${SITE.lat.toFixed(2)}° / 経度 ${SITE.lon.toFixed(2)}°`;
+  let viewStr;
+  if (state.view.zoom > ZOOM_MIN + 1e-6) {
+    const [ra, dec] = raDecOf(state.view.center);
+    viewStr = `望遠鏡モード ×${state.view.zoom.toFixed(1)}｜視野中心 α ${fmtRa(ra)} δ ${fmtDec(dec)}｜像 ${flipJa(state.view.flip)}`;
+  } else {
+    viewStr = "全天（地平座標・北が上）";
+  }
+  el("print-header").innerHTML =
+    `<div class="pt-title">星図 — ${dateStr}</div>`
+    + `<div class="pt-meta">${place}<br>${viewStr}</div>`;
+  const svg = await renderChartSvg(true);           // 印刷は常に白地
+  const holder = el("print-chart");
+  holder.innerHTML = svg;
+  const s = holder.querySelector("svg");
+  s.removeAttribute("width"); s.removeAttribute("height"); // CSS で幅100%に伸ばす
+  el("print-area").hidden = false;
+  window.print();
+  el("print-area").hidden = true;                   // 印刷後は隠す
+}
+el("btn-print").addEventListener("click", () => { openPrint(); });
 
 window.addEventListener("resize", resize);
 syncControls();

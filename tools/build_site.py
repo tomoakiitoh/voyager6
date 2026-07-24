@@ -49,7 +49,8 @@ NAV = [
 # dist/assets/ に置く共有ファイル (存在するものだけコピーする)
 ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "events.js", "stars.js",
-          "three.module.min.js", "OrbitControls.js"]  # 太陽系3D (three.js) 用に vendoring
+          "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
+          "svgcanvas.esm.js"]  # チャートSVG出力 (F8) 用に vendoring (MIT)
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
 
