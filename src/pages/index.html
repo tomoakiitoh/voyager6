@@ -65,6 +65,7 @@ bodyclass: sky-page
     <label><input type="checkbox" id="t-comets">彗星</label>
     <label><input type="checkbox" id="t-asteroids">小惑星</label>
     <label><input type="checkbox" id="t-dso">星雲星団銀河</label>
+    <label><input type="checkbox" id="t-sats">人工衛星</label>
     <label><input type="checkbox" id="t-guides">補助線</label>
     <label><input type="checkbox" id="t-grid">赤道座標</label>
     <label><input type="checkbox" id="t-night">赤色ナイトモード</label>
@@ -318,6 +319,7 @@ const show = {
   comets: false,    // 彗星 (MPC 軌道要素から都度計算)
   asteroids: false, // 小惑星 (現在 V≤11 + 四大)
   dso: false,       // 星雲・星団・銀河 (OpenNGC V≤12)
+  sats: false,      // 人工衛星 (PLAN6 F1。SGP4 は satellite.js。既定オフ)
   guides: false,    // 補助線 (同心円・方位線・天の赤道・黄道)
   grid: false,      // 赤道座標グリッド (RA/Dec の網)
 };
@@ -402,6 +404,7 @@ function draw() {
   const dsoLabels = show.dso ? drawDSO(M) : [];
   const cometLabels = show.comets ? drawComets(M) : [];
   const asteroidLabels = show.asteroids ? drawAsteroids(M) : [];
+  const satLabels = show.sats ? drawSats() : [];
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
   if (telescope) drawHorizonShade(); // 地平線カーブ＋その下を暗く (地平線下の天体は描いたまま暗くなる)
   ctx.restore();
@@ -420,7 +423,7 @@ function draw() {
   // ラベルは盤面のクリップ外で描く (地平線ぎわの文字が切れないように)。
   // 惑星・月 → 星名 → 星座名 の順に場所を確保する (見たい情報が優先)。
   const place = makeLabelPlacer(2);
-  drawSolarLabels(solarLabels.concat(cometLabels, asteroidLabels), place);
+  drawSolarLabels(solarLabels.concat(cometLabels, asteroidLabels, satLabels), place);
   drawSolarLabels(dsoLabels, place); // DSO ラベル (明るい順に置き、重なりは placer が間引く)
   if (show.starNames) drawStarNames(M, place);
   if (show.constNames) drawConstNames(M, place);
@@ -990,6 +993,163 @@ function drawAsteroids(M) {
   return labels;
 }
 
+// ---------------- 人工衛星 (PLAN6 F1: SGP4 は satellite.js) ----------------
+// 衛星は「静かな星図」を崩さないよう既定オフ。表示中だけ satellites.json と satellite.js を
+// 遅延ロードし、SGP4 で位置を計算する。恒星の J2000 とは別で、地平座標(方位・高度)を直接得る
+// (低軌道は地心と観測地で見える方向が大きく違うので topocentric で計算する)。
+const SAT_URL = "satellites.json";
+const EARTH_R_KM = 6378.137;       // 赤道半径 (簡易円柱影の判定に使う)
+let satData = null;                // [[name, norad, l1, l2, stdMag], ...]
+let satLib = null;                 // satellite.js (dynamic import)
+let satRecs = null;                // [{name, norad, satrec, stdMag, epoch}]
+let satTried = false;
+let satTimer = 0;
+
+async function loadSats() {
+  if (satTried) return;
+  satTried = true;
+  try {
+    const [lib, data] = await Promise.all([
+      import("./assets/satellite.es.js"),
+      fetch(SAT_URL).then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+    ]);
+    satLib = lib; satData = data;
+    satRecs = [];
+    for (const [name, norad, l1, l2, stdMag] of data) {
+      const satrec = lib.twoline2satrec(l1, l2);
+      if (satrec.error) continue;
+      satRecs.push({ name: name.trim(), norad, satrec, stdMag, epoch: tleEpochJd(l1) });
+    }
+    draw();
+  } catch (e) { /* 衛星データ無しでも動く */ }
+}
+
+/** TLE 1行目の元期 (YYDDD.dddd) を JD に。鮮度 (元期からの経過日数) の表示用。 */
+function tleEpochJd(l1) {
+  const yy = parseInt(l1.slice(18, 20), 10);
+  const doy = parseFloat(l1.slice(20, 32));
+  const year = yy < 57 ? 2000 + yy : 1900 + yy;
+  const jan1 = jdFromDate(new Date(Date.UTC(year, 0, 1)));   // 1月1日 00:00 UTC = 通日 1.0
+  return jan1 + (doy - 1);
+}
+
+/** 太陽の ECI 単位ベクトル (≈ 赤道 J2000)。衛星が日照中かの判定に使う。 */
+function sunHatEci(jd) {
+  const s = sunPosition(jd);
+  return raDecToVec(s.ra, s.dec);
+}
+
+/** 衛星が日照中か (簡易円柱影: 反太陽側で地心軸からの距離が地球半径以下なら地球影)。 */
+function isSunlit(pos, sun) {
+  const dot = pos.x * sun[0] + pos.y * sun[1] + pos.z * sun[2];
+  if (dot > 0) return true;                          // 太陽側の半球
+  const perp = Math.hypot(pos.x - dot * sun[0], pos.y - dot * sun[1], pos.z - dot * sun[2]);
+  return perp > EARTH_R_KM;
+}
+
+/** 方位・高度[ラジアン] → 早見盤の地平方向 {e,n,u} (az=atan2(e,n), alt=asin(u) の逆)。 */
+function azAltToEnu(az, alt) {
+  const ca = Math.cos(alt);
+  return { e: ca * Math.sin(az), n: ca * Math.cos(az), u: Math.sin(alt) };
+}
+
+/** 表示時刻での全衛星の地平位置・距離・速度・日照を計算 (地平線下は除く)。 */
+function satPositions() {
+  if (!satRecs) return [];
+  const date = new Date(state.ms);                   // 絶対時刻 (UTC) をそのまま渡す
+  const jd = jdFromDate(date);
+  const gmst = satLib.gstime(date);
+  const obs = { longitude: SITE.lon * DEG, latitude: SITE.lat * DEG, height: 0.05 }; // km
+  const sun = sunHatEci(jd);
+  const out = [];
+  for (const s of satRecs) {
+    const pv = satLib.propagate(s.satrec, date);
+    if (!pv.position) continue;                       // 伝播エラー (元期から離れすぎ等)
+    const ecf = satLib.eciToEcf(pv.position, gmst);
+    const look = satLib.ecfToLookAngles(obs, ecf);    // {azimuth, elevation, rangeSat} rad/km
+    if (look.elevation < -0.03) continue;             // 地平線下 (少しだけ下まで許容)
+    const v = pv.velocity;
+    out.push({
+      name: s.name, norad: s.norad, stdMag: s.stdMag, epoch: s.epoch, satrec: s.satrec,
+      alt: look.elevation, az: look.azimuth, range: look.rangeSat,
+      speed: Math.hypot(v.x, v.y, v.z), sunlit: isSunlit(pv.position, sun),
+      enu: azAltToEnu(look.azimuth, look.elevation),
+    });
+  }
+  return out;
+}
+
+function satRadius(stdMag) {
+  if (stdMag == null) return Math.max(1.8, R / 260);
+  return Math.max(1.8, (3.6 - 0.5 * stdMag) * (R / 320));
+}
+
+/** 「ISS (ZARYA)」→「ISS」。括弧内は補足なので小さく扱う。 */
+function satShortName(name) {
+  return name.replace(/\s*\(.*\)$/, "").trim() || name;
+}
+
+/** 直前 ~80 秒の軌跡を薄い尾で描く (動いている向きが分かるように)。 */
+function drawSatTrail(s) {
+  const base = state.ms;
+  const gmstAt = (d) => satLib.gstime(d);
+  const obs = { longitude: SITE.lon * DEG, latitude: SITE.lat * DEG, height: 0.05 };
+  const pts = [];
+  for (let k = 4; k >= 1; k--) {
+    const d = new Date(base - k * 20000);            // 20秒刻みで4点さかのぼる
+    const pv = satLib.propagate(s.satrec, d);
+    if (!pv.position) continue;
+    const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, gmstAt(d)));
+    if (look.elevation < -0.03) continue;
+    const p = projectView(azAltToEnu(look.azimuth, look.elevation), view);
+    if (!p.behind) pts.push(p);
+  }
+  if (pts.length < 1) return;
+  const now = projectView(s.enu, view);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.lineTo(now.x, now.y);
+  ctx.strokeStyle = printMode ? "rgba(0,0,0,0.35)" : "rgba(95,214,255,0.55)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+/** 人工衛星を描く。地平座標なので enu を直接投影する。ラベルは位置だけ返す。 */
+function drawSats() {
+  loadSats();
+  if (!satRecs) return [];
+  const labels = [];
+  for (const s of satPositions()) {
+    if (s.alt < 0 && !telescopeMode) continue;        // 全天図では地平線下は出さない
+    const p = projectView(s.enu, view);
+    if (p.behind) continue;
+    drawSatTrail(s);
+    const rad = satRadius(s.stdMag);
+    // 恒星(白〜橙の丸)と紛れないよう、衛星はシアンで統一し細い縁取りを付ける。
+    const cyan = printMode ? "#000000" : "#5fd6ff";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+    if (s.sunlit) {                                   // 日照中 = 肉眼で見える → 塗り
+      ctx.fillStyle = cyan;
+      ctx.fill();
+      ctx.lineWidth = 0.6;
+      ctx.strokeStyle = printMode ? "rgba(0,0,0,0.6)" : "rgba(10,30,50,0.8)";
+      ctx.stroke();
+    } else {                                          // 地球影 = 見えない → 中抜きリング
+      ctx.strokeStyle = printMode ? "rgba(0,0,0,0.45)" : "rgba(120,200,235,0.6)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    // ステーション・明るい衛星は常時ラベル (それ以外はタップで出す)
+    if (s.stdMag != null && s.stdMag < 1.5) {
+      labels.push({ text: satShortName(s.name), x: p.x + rad + 3, y: p.y,
+                    color: printMode ? "#000" : "rgba(150,220,255,0.98)" });
+    }
+  }
+  return labels;
+}
+
 // ---------------- 星雲・星団・銀河 (F5: OpenNGC V≤12) ----------------
 const DSO_URL = "dso.json";
 let dso = null, dsoTried = false, dsoIndex = null;
@@ -1214,6 +1374,15 @@ function pickObject(px, py) {
       const ael = `${el[2]},${el[1]},${el[3]},${el[4]},${el[5]},${el[6]},${el[7]}`;
       consider(short, a.mag, applySky(M, raDecToVec(a.ra, a.dec)), null, [a.ra, a.dec],
         { href: `solar/?ael=${ael}&aname=${encodeURIComponent(short)}`, text: "太陽系3Dで軌道を見る →" });
+    }
+  }
+  // 人工衛星: 距離・速度・NORAD・日照/影・TLE鮮度をカードに (地平座標なので enu をそのまま)
+  if (show.sats && satRecs) {
+    for (const s of satPositions()) {
+      const ageD = jd - s.epoch;
+      const extra = `距離 ${Math.round(s.range)} km ・ 速度 ${s.speed.toFixed(1)} km/s<br>`
+        + `NORAD ${s.norad} ・ ${s.sunlit ? "日照(見える)" : "地球影(見えない)"} ・ 元期 ${ageD.toFixed(1)}日前`;
+      consider(satShortName(s.name), s.stdMag == null ? 4 : s.stdMag, s.enu, extra);
     }
   }
   for (let i = 0; i < STARS.length; i++) {
@@ -1817,6 +1986,23 @@ for (const [id, key] of [["t-lines", "constLines"], ["t-cnames", "constNames"],
                          ["t-dso", "dso"], ["t-guides", "guides"], ["t-grid", "grid"]]) {
   el(id).addEventListener("change", () => { show[key] = el(id).checked; draw(); });
 }
+
+// 人工衛星 (PLAN6 F1): ON でデータ・satellite.js を遅延ロードし、リアルタイムに動かす。
+// 表示時刻が「今」に近いときだけ 1 秒ごとに現在時刻へ進める (過去/未来へ送ったときは静止)。
+el("t-sats").addEventListener("change", () => {
+  show.sats = el("t-sats").checked;
+  if (show.sats) { loadSats(); startSatTicker(); } else { stopSatTicker(); }
+  draw();
+});
+
+function startSatTicker() {
+  if (satTimer) return;
+  satTimer = setInterval(() => {
+    if (!show.sats || state.playing) return;         // 再生中は tick が時刻を進める
+    if (Math.abs(Date.now() - state.ms) < 3000) setTime(Date.now());  // 「今」付近だけ追従
+  }, 1000);
+}
+function stopSatTicker() { clearInterval(satTimer); satTimer = 0; }
 
 // URLに comet= があれば彗星レイヤを自動ON (ディープリンクの意図を尊重, F2)
 if (deepLinkComet) { show.comets = true; el("t-comets").checked = true; }

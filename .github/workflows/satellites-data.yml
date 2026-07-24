@@ -1,0 +1,71 @@
+name: Update satellite TLE (daily)
+
+# TLE は鮮度が命 (LEO は数日で劣化) なので、彗星・小惑星 (週2回) とは別に毎日更新する。
+# CelesTrak から取り直して src/satellites.json を更新し、サイトを組み立て直して公開する。
+# 取得失敗時は build_satellites.py が JSON を書き換えないので前回データが残る。
+# GITHUB_TOKEN の push は他ワークフローを再トリガしないので、ここでビルド〜デプロイまで自己完結。
+
+on:
+  schedule:
+    - cron: "23 5 * * *"   # 毎日 05:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 更新した satellites.json をコミットするため
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages       # deploy.yml / orbital-data.yml と同じグループ。同時デプロイを避ける
+  cancel-in-progress: false
+
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 取得失敗時はスクリプトが JSON を書き換えないので、前回データが残る。
+      - name: 衛星の TLE を更新
+        run: python3 tools/build_satellites.py || echo "TLE の取得に失敗。前回データを維持。"
+
+      - name: 更新分をコミット (前回データとして保持)
+        run: |
+          git config user.name "voyager6-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/satellites.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "変更なし。"
+          else
+            git commit -m "satellites: TLE を更新 (自動)"
+            git push
+          fi
+
+      # ここから deploy.yml と同じ組み立て (取り込んだ最新 TLE でサイトを作り直す)
+      - name: 星表データを生成
+        run: python3 tools/build_data.py
+      - name: 天文現象のテーブルを生成
+        run: python3 tools/build_events.py
+      - name: テスト
+        run: node --test tests/*.mjs
+      - name: サイトを組み立て
+        run: python3 tools/build_site.py
+      - name: 深層星表のタイルを生成
+        run: python3 tools/build_stars.py
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

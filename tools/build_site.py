@@ -50,7 +50,8 @@ NAV = [
 ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "events.js", "stars.js",
           "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
-          "svgcanvas.esm.js"]  # チャートSVG出力 (F8) 用に vendoring (MIT)
+          "svgcanvas.esm.js",  # チャートSVG出力 (F8) 用に vendoring (MIT)
+          "satellite.es.js"]   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
 
@@ -136,6 +137,7 @@ def main() -> int:
                  "comets_historic.json",
                  "asteroids.json", "asteroids_solar.json", "asteroids_tier2.bin",
                  "asteroids_catalog.json", "asteroids_neo.json", "asteroids_notable.json",
+                 "satellites.json",
                  "dso.json", "voyager6-manual.pdf", "llms.txt"]:
         f = SRC / name
         if f.exists():
