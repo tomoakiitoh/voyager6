@@ -18,7 +18,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
   <li><a href="/?t=2026-08-12T21:00&amp;lat=35.68&amp;lon=139.77">2026-08-12 21:00 JST・東京の空</a>（早見盤）</li>
   <li><a href="/?t=2026-11-01T20:00&amp;lat=35.68&amp;lon=139.77&amp;z=25&amp;ra=10.685&amp;dec=41.269&amp;flip=mirror">M31（アンドロメダ銀河）を望遠鏡視野で</a>（早見盤・ズーム＋鏡像）</li>
   <li><a href="/?t=1996-03-25T03:00&amp;lat=35.68&amp;lon=139.77&amp;comet=C%2F1996%20B2">1996-03-25・百武彗星が見えた夜空</a>（早見盤・歴史的な肉眼彗星）</li>
-  <li><a href="/solar/?date=1996-03-25&amp;comet=C%2F1996%20B2">1996年3月・百武彗星の軌道</a>（太陽系3D）</li>
+  <li><a href="/solar/?date=1996-03-25&amp;comet=Hyakutake">1996年3月・百武彗星の軌道</a>（太陽系3D・通称でも指定可）</li>
   <li><a href="/solar/?date=2061-07-01&amp;comet=1P">2061年・ハレー彗星</a>（太陽系3D）</li>
   <li><a href="/solar/?date=2029-04-13&amp;ael=0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5&amp;aname=%E3%82%A2%E3%83%9D%E3%83%95%E3%82%A3%E3%82%B9">2029-04-13・アポフィスの地球接近</a>（太陽系3D）</li>
   <li><a href="/solar/">太陽系3D（現在）</a></li>
@@ -45,7 +45,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
   <thead><tr><th>パラメータ</th><th>型</th><th>説明</th><th>例</th></tr></thead>
   <tbody>
     <tr><td><code>date</code></td><td><code>YYYY-MM-DD</code></td><td>表示日付（JST）。既定は現在。</td><td><code>2061-07-01</code></td></tr>
-    <tr><td><code>comet</code></td><td>符号</td><td>その彗星をハイライト・軌道表示。周期彗星は番号＋P、それ以外は仮符号。</td><td><code>1P</code>／<code>C/1996 B2</code></td></tr>
+    <tr><td><code>comet</code></td><td>符号／通称</td><td>その彗星をハイライト・軌道表示。周期彗星は番号＋P、それ以外は仮符号。有名彗星は通称でも可（<code>Halley</code>／<code>百武</code>／<code>紫金山・アトラス</code>）。</td><td><code>1P</code>／<code>Hyakutake</code></td></tr>
     <tr><td><code>ael</code></td><td>7値・カンマ区切り</td><td>小惑星の軌道要素 <code>a,e,i,Ω,ω,M0,epoch(JD)</code> を渡すと軌道を描く。</td><td><code>0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5</code></td></tr>
     <tr><td><code>aname</code></td><td>文字列</td><td><code>ael</code>で描いた天体の表示名</td><td><code>アポフィス</code></td></tr>
   </tbody>

@@ -145,6 +145,9 @@ details[open] summary { margin-bottom: 6px; }
   white-space: nowrap;
 }
 #popup b { color: #fff; font-size: 13px; }
+/* 親は pointer-events:none だが、リンクだけは押せるように戻す */
+#popup .popup-link { color: #8fd3ff; pointer-events: auto; text-decoration: none; }
+#popup .popup-link:hover { text-decoration: underline; }
 
 /* 赤色ナイトモード: 暗順応を壊さないよう全体を赤単色にして落とす */
 body.night { filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(5) brightness(0.72); }

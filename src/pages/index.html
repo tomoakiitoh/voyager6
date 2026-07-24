@@ -312,6 +312,9 @@ const PLANET_JA = [
   ["Mars", "火星", "#f0705a"],    // 赤
   ["Jupiter", "木星", "#f5e6bf"], // クリーム
   ["Saturn", "土星", "#e9d27a"],  // 黄
+  ["Uranus", "天王星", "#a9e0e6"], // 青緑
+  ["Neptune", "海王星", "#7f9df0"], // 青
+  ["Pluto", "冥王星", "#c9b8a8"],  // 淡褐
 ];
 
 function draw() {
@@ -904,7 +907,7 @@ function asteroidPositions(jd) {
   for (const a of asteroids) {
     const g = orbitalToRaDec({ e: a[1], a: a[2], i: a[3], node: a[4], peri: a[5], M0: a[6], epoch: a[7] }, jd);
     const mag = asteroidMagnitude(a[8], a[9], g.r, g.delta, rs);
-    list.push({ name: a[0], ra: g.ra, dec: g.dec, mag });
+    list.push({ name: a[0], ra: g.ra, dec: g.dec, mag, el: a });
   }
   asteroidCache = { jd, list };
   return list;
@@ -1116,7 +1119,7 @@ function pickObject(px, py) {
   const hitR = 16;
   let best = null;
 
-  const consider = (label, mag, h, extra) => {
+  const consider = (label, mag, h, extra, raDec, link) => {
     if (h.u <= 0) return;
     const p = projectView(h, view);
     if (p.behind) return;
@@ -1126,28 +1129,49 @@ function pickObject(px, py) {
     const score = d + Math.max(0, mag) * 1.5;
     if (!best || score < best.score) {
       const { alt, az } = horizonAngles(h);
-      best = { score, label, mag, alt, az, extra };
+      best = { score, label, mag, alt, az, extra, raDec, link };
     }
   };
 
   if (show.solar) {
     const sky = solarSystem(jd);
     for (const p of sky.planets) {
-      consider(p.ja, p.mag, applySky(Mn, raDecToVec(p.ra, p.dec)));
+      consider(p.ja, p.mag, applySky(Mn, raDecToVec(p.ra, p.dec)), null, [p.ra, p.dec]);
     }
     const { illum } = moonPhase(sky.moon);
     consider("月", -12.7, applySky(Mn, raDecToVec(sky.moon.ra, sky.moon.dec)),
-      `輝面比 ${(illum * 100).toFixed(0)}%`);
-    consider("太陽", -26.7, applySky(Mn, raDecToVec(sky.sun.ra, sky.sun.dec)));
+      `輝面比 ${(illum * 100).toFixed(0)}%`, [sky.moon.ra, sky.moon.dec]);
+    consider("太陽", -26.7, applySky(Mn, raDecToVec(sky.sun.ra, sky.sun.dec)),
+      null, [sky.sun.ra, sky.sun.dec]);
+  }
+  // 彗星・小惑星は 3Dビュー(軌道) へのディープリンクをカードに付ける。
+  if (show.comets) {
+    for (const c of cometPositions(jd)) {
+      const desig = desigKey(c.name);
+      consider(c.name, c.mag, applySky(M, raDecToVec(c.ra, c.dec)), null, [c.ra, c.dec],
+        { href: `solar/?comet=${encodeURIComponent(desig)}`, text: "太陽系3Dで軌道を見る →" });
+    }
+  }
+  if (show.asteroids && asteroids) {
+    for (const a of asteroidPositions(jd)) {
+      const short = a.name.replace(/^\(\d+\)\s*/, "");
+      // ael = a,e,i,Ω,ω,M0,epoch(JD)  (el = [name,e,a,i,node,peri,M0,epoch,H,G])
+      const el = a.el;
+      const ael = `${el[2]},${el[1]},${el[3]},${el[4]},${el[5]},${el[6]},${el[7]}`;
+      consider(short, a.mag, applySky(M, raDecToVec(a.ra, a.dec)), null, [a.ra, a.dec],
+        { href: `solar/?ael=${ael}&aname=${encodeURIComponent(short)}`, text: "太陽系3Dで軌道を見る →" });
+    }
   }
   for (let i = 0; i < STARS.length; i++) {
     const name = STAR_NAME_OF.get(i);
-    consider(name || `${STARS[i][2].toFixed(1)}等星`, STARS[i][2], applySky(M, STAR_VEC[i]));
+    consider(name || `${STARS[i][2].toFixed(1)}等星`, STARS[i][2], applySky(M, STAR_VEC[i]),
+      null, [STARS[i][0], STARS[i][1]]);
   }
   if (show.messier) {
     for (const m of MESSIER_VEC) {
       // 暗い天体でもクリックできるよう、等級によるスコアの重みは付けない
-      consider(m.ja ? `${m.id} ${m.ja}` : m.id, m.mag, applySky(M, m.v), m.kindJa);
+      consider(m.ja ? `${m.id} ${m.ja}` : m.id, m.mag, applySky(M, m.v), m.kindJa,
+        vecToRaDec(m.v));
     }
   }
   return best;
@@ -1161,8 +1185,12 @@ function showPopup(px, py, o) {
   const dir = dirs[Math.round(o.az / 22.5) % 16];
   popup.innerHTML =
     `<b>${o.label}</b><br>${o.mag.toFixed(1)}等<br>`
+    + (o.raDec ? `α ${fmtRa(o.raDec[0])}　δ ${fmtDec(o.raDec[1])}<br>` : "")
     + `高度 ${o.alt.toFixed(1)}°　方位 ${o.az.toFixed(0)}° (${dir})`
-    + (o.extra ? `<br>${o.extra}` : "");
+    + (o.extra ? `<br>${o.extra}` : "")
+    + (o.link
+      ? `<br><a href="${o.link.href}" target="_blank" rel="noopener" class="popup-link">${o.link.text}</a>`
+      : "");
   popup.style.display = "block";
   const rect = canvas.getBoundingClientRect();
   const w = popup.offsetWidth, h = popup.offsetHeight;

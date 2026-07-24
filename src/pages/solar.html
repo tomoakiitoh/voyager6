@@ -173,6 +173,23 @@ let cometPoints = null;             // THREE.Points (全彗星の現在位置)
 let cometOrbitGroup = new THREE.Group(); orbitingGroup.add(cometOrbitGroup);
 let activeGroup = "all";            // 群フィルタ (all=全部表示)
 
+/** 中心が濃く外へ透明になる丸いスプライト。四角い点のエッジがSSAA下でチラつくのを防ぐ。 */
+let _softDot = null;
+function softDotTexture() {
+  if (_softDot) return _softDot;
+  const s = 64, cv = document.createElement("canvas");
+  cv.width = cv.height = s;
+  const g = cv.getContext("2d");
+  const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.45, "rgba(255,255,255,0.9)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.beginPath(); g.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2); g.fill();
+  _softDot = new THREE.CanvasTexture(cv);
+  return _softDot;
+}
+
 // 群ごとの色 (RGB 0-1)
 const GROUP_COLOR = {
   kreutz: [1.0, 0.40, 0.40], sungrazer: [1.0, 0.66, 0.30], jfc: [0.55, 1.0, 0.80],
@@ -215,7 +232,8 @@ Promise.all([
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(d.length * 3), 3));
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   cometPoints = new THREE.Points(geo, new THREE.PointsMaterial({
-    size: 3.4, sizeAttenuation: false, transparent: true, opacity: 0.95, vertexColors: true,
+    size: 4.0, sizeAttenuation: false, transparent: true, opacity: 0.95, vertexColors: true,
+    map: softDotTexture(), depthWrite: false,   // 丸く柔らかい点に (四角い硬点はSSAAでチラつく)
   }));
   orbitingGroup.add(cometPoints);
   buildCometOrbits();
@@ -235,8 +253,9 @@ function desigKeyOf(s) {
 
 // URL の ?comet=<符号キー> に一致する彗星を選ぶ (彗星カタログ /comets/ からの導線)
 function selectFromUrl() {
-  const key = new URLSearchParams(location.search).get("comet");
-  if (!key || !comets) return;
+  const raw = new URLSearchParams(location.search).get("comet");
+  if (!raw || !comets) return;
+  const key = resolveCometAlias(raw);   // 和名・英名 → 符号 (別名表)
   const kl = key.toLowerCase();
   let idx = comets.findIndex((c) => desigKeyOf(c[0]).toLowerCase() === kl);
   if (idx < 0) idx = comets.findIndex((c) => c[0].toLowerCase().includes(kl));

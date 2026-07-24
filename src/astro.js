@@ -443,6 +443,11 @@ function planetMagnitude(name, r, R, rs) {
     case "Mars": return -1.51 + base + 0.016 * FV;
     case "Jupiter": return -9.25 + base + 0.014 * FV;
     case "Saturn": return -9.0 + base + 0.044 * FV;
+    // 外惑星は Schlyter の低精度式 (位相角の効きは小さい)。衝の実視等級は
+    // 天王星≈5.7 / 海王星≈7.8 / 冥王星≈14 で既知値と一致する。
+    case "Uranus": return -7.15 + base + 0.001 * FV;
+    case "Neptune": return -6.90 + base + 0.001 * FV;
+    case "Pluto": return -1.01 + base;
     default: return 0;
   }
 }
@@ -555,6 +560,36 @@ function orbitalToRaDec(el, jd) {
  */
 function cometMagnitude(M1, K1, r, delta) {
   return M1 + 5 * Math.log10(delta) + K1 * Math.log10(r);
+}
+
+// 有名彗星の通称 → 符号キー。?comet= に和名・英名で来ても選べるように (名前の表記ゆれ吸収)。
+// キーはすべて小文字 (日本語はそのまま)。値は desigKey が返す正準符号と同形。
+const COMET_ALIASES = {
+  "halley": "1P", "ハレー": "1P", "ハレー彗星": "1P",
+  "encke": "2P", "エンケ": "2P",
+  "hale-bopp": "C/1995 O1", "hale bopp": "C/1995 O1", "halebopp": "C/1995 O1",
+  "ヘール・ボップ": "C/1995 O1", "ヘールボップ": "C/1995 O1",
+  "hyakutake": "C/1996 B2", "百武": "C/1996 B2",
+  "neowise": "C/2020 F3", "ネオワイズ": "C/2020 F3",
+  "mcnaught": "C/2006 P1", "マックノート": "C/2006 P1",
+  "west": "C/1975 V1", "ウェスト": "C/1975 V1",
+  "ikeya-seki": "C/1965 S1", "ikeya seki": "C/1965 S1",
+  "池谷・関": "C/1965 S1", "池谷関": "C/1965 S1",
+  "bennett": "C/1969 Y1", "ベネット": "C/1969 Y1",
+  "tsuchinshan-atlas": "C/2023 A3", "tsuchinshan atlas": "C/2023 A3",
+  "紫金山・アトラス": "C/2023 A3", "紫金山・atlas": "C/2023 A3", "紫金山": "C/2023 A3",
+  "swift-tuttle": "109P", "スイフト・タットル": "109P",
+  "tempel-tuttle": "55P", "テンペル・タットル": "55P",
+  "holmes": "17P", "ホームズ": "17P",
+  "ison": "C/2012 S1", "アイソン": "C/2012 S1",
+  "lovejoy": "C/2011 W3", "ラブジョイ": "C/2011 W3",
+  "panstarrs": "C/2011 L4", "パンスターズ": "C/2011 L4",
+};
+
+/** ?comet= の値を符号キーに正規化。別名表にあれば符号へ、無ければそのまま返す。 */
+function resolveCometAlias(s) {
+  if (!s) return s;
+  return COMET_ALIASES[s.trim().toLowerCase()] || s;
 }
 
 /** 小惑星の実視等級 (H, G 系, IAU)。r=日心, delta=地心, rs=日心太陽距離 [AU]。 */

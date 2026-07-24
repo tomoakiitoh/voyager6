@@ -14,7 +14,7 @@
 
 ## Pages
 
-- [星座早見 / Sky chart](https://voyager6.net/): 指定日時・地点の全天。恒星10等まで、星座線、天の川、惑星・月、彗星、小惑星、メシエ天体。ホイールで拡大すると望遠鏡ファインダーになる。
+- [星座早見 / Sky chart](https://voyager6.net/): 指定日時・地点の全天。恒星10等まで、星座線、天の川、惑星・月(水星〜冥王星の8惑星)、彗星、小惑星、メシエ天体。天体をタップすると等級・赤経赤緯・高度方位のカードが出る(彗星・小惑星はそのまま3D軌道へ)。ホイールで拡大すると望遠鏡ファインダーになる。
 - [太陽系3D / Solar system 3D](https://voyager6.net/solar/): 惑星・彗星(全既知)・小惑星の軌道を3Dで俯瞰。力学群フィルタ、時間再生、木星固定(回転座標系)でトロヤ群、WebXR(VR)対応。
 - [彗星カタログ / Comet catalog](https://voyager6.net/comets/): 収録彗星の一覧。符号・和名・英名で検索、近日点通過/周期で並べ替え、行から3D軌道へ。
 - [小惑星カタログ / Asteroid catalog](https://voyager6.net/asteroids/): 探査機が訪れた小惑星(イトカワ・リュウグウ等)を軸に、名前/番号で検索。
@@ -41,9 +41,11 @@ An AI assistant can construct direct links to a specific sky or solar-system vie
 
 ### 太陽系3D / Solar system 3D — `https://voyager6.net/solar/`
 - `date` = 日付 `YYYY-MM-DD`
-- `comet` = 彗星の符号(例 `1P`, `C/1996 B2`) → その彗星をハイライト・追尾
+- `comet` = 彗星の符号(例 `1P`, `C/1996 B2`) → その彗星をハイライト・追尾。
+  有名彗星は通称でも指定できる(例 `Halley`, `Hyakutake`/`百武`, `Hale-Bopp`, `紫金山・アトラス`, `NEOWISE`)。
 - `ael` = 小惑星の軌道要素 `a,e,i,Ω,ω,M0,epoch`(カンマ区切り), `aname` = 表示名
 - 例: 2061年のハレー彗星 → `https://voyager6.net/solar/?date=2061-07-01&comet=1P`
+- 例(通称): 百武彗星の軌道 → `https://voyager6.net/solar/?date=1996-03-25&comet=Hyakutake`
 
 ## Data endpoints (stable JSON, CORS: `Access-Control-Allow-Origin: *`)
 
