@@ -136,6 +136,23 @@ bodyclass: sky-page
     <div class="row"><span class="info">最大高度20°以上・観測地が暗い時間帯・衛星が日照中のパスを出します。等級・時刻は目安（TLEは日々更新。軌道機動・再突入直後は外れます）。</span></div>
   </details>
 
+  <details id="sat-id-panel">
+    <summary>衛星の同定「あの光はなに?」</summary>
+    <div class="row">
+      <button id="btn-idmode">同定モード：OFF</button>
+      <label class="info">さかのぼり
+        <select id="id-lookback">
+          <option value="2">2分</option>
+          <option value="10" selected>10分</option>
+          <option value="60">1時間</option>
+          <option value="180">3時間</option>
+        </select>
+      </label>
+    </div>
+    <div class="row"><span class="info">「同定モード」をONにして、光が見えた方向を空でタップ。表示時刻からさかのぼって、その向きを通った衛星の候補を明るい順に出します（「さっき見たあれ」に）。時刻は上のスライダーで合わせられます。</span></div>
+    <div id="id-list"></div>
+  </details>
+
   <details id="export-panel">
     <summary>チャートを出力（印刷・SVG）</summary>
     <div class="row">
@@ -416,6 +433,7 @@ function draw() {
   const asteroidLabels = show.asteroids ? drawAsteroids(M) : [];
   if (show.sats && selectedPassPath) drawPassPath();
   const satLabels = show.sats ? drawSats() : [];
+  if (identifyTarget) drawIdentifyTarget();   // 同定の照準マーカー
   const solarLabels = show.solar ? drawSolarSystem(Mn, sky, sunH) : [];
   if (telescope) drawHorizonShade(); // 地平線カーブ＋その下を暗く (地平線下の天体は描いたまま暗くなる)
   ctx.restore();
@@ -1266,6 +1284,122 @@ function drawPassPath() {
   ctx.setLineDash([]);
 }
 
+// ---------------- 人工衛星 F3: 同定モード「あの光はなに?」 ----------------
+let identifyMode = false;       // ON のとき、空タップで同定検索を走らせる
+let identifyTarget = null;      // タップした地平方向 {e,n,u} (照準マーカーを描く)
+
+/** dir(地平方向)を指定時刻からさかのぼって通った衛星候補を、明るい順で返す。 */
+function identifySatellites(dir, opts) {
+  if (!satRecs) return [];
+  const TOL = opts.tolDeg * DEG;
+  const obs = { longitude: SITE.lon * DEG, latitude: SITE.lat * DEG, height: 0.05 };
+  const tStart = state.ms - opts.lookbackMs, tEnd = state.ms + opts.aheadMs;
+  const out = [];
+  for (const s of satRecs) {
+    let best = null;              // 最接近 {sep, ms, alt, az, range, pos}
+    for (let ms = tStart; ms <= tEnd; ms += opts.stepMs) {
+      const date = new Date(ms);
+      const pv = satLib.propagate(s.satrec, date);
+      if (!pv.position) continue;
+      const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, satLib.gstime(date)));
+      if (look.elevation <= 0) continue;               // 地平線下は無視
+      const enu = azAltToEnu(look.azimuth, look.elevation);
+      const dot = enu.e * dir.e + enu.n * dir.n + enu.u * dir.u;
+      const sep = Math.acos(Math.max(-1, Math.min(1, dot)));
+      if (!best || sep < best.sep) {
+        best = { sep, ms, alt: look.elevation, az: look.azimuth, range: look.rangeSat, pos: pv.position };
+      }
+    }
+    if (best && best.sep <= TOL) {
+      const sp = sunPosition(jdFromDate(new Date(best.ms)));
+      const sunlit = isSunlit(best.pos, raDecToVec(sp.ra, sp.dec));
+      const mag = s.stdMag == null ? null : s.stdMag + 5 * Math.log10(best.range / 1000);
+      out.push({ name: satShortName(s.name), norad: s.norad, stdMag: s.stdMag, satrec: s.satrec,
+        sepDeg: best.sep * RAD, ms: best.ms, alt: best.alt * RAD, az: best.az * RAD,
+        range: best.range, sunlit, mag });
+    }
+  }
+  // 明るい順: 日照(見える)を先に → 予報等級の明るい順(不明は後) → ずれの小さい順
+  out.sort((a, b) => {
+    if (a.sunlit !== b.sunlit) return a.sunlit ? -1 : 1;
+    const am = a.mag == null ? 99 : a.mag, bm = b.mag == null ? 99 : b.mag;
+    if (am !== bm) return am - bm;
+    return a.sepDeg - b.sepDeg;
+  });
+  return out;
+}
+
+/** 空をタップ → その方向を同定する。 */
+function identifyAt(px, py) {
+  view = buildView();
+  const dir = unprojectView(px, py, view);
+  identifyTarget = dir;
+  const box = el("id-list");
+  if (dir.u <= 0) { box.innerHTML = '<div class="info">地平線より下です。空の上のほうをタップしてください。</div>'; draw(); return; }
+  if (!satRecs) { satTried = false; box.innerHTML = '<div class="info">衛星データを読み込み中… もう一度タップしてください。</div>'; loadSats(); draw(); return; }
+  box.innerHTML = '<div class="info">候補を検索中…</div>';
+  draw();
+  const lookMin = Number(el("id-lookback").value);
+  setTimeout(() => {
+    const res = identifySatellites(dir, { lookbackMs: lookMin * 60000, aheadMs: 60000, tolDeg: 5, stepMs: 5000 });
+    renderIdentifyResults(res);
+  }, 20);
+}
+
+function renderIdentifyResults(res) {
+  const box = el("id-list");
+  if (!res.length) {
+    box.innerHTML = '<div class="info">該当なし。さかのぼり幅を広げるか、方向を少しずらしてみてください。</div>';
+    return;
+  }
+  const rel = (ms) => {
+    const m = Math.round((ms - state.ms) / 60000);
+    return m === 0 ? "ちょうど" : m < 0 ? `${-m}分前` : `${m}分後`;
+  };
+  const rows = res.slice(0, 15).map((c, i) => {
+    const mag = c.mag == null ? "—" : `${c.mag.toFixed(1)}等`;
+    return `<tr data-i="${i}"><td class="pn">${c.name}</td><td>${rel(c.ms)}</td>`
+      + `<td>ずれ${c.sepDeg.toFixed(1)}°</td><td>${c.alt.toFixed(0)}°(${dir16(c.az)})</td>`
+      + `<td>${mag}</td><td>${c.sunlit ? "日照" : "影"}</td></tr>`;
+  }).join("");
+  box.innerHTML = `<table class="pass-table"><thead><tr><th>候補</th><th>時刻</th><th>ずれ</th>`
+    + `<th>高度方位</th><th>等級</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  box.querySelectorAll("tr[data-i]").forEach((tr) =>
+    tr.addEventListener("click", () => selectCandidate(res[+tr.dataset.i])));
+}
+
+/** 候補を選ぶ: 最接近時刻へ送り、前後3分の軌跡を描く。 */
+function selectCandidate(c) {
+  if (!show.sats) { show.sats = true; el("t-sats").checked = true; loadSats(); startSatTicker(); }
+  const obs = { longitude: SITE.lon * DEG, latitude: SITE.lat * DEG, height: 0.05 };
+  const pts = [];
+  for (let dt = -180; dt <= 180; dt += 15) {
+    const date = new Date(c.ms + dt * 1000);
+    const pv = satLib.propagate(c.satrec, date);
+    if (!pv.position) continue;
+    const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, satLib.gstime(date)));
+    if (look.elevation < 0) continue;
+    pts.push(azAltToEnu(look.azimuth, look.elevation));
+  }
+  selectedPassPath = pts;
+  setTime(c.ms);
+}
+
+/** タップした方向の照準マーカー (衛星のシアンと区別してオレンジの十字＋円)。 */
+function drawIdentifyTarget() {
+  const p = projectView(identifyTarget, view);
+  if (p.behind) return;
+  ctx.strokeStyle = printMode ? "#000000" : "#ffb060";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(p.x - 15, p.y); ctx.lineTo(p.x - 5, p.y);
+  ctx.moveTo(p.x + 5, p.y); ctx.lineTo(p.x + 15, p.y);
+  ctx.moveTo(p.x, p.y - 15); ctx.lineTo(p.x, p.y - 5);
+  ctx.moveTo(p.x, p.y + 5); ctx.lineTo(p.x, p.y + 15);
+  ctx.stroke();
+}
+
 // ---------------- 星雲・星団・銀河 (F5: OpenNGC V≤12) ----------------
 const DSO_URL = "dso.json";
 let dso = null, dsoTried = false, dsoIndex = null;
@@ -1672,11 +1806,15 @@ function endPointer(ev) {
   pointers.delete(ev.pointerId);
   if (pointers.size < 2) pinchPrev = null;
   if (pointers.size === 0) {
-    if (!moved && dragStart) { // タップ (ほぼ静止) は天体ピック
-      const o = pickObject(dragStart.x, dragStart.y);
-      if (o) showPopup(dragStart.x, dragStart.y, o);
-      else if (state.view.zoom > ZOOM_MIN + 1e-6) showRaDecPopup(dragStart.x, dragStart.y);
-      else popup.style.display = "none";
+    if (!moved && dragStart) { // タップ (ほぼ静止)
+      if (identifyMode) {       // 同定モード: 天体ピックではなく方向を同定
+        identifyAt(dragStart.x, dragStart.y);
+      } else {
+        const o = pickObject(dragStart.x, dragStart.y);
+        if (o) showPopup(dragStart.x, dragStart.y, o);
+        else if (state.view.zoom > ZOOM_MIN + 1e-6) showRaDecPopup(dragStart.x, dragStart.y);
+        else popup.style.display = "none";
+      }
     }
     dragGrab = null;
     dragStart = null;
@@ -2119,6 +2257,15 @@ function startSatTicker() {
   }, 1000);
 }
 function stopSatTicker() { clearInterval(satTimer); satTimer = 0; }
+
+// F3: 同定モード。ON の間は空タップが「あの光はなに?」の検索になる。
+el("btn-idmode").addEventListener("click", () => {
+  identifyMode = !identifyMode;
+  el("btn-idmode").textContent = `同定モード：${identifyMode ? "ON（空をタップ）" : "OFF"}`;
+  el("btn-idmode").classList.toggle("on", identifyMode);
+  if (identifyMode) { loadSats(); el("sat-id-panel").open = true; popup.style.display = "none"; }
+  else { identifyTarget = null; draw(); }
+});
 
 // F2: 今夜のパス予報。データ未ロードなら読み込んでから計算する。
 el("btn-passes").addEventListener("click", () => {
