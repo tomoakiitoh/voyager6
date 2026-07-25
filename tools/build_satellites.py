@@ -27,7 +27,8 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT.parent / "src" / "satellites.json"
-# Starlink は約1万機と大きいので commit せず (gitignore)、build 時に生成して dist に載せる。
+# Starlink は約1万機と大きいが、CelesTrak が CI から落ちると build 時生成では消えてしまうため
+# committed 済み (前回データ保持)。日次 cron が更新し、push デプロイは committed 版を配信する。
 # 同定モードの全カタログ検索と地球周回3Dの「コンステレーション網」表示にオンデマンドで使う。
 OUT_STARLINK = ROOT.parent / "src" / "satellites_starlink.json"
 GP = "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
