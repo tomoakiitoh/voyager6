@@ -39,6 +39,15 @@ An AI assistant can construct direct links to a specific sky or solar-system vie
 - 例: 2026-08-12 21:00 JST の東京 → `https://voyager6.net/?t=2026-08-12T21:00&lat=35.68&lon=139.77`
 - 例(歴史): 1996-03-25 の百武彗星が見えた夜空 → `https://voyager6.net/?t=1996-03-25T03:00&lat=35.68&lon=139.77&comet=C/1996 B2`
 
+#### 観測星図モード / Observation chart (変光星・彗星光度観測むけ)
+目標天体を中心に、比較星の等級ラベル(小数点省略 8.4→"84")と符号を載せた印刷用チャートを作る。
+- `target` = 目標天体。変光星名(`T CrB`/`TCrB`/`T-CrB`)・恒星名/バイエル符号(`Alphecca`, `alpha CrB`)・彗星符号 に対応
+- `labels=mag` = 視野内の比較星に等級ラベル(小数点省略表記)
+- `names=on` = バイエル/フラムスティード符号・恒星名の表示
+- `fov` = 視野の直径[度] (例 `fov=6`。`z` の代わりに度で指定できる)
+- 例(変光星): T CrB の観測星図 → `https://voyager6.net/?target=T CrB&labels=mag&names=on&fov=6`
+- 注: 星の等級はカタログ値(チャート用の目安)。変光星の正式な測光には AAVSO VSP (aavso.org/vsp) を使う
+
 ### 太陽系3D / Solar system 3D — `https://voyager6.net/solar/`
 - `date` = 日付 `YYYY-MM-DD`
 - `comet` = 彗星の符号(例 `1P`, `C/1996 B2`) → その彗星をハイライト・追尾。

@@ -115,6 +115,8 @@ def main() -> int:
     tiles: list[dict[str, list]] = [dict() for _ in LAYERS]
     highpm = []  # [ra, dec, pm_ra, pm_dec, mag, bv] 高固有運動星
     deep_all = []  # 全深層星 (ra,dec,mag,bv)。全天一括ロード用 stars_deep.bin (VRプラネタリウム)
+    # 観測星図(F2): バイエル/フラムスティード/固有名を持つ星。全等級を対象(明るい星も入れる)。
+    star_names = []  # [ra, dec, mag, bayer, flam, con, proper]
     total = 0
     skipped_nomag = 0
 
@@ -131,11 +133,18 @@ def main() -> int:
             except (ValueError, KeyError, TypeError):
                 skipped_nomag += 1
                 continue
+            ra = float(row["ra"]) * 15.0 % 360.0   # AT-HYG の ra は「時」単位
+            dec = float(row["dec"])
+            # 名称・符号を持つ星は観測星図用インデックスへ (等級の層に関係なく全部)
+            bayer = (row.get("bayer") or "").strip()
+            flam = (row.get("flam") or "").strip()
+            proper = (row.get("proper") or "").strip()
+            if (bayer or flam or proper) and proper != "Sol":   # 太陽は除く
+                star_names.append([round(ra, 5), round(dec, 5), round(mag, 2),
+                                   bayer, flam, (row.get("con") or "").strip(), proper])
             layer = layer_of(mag)
             if layer < 0:
                 continue
-            ra = float(row["ra"]) * 15.0 % 360.0   # AT-HYG の ra は「時」単位
-            dec = float(row["dec"])
             bv = fnum(row, "ci", 0.6)
             deep_all.append((ra, dec, mag, bv))     # 全天一括用 (高μ星も含めて全部)
             pmra = fnum(row, "pm_ra")   # mas/yr (μα* = μα·cosδ, Gaia由来)
@@ -182,6 +191,13 @@ def main() -> int:
         deep_buf += struct.pack("<ffBB", ra, dec, quant(mag, MAG_LO, MAG_HI), quant(bv, BV_LO, BV_HI))
     (DIST / "stars_deep.bin").write_bytes(deep_buf)
     print(f"  stars_deep.bin (全天一括): {len(deep_all):,} 個 ({len(deep_buf):,} bytes)")
+
+    # 観測星図用の恒星名インデックス (符号を持つ星のみ。明るい順)。
+    star_names.sort(key=lambda s: s[2])
+    (DIST / "star_names.json").write_text(
+        json.dumps(star_names, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+    print(f"  star_names.json (観測星図): {len(star_names):,} 個 "
+          f"({(DIST / 'star_names.json').stat().st_size:,} bytes)")
 
     manifest = {
         "version": 1,

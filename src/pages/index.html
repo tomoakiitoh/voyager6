@@ -192,6 +192,15 @@ const state = {
 };
 let deepLinkComet = null;   // URL の ?comet= (彗星ディープリンク。書き戻しでも保持する)
 
+// 観測星図モード (F1-F5)。既定オフ。target/labels/names のURL指定でのみ働く。
+let obsTargetSpec = null;      // ?target= の生文字列
+let obsTarget = null;          // 解決後 {ra, dec, name, kind, mag|magMax/magMin, type}
+let showMagLabels = false;     // ?labels=mag
+let showDesignations = false;  // ?names=on
+let pendingFov = null;         // ?fov=(度) → 中心化時に zoom へ換算
+let starNamesIdx = null, starNamesTried = false;   // star_names.json (符号つき星)
+let variablesCat = null, variablesTried = false;   // variables.json (著名変光星)
+
 const ZOOM_MIN = 1, ZOOM_MAX = 90;
 const ZENITH_DIR = { e: 0, n: 0, u: 1 };
 const NCP_VEC = [0, 0, 1];        // 天の北極 (赤道座標の単位ベクトル)
@@ -258,6 +267,13 @@ function normalizeView() {
     if (Number.isFinite(roll)) state.view.roll = roll;
   }
   deepLinkComet = q.get("comet");   // 彗星ディープリンク (レイヤ自動ON＋書き戻し保持)
+
+  // 観測星図モード (target=目標天体 / labels=mag=等級ラベル / names=on=符号)。
+  obsTargetSpec = q.get("target");
+  showMagLabels = q.get("labels") === "mag";
+  showDesignations = q.get("names") === "on" || q.get("names") === "1";
+  const fov = Number(q.get("fov"));      // 視野の直径[度]。z の代わりに指定できる (AIが度で考えやすい)
+  if (Number.isFinite(fov) && fov > 0) pendingFov = Math.max(2, Math.min(180, fov));
 })();
 
 /** その座標に一致するプリセットがあれば、その名前を使う。 */
@@ -457,6 +473,8 @@ function draw() {
   drawSolarLabels(dsoLabels, place); // DSO ラベル (明るい順に置き、重なりは placer が間引く)
   if (show.starNames) drawStarNames(M, place);
   if (show.constNames) drawConstNames(M, place);
+  // 観測星図モード (望遠鏡モードで target/labels/names 指定時のみ)
+  if (telescope && (obsTarget || showMagLabels || showDesignations)) drawObsChart(M);
 
   if (!telescope) drawCompass();
   updateInfo();
@@ -1470,6 +1488,195 @@ function drawIdentifyTarget() {
   ctx.stroke();
 }
 
+// ---------------- 観測星図モード (F1-F5) ----------------
+// target= の目標天体を中心に、比較星の等級ラベル(小数点省略 8.4→"84")と符号を載せる印刷用チャート。
+// 変光星観測者・彗星光度観測者向け。正式な測光較正は AAVSO VSP へ送客する(F4の但し書き)。
+const GREEK = {
+  Alp: ["α", "alpha"], Bet: ["β", "beta"], Gam: ["γ", "gamma"], Del: ["δ", "delta"],
+  Eps: ["ε", "epsilon"], Zet: ["ζ", "zeta"], Eta: ["η", "eta"], The: ["θ", "theta"],
+  Iot: ["ι", "iota"], Kap: ["κ", "kappa"], Lam: ["λ", "lambda"], Mu: ["μ", "mu"],
+  Nu: ["ν", "nu"], Xi: ["ξ", "xi"], Omi: ["ο", "omicron"], Pi: ["π", "pi"],
+  Rho: ["ρ", "rho"], Sig: ["σ", "sigma"], Tau: ["τ", "tau"], Ups: ["υ", "upsilon"],
+  Phi: ["φ", "phi"], Chi: ["χ", "chi"], Psi: ["ψ", "psi"], Ome: ["ω", "omega"],
+};
+const normKey = (s) => (s || "").trim().toLowerCase().replace(/[\s\-_]+/g, "");
+
+function loadVariables() {
+  if (variablesTried) return Promise.resolve();
+  variablesTried = true;
+  return fetch("variables.json").then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((d) => { variablesCat = d; }).catch(() => {});
+}
+function loadStarNames() {
+  if (starNamesTried) return Promise.resolve();
+  starNamesTried = true;
+  return fetch("star_names.json").then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((d) => { starNamesIdx = d; }).catch(() => {});
+}
+
+/** 恒星の表示名。バイエル(α CrB)優先、次にフラムスティード(5 CrB)、次に固有名。 */
+function starDisplayName(s) {
+  const [, , , bayer, flam, con] = s;
+  const proper = s[6];
+  if (bayer && con) { const g = GREEK[bayer.slice(0, 3)]; return `${g ? g[0] : bayer} ${con}`; }
+  if (flam && con) return `${flam} ${con}`;
+  return proper || "";
+}
+/** target= 文字列に一致する符号星を探す (バイエル記号/名/略号・フラムスティード・固有名)。 */
+function matchStarName(spec) {
+  if (!starNamesIdx) return null;
+  const k = normKey(spec);
+  for (const s of starNamesIdx) {
+    const [, , , bayer, flam, con] = s;
+    const proper = s[6];
+    if (proper && normKey(proper) === k) return s;
+    if (bayer && con) {
+      const ab = bayer.slice(0, 3), g = GREEK[ab];
+      if (normKey(ab + con) === k) return s;
+      if (g && (normKey(g[0] + con) === k || normKey(g[1] + con) === k)) return s;
+    }
+    if (flam && con && normKey(flam + con) === k) return s;
+  }
+  return null;
+}
+
+/** target= を {ra,dec,name,kind,...} に解決する。変光星→符号星→彗星→(生ra/decは既存処理)。 */
+function resolveTarget(spec) {
+  const k = normKey(spec);
+  if (variablesCat) {
+    for (const v of variablesCat) {
+      if (normKey(v[0]) === k) return { ra: v[1], dec: v[2], name: v[0], kind: "variable",
+        magMax: v[4], magMin: v[5], type: v[3] };
+    }
+  }
+  const st = matchStarName(spec);
+  if (st) return { ra: st[0], dec: st[1], name: starDisplayName(st), kind: "star", mag: st[2] };
+  const cd = resolveCometAlias(spec);
+  const jd = jdFromDate(new Date(state.ms));
+  for (const c of cometPositions(jd)) {
+    if (desigKey(c.name) === desigKey(cd) || desigKey(c.name) === desigKey(spec))
+      return { ra: c.ra, dec: c.dec, name: c.name, kind: "comet", mag: c.mag };
+  }
+  return null;
+}
+
+/** 目標を視野中心に。fov[度]指定があれば倍率へ換算 (無ければ finder 相当 6°)。 */
+function centerOnTarget() {
+  if (!obsTarget) return;
+  const M = skyMatrix(jdFromDate(new Date(state.ms)), SITE.lat, SITE.lon);
+  state.view.center = applySky(M, raDecToVec(obsTarget.ra, obsTarget.dec));
+  const fov = pendingFov || 6;
+  state.view.zoom = Math.max(ZOOM_MIN + 1, Math.min(ZOOM_MAX, 180 / fov));
+}
+
+/** 観測星図の起動: 必要データを読み、target を解決して中心化し再描画。 */
+async function initObsChart() {
+  const jobs = [];
+  if (obsTargetSpec || showMagLabels) jobs.push(loadVariables());   // 比較星の変光星除外にも要る
+  if (obsTargetSpec || showDesignations) jobs.push(loadStarNames());
+  if (obsTargetSpec) loadComets();
+  await Promise.all(jobs);
+  if (obsTargetSpec) {
+    obsTarget = resolveTarget(obsTargetSpec);
+    if (obsTarget) centerOnTarget();
+  }
+  draw();
+}
+
+/** 目標マーク・比較星の等級ラベル・符号を描く (望遠鏡モードで)。 */
+function drawObsChart(M) {
+  // 比較星の等級レンジ
+  let lo = -2, hi = 12;
+  if (obsTarget) {
+    if (obsTarget.kind === "variable") { lo = obsTarget.magMax - 0.3; hi = Math.min(12.5, obsTarget.magMin + 0.5); }
+    else if (obsTarget.mag != null) { lo = obsTarget.mag - 2; hi = obsTarget.mag + 2; }
+  }
+  const place = makeLabelPlacer(3);
+  const inView = (p) => !p.behind && p.x >= 0 && p.x <= cx * 2 && p.y >= 0 && p.y <= cy * 2;
+
+  // 目標マーク (二重円＋名前。恒星と紛れないオレンジ)
+  if (obsTarget) {
+    const p = projectView(applySky(M, raDecToVec(obsTarget.ra, obsTarget.dec)), view);
+    if (inView(p)) {
+      ctx.strokeStyle = printMode ? "#000000" : "#ff9a3c";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.stroke();
+      ctx.font = `${Math.max(11, R / 28)}px "Hiragino Sans", sans-serif`;
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.fillStyle = printMode ? "#000000" : "#ffb36a";
+      place(p.x - 14, p.y - 14, 28, 28);
+      ctx.fillText(obsTarget.name, p.x + 16, p.y - 12);
+    }
+  }
+  if (!showMagLabels && !showDesignations) return;
+
+  // 既知の変光星の近くは比較星から外す (変光星観測の基本作法)
+  const nearVariable = (ra, dec) => {
+    if (!variablesCat) return false;
+    const cd = Math.cos(dec * DEG) || 1e-3;
+    for (const v of variablesCat) {
+      if (Math.abs(dec - v[2]) < 0.03 &&
+          Math.abs(((ra - v[1] + 540) % 360) - 180) * cd < 0.03) return true;
+    }
+    return false;
+  };
+
+  // 比較星候補 (埋め込み STARS ＋ 読み込み済み深層タイル)
+  const cands = [];
+  const consider = (vec, ra, dec, mag) => {
+    if (mag < lo || mag > hi) return;
+    const p = projectView(applySky(M, vec), view);
+    if (!inView(p)) return;
+    if (nearVariable(ra, dec)) return;
+    cands.push({ x: p.x, y: p.y, mag });
+  };
+  for (let i = 0; i < STARS.length; i++)
+    consider(STAR_VEC[i], STARS[i][0], STARS[i][1], STARS[i][2]);
+  for (const tile of tileCache.values()) {
+    if (!tile || typeof tile === "string") continue;
+    for (let j = 0; j < tile.n; j++) {
+      const mag = tile.mag[j];
+      if (mag < lo || mag > hi) continue;
+      const p = projectView(applySky(M, [tile.vx[j], tile.vy[j], tile.vz[j]]), view);
+      if (inView(p)) cands.push({ x: p.x, y: p.y, mag });
+    }
+  }
+  cands.sort((a, b) => a.mag - b.mag);
+
+  // 等級ラベル (小数点省略: 8.4→"84")。明るい順に重ならない範囲で最大22個
+  if (showMagLabels) {
+    ctx.font = `${Math.max(10, R / 34)}px system-ui, sans-serif`;
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = printMode ? "#000000" : "rgba(255,225,150,0.95)";
+    let n = 0;
+    for (const c of cands) {
+      if (n >= 22) break;
+      const label = String(Math.round(c.mag * 10));
+      const w = ctx.measureText(label).width;
+      if (!place(c.x + 3, c.y - 6, w, 12)) continue;
+      ctx.fillText(label, c.x + 3, c.y);
+      n++;
+    }
+  }
+
+  // 符号 (names=on): バイエル/フラムスティード/固有名
+  if (showDesignations && starNamesIdx) {
+    ctx.font = `${Math.max(10, R / 32)}px "Hiragino Sans", sans-serif`;
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = printMode ? "#000000" : "rgba(175,210,255,0.95)";
+    for (const s of starNamesIdx) {
+      const nm = starDisplayName(s);
+      if (!nm) continue;
+      const p = projectView(applySky(M, raDecToVec(s[0], s[1])), view);
+      if (!inView(p)) continue;
+      const w = ctx.measureText(nm).width;
+      if (!place(p.x + 4, p.y + 4, w, 12)) continue;
+      ctx.fillText(nm, p.x + 4, p.y + 11);
+    }
+  }
+}
+
 // ---------------- 星雲・星団・銀河 (F5: OpenNGC V≤12) ----------------
 const DSO_URL = "dso.json";
 let dso = null, dsoTried = false, dsoIndex = null;
@@ -2474,9 +2681,18 @@ async function openPrint() {
   } else {
     viewStr = "全天（地平座標・北が上）";
   }
+  // 観測星図モードでは目標名を見出しに、限界等級を視野情報に添える
+  const obs = obsTarget || showMagLabels;
+  const title = obsTarget ? `観測星図: ${obsTarget.name} — ${dateStr}` : `星図 — ${dateStr}`;
   el("print-header").innerHTML =
-    `<div class="pt-title">星図 — ${dateStr}</div>`
-    + `<div class="pt-meta">${place}<br>${viewStr}</div>`;
+    `<div class="pt-title">${title}</div>`
+    + `<div class="pt-meta">${place}<br>${viewStr}${showMagLabels ? "｜数字は比較星の等級(小数点省略: 84=8.4等)" : ""}</div>`;
+  // F4 但し書き(必須): カタログ等級は目安。正式な変光星測光は AAVSO VSP へ送客。
+  el("print-foot").innerHTML = obs
+    ? "星の等級はカタログ値です（チャート用の目安）。変光星の正式な観測・報告には "
+      + "AAVSO VSP（Variable Star Plotter, aavso.org/vsp）の較正済み比較星シーケンスをご使用ください。"
+      + "<br>voyager6.net｜星表: AT-HYG・変光星: GCVS"
+    : "voyager6.net — 恒星の位置は JPL Horizons と照合済み。彗星・小惑星・歴史的表示は接触軌道要素による概略。";
   const svg = await renderChartSvg(true);           // 印刷は常に白地
   const holder = el("print-chart");
   holder.innerHTML = svg;
@@ -2491,4 +2707,7 @@ el("btn-print").addEventListener("click", () => { openPrint(); });
 window.addEventListener("resize", resize);
 syncControls();
 resize();
+
+// 観測星図モード: URL に target/labels/names があればデータを読んで目標を中心化する
+if (obsTargetSpec || showMagLabels || showDesignations) initObsChart();
 </script>

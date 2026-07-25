@@ -18,6 +18,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
   <li><a href="/?t=2026-08-12T21:00&amp;lat=35.68&amp;lon=139.77">2026-08-12 21:00 JST・東京の空</a>（早見盤）</li>
   <li><a href="/?t=2026-11-01T20:00&amp;lat=35.68&amp;lon=139.77&amp;z=25&amp;ra=10.685&amp;dec=41.269&amp;flip=mirror">M31（アンドロメダ銀河）を望遠鏡視野で</a>（早見盤・ズーム＋鏡像）</li>
   <li><a href="/?t=1996-03-25T03:00&amp;lat=35.68&amp;lon=139.77&amp;comet=C%2F1996%20B2">1996-03-25・百武彗星が見えた夜空</a>（早見盤・歴史的な肉眼彗星）</li>
+  <li><a href="/?target=T%20CrB&amp;labels=mag&amp;names=on&amp;fov=6">T CrB の観測星図</a>（比較星の等級つき・変光星観測むけ）</li>
   <li><a href="/solar/?date=1996-03-25&amp;comet=Hyakutake">1996年3月・百武彗星の軌道</a>（太陽系3D・通称でも指定可）</li>
   <li><a href="/solar/?date=2061-07-01&amp;comet=1P">2061年・ハレー彗星</a>（太陽系3D）</li>
   <li><a href="/solar/?date=2029-04-13&amp;ael=0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5&amp;aname=%E3%82%A2%E3%83%9D%E3%83%95%E3%82%A3%E3%82%B9">2029-04-13・アポフィスの地球接近</a>（太陽系3D）</li>
@@ -37,8 +38,15 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><code>flip</code></td><td><code>upright</code>／<code>mirror</code>／<code>inverted</code></td><td>像の向き（正立／鏡像／倒立）</td><td><code>mirror</code></td></tr>
     <tr><td><code>comet</code></td><td>符号</td><td>彗星レイヤを自動ON（歴史的な肉眼彗星も出現期は描かれる）</td><td><code>C/1996 B2</code></td></tr>
     <tr><td><code>roll</code></td><td>ラジアン</td><td>視野の回転（任意）</td><td><code>0.5</code></td></tr>
+    <tr><td><code>target</code></td><td>天体名/符号</td><td>観測星図：目標を視野中心に。変光星名・恒星名/バイエル符号・彗星符号に対応</td><td><code>T CrB</code></td></tr>
+    <tr><td><code>labels</code></td><td><code>mag</code></td><td>比較星に等級ラベル（小数点省略：8.4→84）。変光星・彗星の光度観測むけ</td><td><code>mag</code></td></tr>
+    <tr><td><code>names</code></td><td><code>on</code></td><td>バイエル/フラムスティード符号・恒星名の表示</td><td><code>on</code></td></tr>
+    <tr><td><code>fov</code></td><td>度</td><td>視野の直径。<code>z</code> の代わりに度で指定できる</td><td><code>6</code></td></tr>
   </tbody>
 </table>
+<p class="dim">観測星図モード（<code>target</code>）は変光星・彗星の光度観測むけの印刷チャートを作ります。
+星の等級はカタログ値（チャート用の目安）です。変光星の正式な測光・報告には
+<a href="https://www.aavso.org/vsp">AAVSO VSP</a> の較正済み比較星シーケンスをご使用ください。</p>
 
 <h2>太陽系3D <code>https://voyager6.net/solar/</code></h2>
 <table>
