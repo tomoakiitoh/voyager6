@@ -1,0 +1,80 @@
+<!--
+title: 変光星カタログ
+description: 肉眼〜双眼鏡で楽しめる著名な変光星の一覧。ミラ・アルゴル・T CrB など。カードから比較星の等級つき観測星図をワンタップで開ける。
+scripts:
+bodyclass: vars-page
+-->
+<main class="doc vars">
+
+<h1>変光星カタログ</h1>
+<p>
+  変光星は、明るさが時間とともに変わる星です。理由はさまざまで——
+  ふくらんだり縮んだりする<b>脈動</b>、たがいに隠しあう連星の<b>食（しょく）</b>、
+  ときに<b>爆発</b>するものまで。ここでは肉眼〜双眼鏡で追える著名なものを集めました。
+</p>
+<p class="dim">
+  各カードの「観測星図を出す」を押すと、まわりの<b>比較星に等級を書き込んだチャート</b>が開きます
+  （印刷もできます）。数字は小数点を省いた等級（<b>84 = 8.4 等</b>）＝変光星観測の伝統的な表記です。
+  星の等級はカタログ値（チャート用の目安）なので、正式な測光・報告には
+  <a href="https://www.aavso.org/vsp">AAVSO VSP</a> の較正済み比較星をご使用ください。
+</p>
+
+<div id="list" class="vlist"></div>
+
+</main>
+
+<style>
+  .vars .vlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px; margin: 18px 0; }
+  .vars .vcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+    background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
+  .vars .vname { font-size: 16px; font-weight: 700; color: #e6eeff; }
+  .vars .vtype { font-size: 11px; font-weight: 500; color: var(--bg); background: var(--accent);
+    border-radius: 5px; padding: 2px 7px; margin-left: 6px; white-space: nowrap; vertical-align: 2px; }
+  .vars .vmag { font-size: 13px; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .vars .vper { color: var(--dim); margin-left: 8px; }
+  .vars .vnote { font-size: 13px; color: var(--dim); line-height: 1.6; flex: 1; }
+  .vars .vbtn { align-self: flex-start; margin-top: 2px; background: #23407a; border: 1px solid #35589c;
+    color: #e6eeff; border-radius: 7px; padding: 7px 13px; font-size: 13px; text-decoration: none; }
+  .vars .vbtn:hover { background: #2b4c90; }
+</style>
+
+<script>
+"use strict";
+// 型コード(GCVS)を専門用語に不慣れでも分かる和名に。
+const TYPE_JA = {
+  M: "ミラ型（脈動・長周期）", EA: "アルゴル型（食変光）", EB: "こと座β型（食変光）",
+  DCEP: "セファイド（脈動）", NR: "再帰新星（突発）", RCB: "かんむり座R型（不規則な減光）",
+  SRC: "半規則型（赤色超巨星）", GCAS: "カシオペヤ座γ型（Be星）", LC: "低速不規則型",
+  RRAB: "こと座RR型（脈動）", UGSS: "矮新星（突発）", RVA: "RVタウリ型（脈動）",
+  SDOR: "高光度青色変光星（LBV）",
+};
+const GREEK_WORD = { alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε",
+  zeta: "ζ", eta: "η", theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ",
+  nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ", sigma: "σ", tau: "τ", chi: "χ", omega: "ω" };
+// "delta Cep" → "δ Cep"、固有名/変光星符号はそのまま
+function displayName(name) {
+  const m = name.match(/^([a-z]+)\s+(.+)$/i);
+  if (m && GREEK_WORD[m[1].toLowerCase()]) return `${GREEK_WORD[m[1].toLowerCase()]} ${m[2]}`;
+  return name;
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+fetch("../variables.json").then((r) => r.json()).then((data) => {
+  // 明るい順(最大光度の明るいもの=肉眼向けを先頭に)
+  data.sort((a, b) => a[4] - b[4]);
+  const list = document.getElementById("list");
+  list.innerHTML = data.map(([name, ra, dec, type, magMax, magMin, period, note]) => {
+    const per = period ? `周期 ${period >= 400 ? (period / 365).toFixed(1) + "年" : period + "日"}` : "不規則";
+    const url = `../?target=${encodeURIComponent(name)}&labels=mag&names=on&fov=6`;
+    return `<div class="vcard">
+      <div class="vname">${esc(displayName(name))}<span class="vtype">${esc(TYPE_JA[type] || type)}</span></div>
+      <div class="vmag">約 ${magMax} 〜 ${magMin} 等<span class="vper">${per}</span></div>
+      <div class="vnote">${esc(note)}</div>
+      <a class="vbtn" href="${url}">観測星図を出す →</a>
+    </div>`;
+  }).join("");
+}).catch(() => {
+  document.getElementById("list").innerHTML = '<p class="dim">変光星データを読み込めませんでした。</p>';
+});
+</script>

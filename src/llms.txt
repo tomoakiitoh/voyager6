@@ -18,6 +18,7 @@
 - [太陽系3D / Solar system 3D](https://voyager6.net/solar/): 惑星・彗星(全既知)・小惑星の軌道を3Dで俯瞰。力学群フィルタ、時間再生、木星固定(回転座標系)でトロヤ群、WebXR(VR)対応。
 - [彗星カタログ / Comet catalog](https://voyager6.net/comets/): 収録彗星の一覧。符号・和名・英名で検索、近日点通過/周期で並べ替え、行から3D軌道へ。
 - [小惑星カタログ / Asteroid catalog](https://voyager6.net/asteroids/): 探査機が訪れた小惑星(イトカワ・リュウグウ等)を軸に、名前/番号で検索。
+- [変光星カタログ / Variable star catalog](https://voyager6.net/variables/): 肉眼〜双眼鏡の著名変光星(ミラ・アルゴル・T CrB等)。カードから比較星の等級つき観測星図を開ける。
 - [今夜の空 / Tonight](https://voyager6.net/tonight/): 日の入り・薄明・月・見ごろの惑星。
 - [天文現象カレンダー / Events](https://voyager6.net/calendar/): 月ごとの月相・惑星・流星群・日月食(月明かり条件つき)。
 - [流星群 / Meteor shower](https://voyager6.net/perseids/): ペルセウス座流星群2026の出現数目安。
