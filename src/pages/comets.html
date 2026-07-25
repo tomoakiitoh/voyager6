@@ -188,7 +188,7 @@ bodyclass: comets-page
     tr.classList.add("open");
     const a = r.e < 1 ? (r.q / (1 - r.e)) : null;
     const rmag = (r.notable && r.maxmag != null)
-      ? `最大 約${r.maxmag}等 <span class="prov">（監修前の仮値）</span>` : "—";
+      ? `最大 約${r.maxmag}等 <span class="prov">（目安）</span>` : "—";
     const detail = document.createElement("tr");
     detail.className = "detail";
     detail.innerHTML = `<td colspan="5"><div class="card">

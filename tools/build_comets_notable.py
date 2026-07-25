@@ -40,25 +40,41 @@ ALL = ROOT.parent / "src" / "comets_all.json"
 OUT = ROOT.parent / "src" / "comets_notable.json"
 SBDB_LOOKUP = "https://ssd-api.jpl.nasa.gov/sbdb.api"
 
-# 監修前の仮置きリスト (20世紀以降の代表的な肉眼彗星)。
+# 作者監修済みリスト (20世紀以降の代表的な肉眼彗星。2026-07-25 監修反映)。
+# max_mag は最大光度の目安 (ツッコミが入れば調整可)、note は短い客観的な一言 (思い出は将来 Blog へ)。
 # 各 dict: desig=表示符号, ja=和名, mag=最大光度[仮], best=著名な出現の日付[任意・上書き],
 #          lookup=SBDB照会符号[任意。分裂彗星などで表示符号と異なる場合]。
 # 周期彗星は接触要素が最新元期なので、著名な出現年 (ハレー1986/ホームズ2007) を best で明示する。
 # max_mag と note は作者が後で確定する。
 NOTABLE = [
     {"desig": "C/1965 S1", "ja": "池谷・関",     "mag": -10.0, "lookup": "C/1965 S1-A",
-     "best": "1965-10-21"},                                   # 白昼彗星。クロイツ群 (主片S1-A)
-    {"desig": "C/1969 Y1", "ja": "ベネット",       "mag": 0.0},
-    {"desig": "C/1975 V1", "ja": "ウェスト",       "mag": -3.0},
-    {"desig": "1P",        "ja": "ハレー",         "mag": 2.1, "best": "1986-02-09"},  # 1986年の出現
-    {"desig": "C/1996 B2", "ja": "百武",          "mag": 0.0, "best": "1996-03-25"},  # 地球接近・尾が長大
-    {"desig": "C/1995 O1", "ja": "ヘール・ボップ",  "mag": -1.0},  # 数か月見えた大彗星
-    {"desig": "C/2002 C1", "ja": "池谷・張",       "mag": 3.0},
-    {"desig": "17P",       "ja": "ホームズ",       "mag": 2.8, "best": "2007-10-24"},  # 2007大バースト
-    {"desig": "C/2006 P1", "ja": "マックノート",    "mag": -5.0},  # 南天の大彗星
-    {"desig": "C/2011 W3", "ja": "ラブジョイ",     "mag": -4.0},  # クロイツ群サングレーザー
-    {"desig": "C/2020 F3", "ja": "ネオワイズ",      "mag": 1.0},
-    {"desig": "C/2023 A3", "ja": "紫金山・ATLAS",   "mag": 0.0},
+     "best": "1965-10-21", "note": "白昼でも見えたクロイツ群の大彗星"},
+    {"desig": "C/1969 Y1", "ja": "ベネット",       "mag": 0.0,
+     "note": "力強い塵の尾を引いた1970年春の大彗星"},
+    {"desig": "C/1975 V1", "ja": "ウェスト",       "mag": -3.0,
+     "note": "明け方に壮麗な尾。核が分裂した"},
+    {"desig": "C/1983 H1", "ja": "アイラス・荒木・オルコック", "mag": 2.0, "best": "1983-05-11",
+     "note": "地球へ0.031AU大接近。淡い巨体が空を高速で移動した"},
+    {"desig": "1P",        "ja": "ハレー",         "mag": 2.1, "best": "1986-02-09",
+     "note": "76年周期。1986年の回帰は地球から遠く暗めだった"},
+    {"desig": "109P",      "ja": "スイフト・タットル", "mag": 4.0, "best": "1992-12-12",
+     "note": "ペルセウス座流星群の母天体"},
+    {"desig": "C/1996 B2", "ja": "百武",          "mag": 0.0, "best": "1996-03-25",
+     "note": "地球に接近し、青い尾が空の半分に伸びた"},
+    {"desig": "C/1995 O1", "ja": "ヘール・ボップ",  "mag": -1.0,
+     "note": "数か月にわたり肉眼で見え続けた大彗星"},
+    {"desig": "C/2002 C1", "ja": "池谷・張",       "mag": 3.0,
+     "note": "日本のアマチュアが発見"},
+    {"desig": "17P",       "ja": "ホームズ",       "mag": 2.8, "best": "2007-10-24",
+     "note": "2007年に突然、約40万倍に増光した"},
+    {"desig": "C/2006 P1", "ja": "マックノート",    "mag": -5.0,
+     "note": "南天に扇状の巨大な尾を広げた"},
+    {"desig": "C/2011 W3", "ja": "ラブジョイ",     "mag": -4.0,
+     "note": "近日点を生き延びたクロイツ群のサングレーザー"},
+    {"desig": "C/2020 F3", "ja": "ネオワイズ",      "mag": 1.0,
+     "note": "2020年夏、久々の肉眼大彗星"},
+    {"desig": "C/2023 A3", "ja": "紫金山・ATLAS",   "mag": 0.0,
+     "note": "2024年秋の夕空を飾った大彗星"},
 ]
 
 
@@ -116,7 +132,7 @@ def main() -> int:
     for item in NOTABLE:
         desig, name_ja, max_mag = item["desig"], item["ja"], item["mag"]
         rec = {"desig": desig, "name_ja": name_ja, "max_mag": max_mag,
-               "note": "", "source": "none", "elements": None,
+               "note": item.get("note", ""), "source": "none", "elements": None,
                "peri_jd": None, "best_date": None, "name_en": desig}
         c = idx.get(desig_key(desig))
         if c:
@@ -141,7 +157,7 @@ def main() -> int:
     ok = sum(1 for r in out if r["elements"])
     print(f"  comets_notable.json: {len(out)} 件 (要素あり {ok} / 取得不可 {missing}) "
           f"({OUT.stat().st_size:,} bytes)")
-    print("  ※ max_mag / note は監修前の仮置き。作者が確定すること。")
+    print("  ※ max_mag / note は作者監修済み (2026-07-25)。max_mag はツッコミが入れば調整。")
     return 0
 
 
