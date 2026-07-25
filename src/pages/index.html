@@ -750,13 +750,18 @@ function starNameMagLimit() {
 /** 天の川。濃度レベルごとに薄い白を重ね塗りする。 */
 function drawMilkyway(M) {
   ctx.fillStyle = pt().milkyway;
+  // 全天図は盤面(真円)クリップが地平線境界を処理するので、リングは切らず丸ごと投影する。
+  // ここで地平線クリップすると、切断エッジが盤面を横切る弦になりゴースト塗りが出る。
+  // 望遠鏡モードだけ従来どおり地平線クリップ＋裏側スキップ(視野中心の反対側で図が崩れるため)。
+  const clip = telescopeMode;
   for (const level of MW_VEC) {
     ctx.beginPath();
     for (const ring of level) {
-      const poly = clipPolygon(ring.map((v) => applySky(M, v)));
+      const hs = ring.map((v) => applySky(M, v));
+      const poly = clip ? clipPolygon(hs) : hs;
       if (poly.length < 3) continue;
       const ps = poly.map((h) => projectView(h, view));
-      if (ps.some((p) => p.behind)) continue; // 裏側をまたぐリングは形が崩れるので捨てる
+      if (clip && ps.some((p) => p.behind)) continue; // 望遠鏡モードのみ裏側リングを捨てる
       ps.forEach((p, i) => {
         if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
       });

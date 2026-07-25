@@ -9,7 +9,7 @@ bodyclass: comets-page
 <h1>彗星カタログ</h1>
 <p>
   収録している彗星の一覧です。符号・英名・和名で検索でき、近日点通過や周期で並べ替えられます。
-  行をタップすると軌道の要点と、太陽系3Dで軌道を見る導線が出ます。
+  行をタップすると軌道の要点と、太陽系3Dで軌道を見る導線・観測星図（比較星の等級つき）を出す導線が出ます。
   <span class="dim">★ は歴史的な肉眼彗星（和名つき）。</span>
 </p>
 
@@ -208,6 +208,7 @@ bodyclass: comets-page
       ${r.note ? `<div class="note">${r.note}</div>` : ""}
       <div class="actions">
         <a href="../solar/?comet=${encodeURIComponent(r.key)}">軌道を3Dで見る →</a>
+        <a href="../?target=${encodeURIComponent(r.key)}&labels=mag&fov=5">観測星図を出す →</a>
       </div>
     </div></td>`;
     tr.after(detail);
