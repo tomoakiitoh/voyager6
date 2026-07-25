@@ -920,13 +920,17 @@ function desigKey(s) {
   return s.split(" (")[0].trim();
 }
 
+let cometsLoadPromise = Promise.resolve();
 function loadComets() {
-  if (cometsTried) return;
+  if (cometsTried) return cometsLoadPromise;
   cometsTried = true;
-  fetch(COMET_URL).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((d) => { comets = d; cometCache.jd = null; draw(); }).catch(() => {});
-  fetch("comets_historic.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((d) => { cometsHistoric = d; cometCache.jd = null; draw(); }).catch(() => {});
+  cometsLoadPromise = Promise.all([
+    fetch(COMET_URL).then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => { comets = d; cometCache.jd = null; }).catch(() => {}),
+    fetch("comets_historic.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((d) => { cometsHistoric = d; cometCache.jd = null; }).catch(() => {}),
+  ]).then(() => draw());
+  return cometsLoadPromise;
 }
 
 /** その日時の彗星の位置・等級を計算し、しきい値内だけ返す (現行＋歴史、日付でキャッシュ)。 */
@@ -1551,13 +1555,28 @@ function resolveTarget(spec) {
   }
   const st = matchStarName(spec);
   if (st) return { ra: st[0], dec: st[1], name: starDisplayName(st), kind: "star", mag: st[2] };
-  const cd = resolveCometAlias(spec);
-  const jd = jdFromDate(new Date(state.ms));
-  for (const c of cometPositions(jd)) {
-    if (desigKey(c.name) === desigKey(cd) || desigKey(c.name) === desigKey(spec))
-      return { ra: c.ra, dec: c.dec, name: c.name, kind: "comet", mag: c.mag };
+  const cm = findComet(spec);
+  if (cm) {
+    const jd = jdFromDate(new Date(state.ms));
+    const g = orbitalToRaDec(cm.el, jd);
+    const mag = cometMagnitude(cm.M1, cm.K1, g.r, g.delta);
+    return { ra: g.ra, dec: g.dec, name: cm.name, kind: "comet", mag, el: cm.el, M1: cm.M1, K1: cm.K1 };
   }
   return null;
+}
+
+/** 符号(通称含む)から彗星の軌道要素レコードを探す (現行＋歴史、明るさに依らず)。 */
+function findComet(spec) {
+  const cd = desigKey(resolveCometAlias(spec)), k = desigKey(spec);
+  const scan = (arr, hist) => {
+    for (const c of (arr || [])) {
+      if (desigKey(c[0]) === cd || desigKey(c[0]) === k)
+        return { el: { e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] },
+                 M1: c[7], K1: c[8], name: hist ? (c[11] || c[0]) : c[0] };
+    }
+    return null;
+  };
+  return scan(comets, false) || scan(cometsHistoric, true);
 }
 
 /** 目標を視野中心に。fov[度]指定があれば倍率へ換算 (無ければ finder 相当 6°)。 */
@@ -1574,13 +1593,25 @@ async function initObsChart() {
   const jobs = [];
   if (obsTargetSpec || showMagLabels) jobs.push(loadVariables());   // 比較星の変光星除外にも要る
   if (obsTargetSpec || showDesignations) jobs.push(loadStarNames());
-  if (obsTargetSpec) loadComets();
+  if (obsTargetSpec) jobs.push(loadComets());                       // 彗星 target のため要ロード
   await Promise.all(jobs);
   if (obsTargetSpec) {
     obsTarget = resolveTarget(obsTargetSpec);
     if (obsTarget) centerOnTarget();
   }
   draw();
+}
+
+/** (x1,y1)→(x2,y2) の矢印 (先端に三角)。彗星の進行方向に使う。 */
+function drawArrow(x1, y1, x2, y2, color) {
+  const ang = Math.atan2(y2 - y1, x2 - x1), s = 7;
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - s * Math.cos(ang - 0.4), y2 - s * Math.sin(ang - 0.4));
+  ctx.lineTo(x2 - s * Math.cos(ang + 0.4), y2 - s * Math.sin(ang + 0.4));
+  ctx.closePath(); ctx.fill();
 }
 
 /** 目標マーク・比較星の等級ラベル・符号を描く (望遠鏡モードで)。 */
@@ -1607,6 +1638,35 @@ function drawObsChart(M) {
       ctx.fillStyle = printMode ? "#000000" : "#ffb36a";
       place(p.x - 14, p.y - 14, 28, 28);
       ctx.fillText(obsTarget.name, p.x + 16, p.y - 12);
+    }
+  }
+
+  // 彗星 target: 前後3日の予報位置と進行方向 (その夜/日々どう動くか)
+  if (obsTarget && obsTarget.kind === "comet" && obsTarget.el) {
+    const jd0 = jdFromDate(new Date(state.ms));
+    const track = [];
+    for (let d = -3; d <= 3; d++) {
+      const g = orbitalToRaDec(obsTarget.el, jd0 + d);
+      const q = projectView(applySky(M, raDecToVec(g.ra, g.dec)), view);
+      if (!q.behind) track.push({ d, x: q.x, y: q.y });
+    }
+    if (track.length >= 2) {
+      ctx.strokeStyle = printMode ? "rgba(0,0,0,0.55)" : "rgba(140,255,205,0.75)";
+      ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      track.forEach((tt, i) => (i ? ctx.lineTo(tt.x, tt.y) : ctx.moveTo(tt.x, tt.y)));
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.font = `${Math.max(9, R / 40)}px system-ui, sans-serif`;
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      for (const tt of track) {
+        if (tt.d === 0) continue;
+        ctx.fillStyle = printMode ? "#000000" : "rgba(160,255,215,0.9)";
+        ctx.beginPath(); ctx.arc(tt.x, tt.y, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillText(tt.d > 0 ? `+${tt.d}d` : `${tt.d}d`, tt.x + 4, tt.y - 6);
+      }
+      const a = track.find((tt) => tt.d === 0), b = track.find((tt) => tt.d === 1) || track[track.length - 1];
+      if (a && b && (a.x !== b.x || a.y !== b.y))
+        drawArrow(a.x, a.y, b.x, b.y, printMode ? "#000000" : "#8affcd");
     }
   }
   if (!showMagLabels && !showDesignations) return;
