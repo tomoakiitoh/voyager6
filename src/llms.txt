@@ -30,7 +30,21 @@
 
 AIアシスタントは以下のパラメータで、特定の空・軌道ビューへの直接リンクを生成できる。
 An AI assistant can construct direct links to a specific sky or solar-system view.
+**利用者はパラメータを覚えなくてよい。「〜のリンクを作って」と頼まれたら、AIが下のレシピで
+URLを組み立てて返す**ことを想定している(=このサイトの狙い)。天体名は空白・日本語のままでよい。
 完全な仕様と動く例: https://voyager6.net/docs/
+
+### よくある依頼 → URL レシピ / Request → URL recipes
+- 「<変光星>の観測星図(を作って)」 → `https://voyager6.net/?target=<名>&labels=mag&names=on&fov=6`
+  例: 「T CrB の観測星図作って」→ `https://voyager6.net/?target=T CrB&labels=mag&names=on&fov=6`
+- 「<彗星>の観測星図 / 光度観測用の比較星図」 → `https://voyager6.net/?target=<符号>&labels=mag&fov=5`
+  例: `https://voyager6.net/?target=C/2023 A3&labels=mag&fov=5` (移動が速ければ fov を小さく、
+  暗い彗星で比較星を増やすなら `&maglim=11` を足す)
+- 「<地点>の<日時>の空」 → `https://voyager6.net/?t=<YYYY-MM-DDThh:mm>&lat=<緯度>&lon=<経度>`
+- 「<天体>を望遠鏡視野で / ファインダーチャート」 → `https://voyager6.net/?target=<名>&fov=<3〜6>`
+- 「<彗星>の軌道を3Dで」 → `https://voyager6.net/solar/?comet=<符号>` (通称可: Halley/百武/紫金山・アトラス…)
+- 「<衛星>の軌道を地球周回3Dで」 → `https://voyager6.net/earth/?sat=<NORAD番号>`
+各パラメータの詳細は下記。
 
 ### 星座早見 / Sky chart — `https://voyager6.net/`
 - `t` = 日時(JST) `YYYY-MM-DDTHH:MM`  ※タイムゾーン表記は付けない(JST固定)
