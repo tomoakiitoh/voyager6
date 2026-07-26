@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tools/cache
-          key: astro-data-v2
+          key: astro-data-v3
 
       # 取得失敗時はスクリプトが JSON を書き換えないので、前回データが残る。
       - name: 彗星の軌道要素を更新

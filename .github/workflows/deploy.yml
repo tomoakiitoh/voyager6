@@ -38,7 +38,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tools/cache
-          key: astro-data-v2
+          key: astro-data-v3
 
       - name: 星表データを生成
         run: python3 tools/build_data.py

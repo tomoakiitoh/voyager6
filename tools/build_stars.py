@@ -21,7 +21,8 @@
 数のセルに割る (ほぼ等面積 ~10°角)。狭視野では毎回数タイルだけ取得すればよい。
 等級層: L0=(5,7], L1=(7,8.5], L2=(8.5,10]。視野が狭いほど深い層まで読む。
 
-出典: AT-HYG v3.3 (astronexus/athyg, CC BY-SA 4.0)。サブセット athyg_33_reduced_m10。
+出典: AT-HYG v4.0 (astronexus/athyg, CC BY-SA 4.0)。サブセット athyg_40_reduced_m10。
+(v3.3 は 2026-07 に v4.0 へ更新されファイル名が変わった=旧URLは404。pm列名も pm_ra→pmra に変更。)
 """
 
 from __future__ import annotations
@@ -40,9 +41,9 @@ CACHE = ROOT / "cache"
 DIST = ROOT.parent / "dist"
 OUTDIR = DIST / "stars"
 
-SOURCE_NAME = "athyg_33_reduced_m10.csv.gz"
+SOURCE_NAME = "athyg_40_reduced_m10.csv.gz"
 SOURCE_URL = ("https://codeberg.org/astronexus/athyg/media/branch/main/"
-              "data/subsets/athyg_33_reduced_m10.csv.gz")
+              "data/subsets/athyg_40_reduced_m10.csv.gz")
 
 EMBED_MAG_MAX = 5.0   # 埋め込みカタログ (data.js) の上限。深層はこれより暗い星のみ
 MAG_MAX = 10.0
@@ -94,6 +95,12 @@ def quant(v: float, lo: float, hi: float) -> int:
     return max(0, min(255, q))
 
 
+import time
+
+# 取得元に自分を名乗る (連絡先=サイトURL)。相手サーバのポリシーに沿い、素性不明の弾きを避ける。
+USER_AGENT = "Voyager6/1.0 (+https://voyager6.net/; astronomy star chart)"
+
+
 def fetch() -> pathlib.Path:
     CACHE.mkdir(parents=True, exist_ok=True)
     path = CACHE / SOURCE_NAME
@@ -101,11 +108,20 @@ def fetch() -> pathlib.Path:
         print(f"  cached: {SOURCE_NAME} ({path.stat().st_size:,} bytes)")
         return path
     print(f"  download: {SOURCE_URL}")
-    req = urllib.request.Request(SOURCE_URL, headers={"User-Agent": "voyager6-build"})
-    with urllib.request.urlopen(req, timeout=600) as res, path.open("wb") as f:
-        f.write(res.read())
-    print(f"    -> {SOURCE_NAME} ({path.stat().st_size:,} bytes)")
-    return path
+    req = urllib.request.Request(SOURCE_URL, headers={"User-Agent": USER_AGENT})
+    last = None
+    for attempt in (1, 2):   # 失敗時のみ 1 回だけ再試行 (連打しない)
+        try:
+            with urllib.request.urlopen(req, timeout=600) as res, path.open("wb") as f:
+                f.write(res.read())
+            print(f"    -> {SOURCE_NAME} ({path.stat().st_size:,} bytes)")
+            return path
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if attempt == 1:
+                print(f"  警告: 取得失敗 ({e})。20秒後に1回だけ再試行。", file=sys.stderr)
+                time.sleep(20)
+    raise last
 
 
 def main() -> int:
@@ -147,8 +163,8 @@ def main() -> int:
                 continue
             bv = fnum(row, "ci", 0.6)
             deep_all.append((ra, dec, mag, bv))     # 全天一括用 (高μ星も含めて全部)
-            pmra = fnum(row, "pm_ra")   # mas/yr (μα* = μα·cosδ, Gaia由来)
-            pmdec = fnum(row, "pm_dec")
+            pmra = fnum(row, "pmra")   # mas/yr (μα* = μα·cosδ, Gaia由来)。v4.0 で pm_ra→pmra に改名
+            pmdec = fnum(row, "pmdec")
             if math.hypot(pmra, pmdec) > PM_THRESHOLD:
                 # 高固有運動星はタイルから外し、日付連動で描くために別ファイルへ
                 highpm.append([round(ra, 5), round(dec, 5), round(pmra, 1),
@@ -201,7 +217,7 @@ def main() -> int:
 
     manifest = {
         "version": 1,
-        "source": "AT-HYG v3.3 (athyg_33_reduced_m10)",
+        "source": "AT-HYG v4.0 (athyg_40_reduced_m10)",
         "license": "CC BY-SA 4.0",
         "embedMagMax": EMBED_MAG_MAX,
         "magRange": [MAG_LO, MAG_HI],

@@ -87,6 +87,9 @@ Stable, cross-origin-fetchable JSON. Machine-readable index with source / licens
 - `https://voyager6.net/asteroids_catalog.json` — 命名済み小惑星。配列 `[番号, 英名, 主仮符号, 分類, a, e, i, Ω, ω, M0, epoch(JD), H, 直径km]`
 - `https://voyager6.net/asteroids_neo.json` — 地球近傍小惑星(同スキーマ)
 - `https://voyager6.net/dso.json` — 星雲・星団・銀河(OpenNGC由来)
+- `https://voyager6.net/satellites.json` — 明るい人工衛星のTLE(CelesTrak, 日次更新)。配列 `[name, NORAD, TLE1行目, TLE2行目, 標準等級|null]`。位置計算は SGP4 (satellite.js)
+- `https://voyager6.net/satellites_starlink.json` — Starlink群のTLE(CelesTrak, 日次)。配列 `[name, NORAD, TLE1, TLE2]`
+- `https://voyager6.net/variables.json` — 著名な変光星(GCVS由来)。配列 `[name, ra(度), dec(度), 型, 最大光度, 最小光度, 周期(日)|null, 和名メモ]`
 
 ## License
 

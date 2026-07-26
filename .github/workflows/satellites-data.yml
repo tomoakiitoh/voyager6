@@ -36,7 +36,16 @@ jobs:
         with:
           node-version: "22"
 
-      # 取得失敗時はスクリプトが JSON を書き換えないので、前回データが残る。
+      # 星表(AT-HYG 28MB 等)のキャッシュ。deploy.yml / orbital-data.yml と同じ鍵で共有する。
+      # これが無いと build_stars が毎回 AT-HYG を新規ダウンロードし、上流URL変更(v3.3→v4.0で
+      # ファイル名が変わり404)のたびに落ちていた (このワークフローが失敗していた真因)。
+      - name: 外部データのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: tools/cache
+          key: astro-data-v3
+
+      # 取得失敗時はスクリプトが JSON を書き換えず正常終了するので、前回データが残る。
       - name: 衛星の TLE を更新
         run: python3 tools/build_satellites.py || echo "TLE の取得に失敗。前回データを維持。"
 

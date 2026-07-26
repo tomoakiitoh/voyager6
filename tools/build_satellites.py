@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import pathlib
 import sys
+import time
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -51,11 +52,27 @@ STD_MAG = {
 }
 
 
+# CelesTrak に自分を名乗る (連絡先=サイトURL)。素性不明の弾き(403)を避ける。
+USER_AGENT = "Voyager6/1.0 (+https://voyager6.net/; satellite finder)"
+RETRY_WAIT = 60   # 取得失敗時、1回だけ待って再試行する秒数。CelesTrak を連打しない。
+
+
 def fetch_tle(group: str) -> str:
+    """CelesTrak から TLE を取得。失敗時は 60秒待って 1回だけ再試行 (連打はしない)。"""
     url = GP.format(group=group)
-    req = urllib.request.Request(url, headers={"User-Agent": "voyager6-build (satellite finder)"})
-    with urllib.request.urlopen(req, timeout=90) as res:
-        return res.read().decode("utf-8", "replace")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    last = None
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(req, timeout=90) as res:
+                return res.read().decode("utf-8", "replace")
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if attempt == 1:
+                print(f"  警告: {group} 取得失敗 ({e})。{RETRY_WAIT}秒後に1回だけ再試行(連打しない)。",
+                      file=sys.stderr)
+                time.sleep(RETRY_WAIT)
+    raise last
 
 
 def parse_tle(text: str) -> list[tuple[str, int, str, str]]:
@@ -91,10 +108,11 @@ def main() -> int:
         print(f"  {group}: {len(recs)} 機")
 
     if len(records) < 50:
-        # まともに取れていない。前回データを壊さないためここで中断する。
-        print(f"エラー: 取得 {len(records)} 機は少なすぎる。前回の satellites.json を維持。",
+        # まともに取れていない (再試行しても失敗)。前回データを壊さずに正常終了する
+        # (satellites.json を書き換えない=前回維持、ジョブは緑、警告ログのみ)。
+        print(f"警告: 取得 {len(records)} 機は少なすぎる。前回の satellites.json を維持して正常終了。",
               file=sys.stderr)
-        return 1
+        return 0
 
     # stations→visual の順を保ちつつ配列化 (dict は挿入順)
     out = [[name, norad, l1, l2, STD_MAG.get(norad)]
