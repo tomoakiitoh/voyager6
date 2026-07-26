@@ -46,6 +46,7 @@ An AI assistant can construct direct links to a specific sky or solar-system vie
 - `labels=mag` = 視野内の比較星に等級ラベル(小数点省略表記)
 - `names=on` = バイエル/フラムスティード符号・恒星名の表示
 - `fov` = 視野の直径[度] (例 `fov=6`。`z` の代わりに度で指定できる)
+- `maglim` = 等級ラベルを付ける暗い側の限界 (比較星の範囲の切り替え。例 `maglim=10`)。星表は V≤10 まで
 - 彗星を target にすると、前後数日の予報位置と進行方向の矢印も描く(その夜/日々の動きが分かる)
 - 例(変光星): T CrB の観測星図 → `https://voyager6.net/?target=T CrB&labels=mag&names=on&fov=6`
 - 例(彗星): 10P の観測星図 → `https://voyager6.net/?target=10P&labels=mag&fov=5`

@@ -198,6 +198,7 @@ let obsTarget = null;          // 解決後 {ra, dec, name, kind, mag|magMax/mag
 let showMagLabels = false;     // ?labels=mag
 let showDesignations = false;  // ?names=on
 let pendingFov = null;         // ?fov=(度) → 中心化時に zoom へ換算
+let pendingMaglim = null;      // ?maglim= 等級ラベルの暗い側の限界 (比較星範囲の切り替え)
 let starNamesIdx = null, starNamesTried = false;   // star_names.json (符号つき星)
 let variablesCat = null, variablesTried = false;   // variables.json (著名変光星)
 
@@ -274,6 +275,8 @@ function normalizeView() {
   showDesignations = q.get("names") === "on" || q.get("names") === "1";
   const fov = Number(q.get("fov"));      // 視野の直径[度]。z の代わりに指定できる (AIが度で考えやすい)
   if (Number.isFinite(fov) && fov > 0) pendingFov = Math.max(2, Math.min(180, fov));
+  const ml = Number(q.get("maglim"));    // 等級ラベルを付ける暗い側の限界 (比較星の範囲の切り替え)
+  if (Number.isFinite(ml)) pendingMaglim = ml;
 })();
 
 /** その座標に一致するプリセットがあれば、その名前を使う。 */
@@ -1621,11 +1624,20 @@ function drawArrow(x1, y1, x2, y2, color) {
 
 /** 目標マーク・比較星の等級ラベル・符号を描く (望遠鏡モードで)。 */
 function drawObsChart(M) {
-  // 比較星の等級レンジ
-  let lo = -2, hi = 12;
+  // 比較星の等級レンジ。maglim= で暗い側の限界を切り替えられる。
+  // うちの星表は V≤10 まで(深い比較星は将来のTycho-2再ビルド)。範囲がそこと交わらないと
+  // ラベルが1つも出ないので、彗星は予報等級(不確か)に頼りすぎず広めに取り、カタログと交わるようにする。
+  let lo = -2, hi = pendingMaglim || 11;
   if (obsTarget) {
-    if (obsTarget.kind === "variable") { lo = obsTarget.magMax - 0.3; hi = Math.min(12.5, obsTarget.magMin + 0.5); }
-    else if (obsTarget.mag != null) { lo = obsTarget.mag - 2; hi = obsTarget.mag + 2; }
+    if (obsTarget.kind === "variable") {
+      lo = obsTarget.magMax - 0.3;
+      hi = pendingMaglim || Math.min(12.5, obsTarget.magMin + 0.5);
+    } else if (obsTarget.kind === "comet" && obsTarget.mag != null) {
+      lo = Math.max(-2, obsTarget.mag - 5);        // 予報より明るい側も比較星に使う
+      hi = pendingMaglim || Math.min(11, obsTarget.mag + 2);  // 暗い側はカタログ限界まで
+    } else if (obsTarget.mag != null) {
+      lo = obsTarget.mag - 2; hi = pendingMaglim || (obsTarget.mag + 2);
+    }
   }
   const place = makeLabelPlacer(3);
   const inView = (p) => !p.behind && p.x >= 0 && p.x <= cx * 2 && p.y >= 0 && p.y <= cy * 2;
@@ -2749,9 +2761,14 @@ async function openPrint() {
   // 観測星図モードでは目標名を見出しに、限界等級を視野情報に添える
   const obs = obsTarget || showMagLabels;
   const title = obsTarget ? `観測星図: ${obsTarget.name} — ${dateStr}` : `星図 — ${dateStr}`;
+  const tgtInfo = !obsTarget ? ""
+    : obsTarget.kind === "comet" && obsTarget.mag != null ? `｜彗星の予報光度 約${obsTarget.mag.toFixed(1)}等(不確か)`
+    : obsTarget.kind === "variable" ? `｜変光範囲 約${obsTarget.magMax}〜${obsTarget.magMin}等`
+    : "";
   el("print-header").innerHTML =
     `<div class="pt-title">${title}</div>`
-    + `<div class="pt-meta">${place}<br>${viewStr}${showMagLabels ? "｜数字は比較星の等級(小数点省略: 84=8.4等)" : ""}</div>`;
+    + `<div class="pt-meta">${place}<br>${viewStr}${tgtInfo}`
+    + `${showMagLabels ? "｜数字は比較星の等級(小数点省略: 84=8.4等)" : ""}</div>`;
   // F4 但し書き(必須): カタログ等級は目安。正式な変光星測光は AAVSO VSP へ送客。
   el("print-foot").innerHTML = obs
     ? "星の等級はカタログ値です（チャート用の目安）。変光星の正式な観測・報告には "
