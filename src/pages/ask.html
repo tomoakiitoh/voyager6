@@ -1,0 +1,83 @@
+<!--
+title: AIに聞いてみる
+description: URLの仕様を覚えなくても、AI(ChatGPT/Claude/Gemini等)にこう頼めば、観測星図や星空・軌道のリンクが返ってきます。そのままコピペできる文例集。
+scripts:
+bodyclass: ask-page
+-->
+<main class="doc ask">
+
+<h1>AIに聞いてみる</h1>
+<p>
+  Voyager6 は、日時・場所・目標天体などを <b>URL に埋め込む</b>ことで、特定の星空や観測星図を
+  そのまま開けます。でも——<b>その仕組みを覚える必要はありません。</b>
+  AI（ChatGPT・Claude・Gemini など）に下のように頼めば、<b>リンクを組み立てて返してくれます</b>。
+  返ってきたリンクを開けば、目的のチャートが出ます（印刷もできます）。
+</p>
+<p class="dim">
+  文例の <code>llms.txt を読んで</code> の一言がコツです。これで AI がこのサイトの
+  <a href="/llms.txt"><code>llms.txt</code></a>（AI向けの説明）を参照し、正しいリンクを作れます。
+  各文例は「コピー」ボタンでそのままコピーできます。
+</p>
+
+<h2>基本の型</h2>
+<div class="pbox"><code class="ptext">https://voyager6.net/llms.txt を読んで、〔ここに依頼〕の Voyager6 のリンクを作ってください。</code><button class="copybtn" type="button">コピー</button></div>
+
+<h2>変光星の観測に</h2>
+<div class="pbox"><code class="ptext">https://voyager6.net/llms.txt を読んで、T CrB の観測星図（比較星の等級つき）のリンクを作ってください。</code><button class="copybtn" type="button">コピー</button></div>
+<div class="pbox"><code class="ptext">voyager6.net の llms.txt を参照して、ミラ（くじら座o星）の観測星図のリンクを作ってください。</code><button class="copybtn" type="button">コピー</button></div>
+
+<h2>彗星の観測に</h2>
+<p class="dim">符号のところを、いま観測している彗星に差し替えてください。</p>
+<div class="pbox"><code class="ptext">https://voyager6.net/llms.txt を読んで、彗星 C/2025 A6 の光度観測用の観測星図（比較星の等級入り）のリンクを作ってください。移動の矢印が出る fov=5 で。暗ければ maglim=11 も付けて。</code><button class="copybtn" type="button">コピー</button></div>
+<div class="pbox"><code class="ptext">voyager6.net で、ハレー彗星が2061年にどこを回っているか3Dで見るリンクを作って。llms.txt を参照してね。</code><button class="copybtn" type="button">コピー</button></div>
+
+<h2>観望会・自由研究に</h2>
+<div class="pbox"><code class="ptext">https://voyager6.net/llms.txt を読んで、今夜21時の東京の星空のリンクを作ってください。</code><button class="copybtn" type="button">コピー</button></div>
+<div class="pbox"><code class="ptext">voyager6.net の llms.txt を読んで、ISS（国際宇宙ステーション）が地球をどう回っているか見られるリンク（地球周回3D）を作ってください。</code><button class="copybtn" type="button">コピー</button></div>
+
+<h2>補足</h2>
+<ul class="notes">
+  <li><b>Web を見られる AI</b>（検索ONの ChatGPT / Claude、Gemini など）は <code>llms.txt</code> を実際に読みに行き、<code>https://voyager6.net/?target=…</code> のようなリンクを返します。</li>
+  <li>一度その会話でサイトを教えれば、以降は「<b>voyager6.net で ○○の観測星図作って</b>」だけでも通じます。</li>
+  <li>AI を使わないときのために、<b>直リンクの型</b>も置いておきます（そのまま渡せます）。
+    <div class="pbox"><code class="ptext">https://voyager6.net/?target=&lt;名&gt;&amp;labels=mag&amp;names=on&amp;fov=6</code><button class="copybtn" type="button">コピー</button></div>
+    <div class="pbox"><code class="ptext">https://voyager6.net/?target=&lt;符号&gt;&amp;labels=mag&amp;fov=5</code><button class="copybtn" type="button">コピー</button></div>
+  </li>
+  <li>URL パラメータの詳しい一覧は <a href="/docs/">URL仕様</a> にあります（読まなくても上の文例で十分です）。</li>
+</ul>
+
+</main>
+
+<style>
+  .ask .pbox { display: flex; gap: 8px; align-items: stretch; margin: 8px 0;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .ask .ptext { flex: 1; font-size: 13px; line-height: 1.6; color: #dbe4f7;
+    word-break: break-word; align-self: center; }
+  .ask .copybtn { flex: 0 0 auto; align-self: center; background: #23407a; border: 1px solid #35589c;
+    color: #e6eeff; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .ask .copybtn:hover { background: #2b4c90; }
+  .ask .copybtn.done { background: #2f7a4a; border-color: #3c9c5e; }
+  .ask h2 { margin-top: 26px; }
+  .ask .notes { line-height: 1.8; }
+  .ask .notes .pbox { margin: 6px 0; }
+</style>
+
+<script>
+"use strict";
+document.querySelectorAll(".copybtn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const text = btn.parentElement.querySelector(".ptext").textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      // クリップボード API 不可の環境: 選択にフォールバック
+      const r = document.createRange();
+      r.selectNodeContents(btn.parentElement.querySelector(".ptext"));
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    }
+    const old = btn.textContent;
+    btn.textContent = "コピーしました"; btn.classList.add("done");
+    setTimeout(() => { btn.textContent = old; btn.classList.remove("done"); }, 1400);
+  });
+});
+</script>

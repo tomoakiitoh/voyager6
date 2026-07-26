@@ -23,6 +23,7 @@
 - [天文現象カレンダー / Events](https://voyager6.net/calendar/): 月ごとの月相・惑星・流星群・日月食(月明かり条件つき)。
 - [流星群 / Meteor shower](https://voyager6.net/perseids/): ペルセウス座流星群2026の出現数目安。
 - [VRプラネタリウム / VR planetarium](https://voyager6.net/planetarium/): 天球の内側に星空を描く没入ビュー(WebXR)。
+- [AIに聞いてみる / Ask an AI](https://voyager6.net/ask/): URL を覚えなくても、AIにこう頼めば観測星図や星空のリンクが返る、コピペ用の文例集。
 - [URLパラメータ仕様 / URL parameter spec](https://voyager6.net/docs/): ディープリンクの全パラメータと動く例。
 - [出典とライセンス / Credits & license](https://voyager6.net/credits/)
 
