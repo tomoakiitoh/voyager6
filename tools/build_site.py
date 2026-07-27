@@ -33,17 +33,33 @@ DIST = ROOT / "dist"
 SITE_NAME = "Voyager6"      # サイト名 (ヘッダに出る)
 DOMAIN = "voyager6.net"     # GitHub Pages のカスタムドメイン (dist/CNAME に書き出す)
 
-# ヘッダのナビ。(スラッグ, 表示名)。スラッグ "" はトップ。
-# ページを増やしたらここに足す。ただしスマホ (390px) では 5項目でヘッダが埋まるので、
-# これ以上増やすなら折り返しではなく別の入口を考えること
-# (ヘッダを2段にすると早見盤の盤面の高さ計算が狂う)。
-# /log/ (記録シート) はナビに入れず、流星群・今夜の空のページから導線を張っている。
-NAV = [
-    ("", "早見盤"),
-    ("tonight", "今夜の空"),
-    ("calendar", "カレンダー"),
-    ("perseids", "流星群"),
-    ("credits", "出典"),
+# ヘッダのメニュー (UI整理 F2)。三つの動詞で束ねる。(スラッグ, 表示名)、"" はトップ。
+# 横並びのナビは 5項目でスマホのヘッダが埋まり、ページが増えるたびに構造を作り直す羽目に
+# なっていた。ここを一箇所のメニューにしたので、今後ページが増えても
+# 「見る/調べる/使う」のどれかに足すだけでよく、トップの構造は変えなくて済む。
+# スラッグに "." を含むものは実ファイル (PDF など) として扱い、末尾に "/" を付けない。
+MENU = [
+    ("見る", [
+        ("", "早見盤"),
+        ("solar", "太陽系3D"),
+        ("earth", "地球周回3D"),
+        ("planetarium", "VRプラネタリウム"),
+    ]),
+    ("調べる", [
+        ("comets", "彗星カタログ"),
+        ("asteroids", "小惑星カタログ"),
+        ("variables", "変光星カタログ"),
+        ("tonight", "今夜の空"),
+        ("calendar", "天文現象カレンダー"),
+        ("perseids", "流星群"),
+    ]),
+    ("使う", [
+        ("log", "観測記録シート"),
+        ("ask", "AIに聞いてみる"),
+        ("docs", "URLパラメータ仕様"),
+        ("voyager6-manual.pdf", "マニュアル (PDF)"),
+        ("credits", "出典とライセンス"),
+    ]),
 ]
 
 # dist/assets/ に置く共有ファイル (存在するものだけコピーする)
@@ -190,11 +206,20 @@ def main() -> int:
             for s in meta.get("scripts", "").split()
         )
         here = "" if stem == "index" else stem
-        nav = "\n".join(
-            f'<a href="{root}{slug}{"/" if slug else ""}"'
-            f'{" class=\"active\"" if slug == here else ""}>{label}</a>'
-            for slug, label in NAV
-        )
+        groups = []
+        for gname, items in MENU:
+            links = []
+            for slug, label in items:
+                if "." in slug:                       # PDF などの実ファイル
+                    links.append(f'<a href="{root}{slug}">{label}</a>')
+                    continue
+                # トップは root が "" になるページ (dist/index.html) があるので "./" で補う
+                href = f"{root}{slug}/" if slug else (root or "./")
+                cls = ' class="active" aria-current="page"' if slug == here else ""
+                links.append(f'<a href="{href}"{cls}>{label}</a>')
+            groups.append(
+                f'<div class="menu-group"><h2>{gname}</h2>{"".join(links)}</div>')
+        nav = "".join(groups)
         html = (layout
                 .replace("{{title}}", f'{meta["title"]} | {SITE_NAME}'
                          if stem != "index" else f'{SITE_NAME} | {meta["title"]}')

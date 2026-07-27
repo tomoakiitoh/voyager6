@@ -25,25 +25,32 @@
 
 <header id="site-header">
   <a class="brand" href="{{root}}">{{sitename}}</a>
-  <nav>{{nav}}</nav>
+  <!-- 入口はここ一箇所 (UI整理 F2)。<details> なので JS なしでも開閉でき、
+       リンクは常に DOM にあるので検索エンジンからも辿れる。 -->
+  <details id="menu">
+    <summary aria-label="メニューを開く">メニュー</summary>
+    <nav>{{nav}}</nav>
+  </details>
 </header>
 
 {{content}}
 
+<!-- ページへの導線はヘッダのメニューに集約したので、フッタは帰属表示だけに絞る (UI整理 F2) -->
 <footer id="site-footer">
-  <a href="{{root}}comets/">彗星カタログ</a> ・
-  <a href="{{root}}asteroids/">小惑星カタログ</a> ・
-  <a href="{{root}}variables/">変光星カタログ</a> ・
-  <a href="{{root}}solar/">太陽系3D</a> ・
-  <a href="{{root}}earth/">地球周回3D</a> ・
-  <a href="{{root}}planetarium/">VRプラネタリウム</a> ・
-  <a href="{{root}}voyager6-manual.pdf">マニュアル(PDF・暫定版)</a> ・
-  <a href="{{root}}ask/">AIに聞いてみる</a> ・
-  <a href="{{root}}docs/">URL仕様</a> ・
   星表 <a href="https://github.com/astronexus/HYG-Database">HYG Database</a> (CC BY-SA 2.5) /
   星座線・天の川 <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (BSD-3-Clause)
   — <a href="{{root}}credits/">出典とライセンス</a>
 </footer>
+
+<!-- メニューは外側タップと Esc で閉じる (details 単体だと閉じないため。開閉自体は CSS/HTML で成立) -->
+<script>
+(function () {
+  var m = document.getElementById("menu");
+  if (!m) return;
+  document.addEventListener("click", function (e) { if (!m.contains(e.target)) m.open = false; });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") m.open = false; });
+})();
+</script>
 
 <!-- アクセス解析: GoatCounter (Cookieなし・同意バナー不要)。
      広告ブロッカーに弾かれる分は実訪問より少なめに出る。
