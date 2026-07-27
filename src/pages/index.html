@@ -24,9 +24,23 @@ bodyclass: sky-page
 <div id="sky-wrap"><canvas id="sky"></canvas></div>
 <div id="popup"></div>
 <div id="panel">
-  <div class="row">
+  <!-- 常時見えるのはこの1行だけ (UI整理 F1)。スマホでは以下が畳まれ、空が主役になる。 -->
+  <div class="row" id="toolbar">
     <span id="clock" class="info"></span>
     <span class="grow"></span>
+    <button id="zoom-reset" hidden title="全天図に戻す">⤢ 全天</button>
+    <button id="now" class="primary">今の空</button>
+    <button id="sheet-toggle" aria-expanded="false" aria-controls="panel-body"
+            title="操作パネルを開閉">操作 ▲</button>
+  </div>
+
+  <!-- スマホでは既定で畳む。開くときは盤面の「上に重ねて」出すので、
+       開閉しても星図のサイズは変わらない (再描画で星が飛び跳ねない)。 -->
+  <div id="panel-body">
+  <!-- 望遠鏡モードのときだけ中身が出る行。ツールバーに置くとスマホで横に溢れ、
+       「操作」ボタンが画面外へ押し出されてシートを開けなくなるのでこちらに置く。
+       (中身が全部 hidden のときは行ごと消す) -->
+  <div class="row" id="scope-row">
     <select id="flip" hidden title="表示の向き（望遠鏡モード）">
       <option value="upright">正立（肉眼）</option>
       <option value="mirror">鏡像（天頂ミラー）</option>
@@ -34,8 +48,6 @@ bodyclass: sky-page
     </select>
     <button id="north-reset" hidden title="回転をリセット（北を上に）">北↑</button>
     <button id="rotate-mode" hidden title="ドラッグを 移動／回転 で切替">⟳ 回転</button>
-    <button id="zoom-reset" hidden title="全天図に戻す">⤢ 全天</button>
-    <button id="now" class="primary">今の空</button>
   </div>
 
   <div class="row">
@@ -163,6 +175,14 @@ bodyclass: sky-page
     </div>
     <div class="row"><span class="info">いま表示中の視野をそのまま出力します。印刷/PDFは望遠鏡脇で読める白地。SVGはブログ・スライドのベクター図版にも使えます。</span></div>
   </details>
+
+  <!-- スマホでは共通フッタを隠すので、出典への導線をシート内にも残す (CC BY-SA の帰属を1タップ以内に保つ) -->
+  <p id="sheet-credits">
+    星表 <a href="https://github.com/astronexus/HYG-Database">HYG Database</a> (CC BY-SA 2.5) /
+    星座線・天の川 <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (BSD-3-Clause)
+    — <a href="credits/">出典とライセンス</a>
+  </p>
+  </div><!-- /#panel-body -->
 </div>
 
 <!-- 印刷/PDF 専用エリア (画面では非表示・@media print でのみ現れる)。中身は印刷時に組み立てる。 -->
@@ -379,10 +399,17 @@ const fov = {
 };
 let equipPresets = [];                 // 保存した機材 [{name, scopeFL, epFL, afov}]
 
+// 盤面のサイズは「レイアウトが確定してから」でないと決まらない。読み込み直後に一度だけ
+// 測ると、操作パネルがまだ折り返す前の (実際より高い) 枠を掴んでしまい、あとでパネルが
+// 伸びた分だけ円が枠からはみ出して上下が切れていた。ResizeObserver で枠に追従させる。
+let lastSize = 0, lastDpr = 0;
+
 function resize() {
   const wrap = document.getElementById("sky-wrap");
   const size = Math.floor(Math.min(wrap.clientWidth, wrap.clientHeight));
   const dpr = window.devicePixelRatio || 1;
+  if (size <= 0 || (size === lastSize && dpr === lastDpr)) return;  // 変化なし=再描画しない
+  lastSize = size; lastDpr = dpr;
   canvas.width = Math.round(size * dpr);
   canvas.height = Math.round(size * dpr);
   canvas.style.width = size + "px";
@@ -2786,7 +2813,25 @@ async function openPrint() {
 }
 el("btn-print").addEventListener("click", () => { openPrint(); });
 
+/* ---- 操作シートの開閉 (UI整理 F1) ----
+   シートは盤面に重なるだけで #panel の高さを変えないので、開閉で resize() は起きない。 */
+const sheetBtn = el("sheet-toggle");
+function setSheet(open) {
+  document.body.classList.toggle("sheet-open", open);
+  sheetBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  sheetBtn.textContent = open ? "操作 ▼" : "操作 ▲";
+}
+sheetBtn.addEventListener("click", () => {
+  setSheet(!document.body.classList.contains("sheet-open"));
+});
+// シートが開いている間に空を触ったら畳む (空が主役。天体の選択はそのまま通す)
+el("sky-wrap").addEventListener("pointerdown", () => {
+  if (document.body.classList.contains("sheet-open")) setSheet(false);
+}, true);
+
 window.addEventListener("resize", resize);
+// 枠の実サイズに追従する (初期レイアウト確定・シート以外の高さ変化・画面回転すべてに効く)
+new ResizeObserver(resize).observe(document.getElementById("sky-wrap"));
 syncControls();
 resize();
 

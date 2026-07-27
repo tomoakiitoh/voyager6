@@ -177,6 +177,12 @@ body.night { filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(5) bright
 }
 
 /* スマホ (縦持ち): 盤面を目一杯、コントロールは下に詰める */
+/* ---- 操作シート (UI整理 F1) ----
+   広い画面では従来どおり操作系を全部出す。開閉ボタンとシート内クレジットはスマホ専用。 */
+#sheet-toggle, #sheet-credits { display: none; }
+/* 望遠鏡モード専用の行。中身が全部 hidden のときは行ごと畳む (空の行が余白を作らないように) */
+#scope-row:not(:has(> *:not([hidden]))) { display: none; }
+
 @media (max-width: 560px) {
   /* ナビは詰めて 1画面に入れる (入りきらないぶんは横スクロール) */
   #site-header { gap: 10px; padding: 0 10px; }
@@ -188,6 +194,48 @@ body.night { filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(5) bright
   .toggles label { padding: 4px 8px; font-size: 11px; }
   #clock { font-size: 14px; }
   #sky-wrap { padding: 4px; }
+
+  /* 早見盤: 常時見えるのはツールバー1本だけにして、残りの高さを全部「空」に渡す。
+     ツールバーは折り返さない (折り返すと盤面の高さが変わって主役が縮む)。 */
+  #toolbar {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 0;
+  }
+  #toolbar::-webkit-scrollbar { display: none; }
+  #toolbar > * { flex: 0 0 auto; }
+  /* 望遠鏡モードでは時計欄に視野・中心座標もぶら下がって 435px になる。
+     ここだけは縮んでよい情報なので、余った幅に収めて末尾を省略する
+     (先頭の日時が読めれば用は足りる。詳しい値はシートの中にある)。 */
+  #toolbar #clock {
+    flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 「操作」は最後の砦。何が並んでも右端に貼り付いて、必ず親指で押せる位置に残す */
+  #sheet-toggle {
+    display: inline-block;
+    position: sticky; right: 0; z-index: 1;
+    box-shadow: -8px 0 10px -4px var(--panel);
+  }
+
+  /* シートは盤面の「上に重ねて」開く。#panel 自体の高さが変わらないので、
+     開閉しても星図はリサイズされない (星が飛び跳ねない)。 */
+  .sky-page #panel { position: relative; }
+  .sky-page #panel-body {
+    display: none;
+    position: absolute; left: 0; right: 0; bottom: 100%;
+    max-height: 68vh; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 8px;
+    box-shadow: 0 -14px 28px rgba(0, 0, 0, 0.55);
+  }
+  .sky-page.sheet-open #panel-body { display: block; }
+
+  /* 共通フッタは畳む。帰属表示はシート内の #sheet-credits で1タップ以内に残す。 */
+  .sky-page #site-footer { display: none; }
+  #sheet-credits {
+    display: block; margin: 12px 0 0;
+    color: var(--dim); font-size: 10px; line-height: 1.7;
+  }
+  #sheet-credits a { color: var(--dim); }
 }
 
 /* ---- 今夜の空 ---- */
