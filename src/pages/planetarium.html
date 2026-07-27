@@ -1,6 +1,6 @@
 <!--
 title: VRプラネタリウム
-description: 早見盤と同じ計算で、指定した日時・場所の星空を天球の内側に描く。中心に立って見上げるVR星空(Quest等のブラウザで没入)。星座線・惑星・時間送りつき。
+description: 早見盤と同じ計算で、指定した日時・場所の星空を天球の内側に描く。中心に立って見上げるVR星空(Quest等のブラウザで没入)。星座線・惑星・彗星・人工衛星・時間送りつき。1996年の百武彗星のような過去の空も再現できる。
 scripts: astro.js data.js sites.js
 bodyclass: planetarium-page
 -->
@@ -35,7 +35,10 @@ bodyclass: planetarium-page
     <label><input type="checkbox" id="pl-names">星座名</label>
     <label><input type="checkbox" id="pl-planets" checked>惑星・月</label>
     <label><input type="checkbox" id="pl-mw">天の川の輪郭</label>
+    <label><input type="checkbox" id="pl-comets">彗星</label>
+    <label><input type="checkbox" id="pl-sats">人工衛星</label>
   </div>
+  <div class="row"><span class="info" id="pl-note">VRに入る前にレイヤを選んでください（VR中は時間送りのみ操作できます）。人工衛星は表示時刻がいまの前後2日以内のときだけ出ます（TLEの鮮度のため）。時間送りを「10分/秒」にすると空を横切る様子が見えます。</span></div>
 </div>
 
 <script type="importmap">
@@ -250,6 +253,224 @@ const bodies = bodyDefs.map(([id, ja, color, mag]) => {
   return { id, grp };
 });
 
+// ---- 動的ラベル (テキストが変わったときだけ描き直す) ----
+// 彗星・衛星は時刻で顔ぶれが変わるので、makeLabel のように毎回テクスチャを作ると
+// 時間送り中にテクスチャを作り続けてしまう。プール + 差分更新にする。
+function makeDynLabel(color, size) {
+  const c = document.createElement("canvas"); c.width = 256; c.height = 64;
+  const g = c.getContext("2d");
+  const tex = new THREE.CanvasTexture(c);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  sp.scale.set(size * 4, size, 1);
+  let cur = null;
+  sp.setText = (t) => {
+    if (t === cur) return;
+    cur = t;
+    g.clearRect(0, 0, 256, 64);
+    g.font = "30px sans-serif"; g.fillStyle = color;
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(t, 128, 34);
+    tex.needsUpdate = true;
+  };
+  return sp;
+}
+
+// にじみ (コマ・衛星の光) 用の共有テクスチャ。中心が明るい放射グラデーション。
+function glowTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, "rgba(255,255,255,1)");
+  gr.addColorStop(0.35, "rgba(255,255,255,0.45)");
+  gr.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+const GLOW_TEX = glowTexture();
+
+// ---- 彗星 (早見盤とまったく同じ計算: astro.js の orbitalToRaDec + cometMagnitude) ----
+const COMET_MAG_LIMIT = 13.5;   // 早見盤と同じしきい値
+const COMET_MAX = 60;           // VRの負荷を抑える上限 (明るい順)。超えたぶんは出さない
+// 描く彗星には全部名前を出す。実測では 13.5等以下は同時に数個しかなく (2026-07-27 は
+// 10P/Tempel の1個だけ)、文字が氾濫する心配がないため。名前が無いと VR では
+// 「かすかな点」が何なのか分からず、機能として意味を成さない。
+const COMET_LABEL_MAG = COMET_MAG_LIMIT;
+let comets = null, cometsHistoric = null, cometsTried = false;
+let cometCache = { jd: null, list: [] };
+const cometGroup = new THREE.Group(); scene.add(cometGroup); cometGroup.visible = false;
+const cometPool = [];
+
+/** 彗星の符号を照合キーに正規化 (早見盤と同じ。現行と歴史の重複を防ぐ)。 */
+function desigKey(s) {
+  s = s.trim();
+  let m = s.match(/^(\d+[PDI])\b/);
+  if (m) return m[1];
+  m = s.match(/^([CPXAI]\/\d{4}\s+[A-Z]{1,2}\d*(?:-[A-Z])?)/);
+  if (m) return m[1].replace(/\s+/g, " ");
+  return s.split(" (")[0].trim();
+}
+
+function loadComets() {
+  if (cometsTried) return;
+  cometsTried = true;
+  const get = (u) => fetch(u).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).catch(() => null);
+  Promise.all([get("../comets.json"), get("../comets_historic.json")]).then(([a, b]) => {
+    comets = a; cometsHistoric = b; cometCache.jd = null; update();
+  });
+}
+
+/** その日時の彗星の位置・等級 (現行＋歴史。日付でキャッシュ)。早見盤の cometPositions と同じ。 */
+function cometPositions(jd) {
+  if (cometCache.jd != null && Math.abs(jd - cometCache.jd) < 0.1) return cometCache.list;
+  const list = [];
+  for (const c of (comets || [])) {
+    const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
+    const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
+    if (!isFinite(mag) || mag > COMET_MAG_LIMIT) continue;
+    list.push({ name: c[0], ra: g.ra, dec: g.dec, mag });
+  }
+  // 歴史的な肉眼彗星は出現期(窓)の中だけ。長周期要素を遠い日時へ外挿しない。
+  if (cometsHistoric) {
+    const shown = new Set(list.map((x) => desigKey(x.name)));
+    for (const c of cometsHistoric) {
+      if (jd < c[9] || jd > c[10] || shown.has(desigKey(c[0]))) continue;
+      const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
+      const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
+      if (!isFinite(mag) || mag > COMET_MAG_LIMIT) continue;
+      list.push({ name: c[11] || c[0], ra: g.ra, dec: g.dec, mag });   // 和名優先
+    }
+  }
+  list.sort((a, b) => a.mag - b.mag);          // 明るい順
+  cometCache = { jd, list: list.slice(0, COMET_MAX) };
+  return cometCache.list;
+}
+
+function cometMarker() {
+  const grp = new THREE.Group();
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: GLOW_TEX, color: 0x8cffcd, transparent: true, opacity: 0.75,
+    depthTest: false, depthWrite: false }));
+  const label = makeDynLabel("#8cffcd", R * 0.028);
+  label.position.y = R * 0.035;
+  grp.add(glow); grp.add(label);
+  cometGroup.add(grp);
+  return { grp, glow, label };
+}
+
+function updateComets(Mn) {
+  if (!cometGroup.visible) return;
+  loadComets();
+  const list = (comets || cometsHistoric) ? cometPositions(curJd) : [];
+  for (let i = 0; i < list.length; i++) {
+    if (!cometPool[i]) cometPool[i] = cometMarker();
+    const mk = cometPool[i], c = list[i];
+    const h = applySky(Mn, raDecToVec(c.ra, c.dec));
+    if (h.u <= -0.05) { mk.grp.visible = false; continue; }
+    mk.grp.visible = true;
+    mk.grp.position.copy(toDir(h).multiplyScalar(R * 0.95));
+    // 明るいほど大きく。等級 0→約2.2、13→約0.5 (相対的な目安)
+    const s = R * 0.004 * Math.max(0.5, 2.4 - 0.15 * c.mag);
+    mk.glow.scale.set(s * 4, s * 4, 1);
+    if (c.mag <= COMET_LABEL_MAG) {
+      mk.label.visible = true;
+      mk.label.setText(c.name.split(" (")[0]);
+    } else {
+      mk.label.visible = false;
+    }
+  }
+  for (let i = list.length; i < cometPool.length; i++) cometPool[i].grp.visible = false;
+}
+
+// ---- 人工衛星 (PLAN6 と同じ SGP4: satellite.js。地平座標を直接得る) ----
+const SAT_FRESH_DAYS = 2;      // TLE の鮮度。表示時刻がこれ以上ずれたら出さない
+const SAT_LABELS = 8;          // 名前を出すのは標準等級を持つ著名機だけ (ISS/CSS/HST…)
+const EARTH_R_KM = 6378.137;
+let satLib = null, satRecs = null, satTried = false, satXYZ = null;
+const satGroup = new THREE.Group(); scene.add(satGroup); satGroup.visible = false;
+const satGeom = new THREE.BufferGeometry();
+const satPoints = new THREE.Points(satGeom, new THREE.PointsMaterial({
+  map: GLOW_TEX, size: R * 0.014, color: 0xffe9b0, transparent: true,
+  depthTest: false, depthWrite: false, sizeAttenuation: true }));
+satGroup.add(satPoints);
+const satLabels = [];
+
+function loadSats() {
+  if (satTried) return;
+  satTried = true;
+  Promise.all([
+    import("../assets/satellite.es.js"),
+    fetch("../satellites.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+  ]).then(([lib, data]) => {
+    satLib = lib;
+    satRecs = [];
+    for (const [name, norad, l1, l2, stdMag] of data) {
+      const satrec = lib.twoline2satrec(l1, l2);
+      if (satrec.error) continue;
+      satRecs.push({ name: name.trim(), satrec, stdMag });
+    }
+    // 頂点バッファは最大機数ぶん一度だけ確保する。毎フレーム作り直すと VR (72Hz) で
+    // GC が走ってカクつくため、以降は中身を書き換えて drawRange で本数を変える。
+    satXYZ = new Float32Array(satRecs.length * 3);
+    satGeom.setAttribute("position", new THREE.BufferAttribute(satXYZ, 3));
+    update();
+  }).catch(() => { /* 衛星データが無くても他は動く */ });
+}
+
+/** 衛星が日照中か (簡易円柱影。地球影に入った衛星は光らない=見えない)。 */
+function satSunlit(pos, sun) {
+  const dot = pos.x * sun[0] + pos.y * sun[1] + pos.z * sun[2];
+  if (dot > 0) return true;
+  return Math.hypot(pos.x - dot * sun[0], pos.y - dot * sun[1], pos.z - dot * sun[2]) > EARTH_R_KM;
+}
+
+function updateSats() {
+  if (!satGroup.visible) return;
+  loadSats();
+  const stale = Math.abs(curJd - jdFromDate(new Date())) > SAT_FRESH_DAYS;
+  if (!satRecs || stale) {          // 鮮度外は「出さない」(TLEを遠い日時へ外挿しない)
+    satPoints.visible = false;
+    for (const l of satLabels) l.visible = false;
+    return;
+  }
+  satPoints.visible = true;
+  const date = new Date((curJd - 2440587.5) * 86400000);
+  const gmst = satLib.gstime(date);
+  const obs = { longitude: site.lon * Math.PI / 180, latitude: site.lat * Math.PI / 180, height: 0.05 };
+  const s = sunPosition(curJd), sunV = raDecToVec(s.ra, s.dec);
+  let n = 0;
+  const named = [];
+  for (const st of satRecs) {
+    const pv = satLib.propagate(st.satrec, date);
+    if (!pv.position) continue;                       // 元期から離れすぎ等の伝播エラー
+    const look = satLib.ecfToLookAngles(obs, satLib.eciToEcf(pv.position, gmst));
+    if (look.elevation < 0) continue;                 // 地平線下
+    if (!satSunlit(pv.position, sunV)) continue;      // 地球影の中は見えない (=見えない衛星は出さない)
+    const ca = Math.cos(look.elevation);
+    const d = toDir({ e: ca * Math.sin(look.azimuth), n: ca * Math.cos(look.azimuth),
+                      u: Math.sin(look.elevation) }).multiplyScalar(R * 0.93);
+    satXYZ[n * 3] = d.x; satXYZ[n * 3 + 1] = d.y; satXYZ[n * 3 + 2] = d.z;
+    n++;
+    if (st.stdMag != null && named.length < SAT_LABELS) named.push({ name: st.name, d });
+  }
+  satGeom.attributes.position.needsUpdate = true;
+  satGeom.setDrawRange(0, n);
+  satPoints.frustumCulled = false;    // 位置を直接書くのでバウンディングは当てにしない
+  for (let i = 0; i < SAT_LABELS; i++) {
+    if (!satLabels[i]) {
+      const l = makeDynLabel("#ffe9b0", R * 0.026);
+      satGroup.add(l); satLabels[i] = l;
+    }
+    const s = named[i];
+    satLabels[i].visible = !!s;
+    if (s) {
+      satLabels[i].setText(s.name);
+      satLabels[i].position.copy(s.d);
+      satLabels[i].position.y += R * 0.03;
+    }
+  }
+}
+
 // ---- 状態と更新 ----
 let site = loadSite();
 let curJd = jdFromDate(new Date());
@@ -279,6 +500,8 @@ function update() {
     b.grp.visible = h.u > -0.05;                 // 地平線下は隠す
     b.grp.position.copy(toDir(h).multiplyScalar(R * 0.96));
   }
+  updateComets(Mn);   // 彗星 (早見盤と同じ軌道要素・等級式)
+  updateSats();       // 人工衛星 (SGP4。鮮度の窓の中だけ)
   // 日時表示
   const d = new Date((curJd - 2440587.5) * 86400000 + TZ_MIN * 60000);
   const p2 = (n) => String(n).padStart(2, "0");
@@ -307,6 +530,12 @@ el("pl-lines").addEventListener("change", () => constLines.visible = el("pl-line
 el("pl-names").addEventListener("change", () => constNames.visible = el("pl-names").checked);
 el("pl-planets").addEventListener("change", () => bodyGroup.visible = el("pl-planets").checked);
 el("pl-mw").addEventListener("change", () => milkyway.visible = el("pl-mw").checked);
+el("pl-comets").addEventListener("change", () => {
+  cometGroup.visible = el("pl-comets").checked; update();
+});
+el("pl-sats").addEventListener("change", () => {
+  satGroup.visible = el("pl-sats").checked; update();
+});
 
 // 観測地
 fillSiteSelect(el("pl-site"), site);
