@@ -38,7 +38,7 @@ bodyclass: planetarium-page
     <label><input type="checkbox" id="pl-comets">彗星</label>
     <label><input type="checkbox" id="pl-sats">人工衛星</label>
   </div>
-  <div class="row"><span class="info" id="pl-note">VRに入る前にレイヤを選んでください（VR中は時間送りのみ操作できます）。人工衛星は表示時刻がいまの前後2日以内のときだけ出ます（TLEの鮮度のため）。時間送りを「10分/秒」にすると空を横切る様子が見えます。</span></div>
+  <div class="row"><span class="info" id="pl-note">VR中もコントローラで表示設定を変えられます（入ると設定パネルが正面に出ます。レイで指してトリガーで選択、<b>B / Y ボタンで開閉</b>。スティック左右で時間送り、A / X で「今」に戻る）。人工衛星は表示時刻がいまの前後2日以内のときだけ出ます（TLEの鮮度のため）。時間送りを「10分/秒」にすると空を横切る様子が見えます。</span></div>
 </div>
 
 <script type="importmap">
@@ -207,9 +207,11 @@ function makeLabel(text, color, size = 0.5) {
   sp.scale.set(size * 4, size, 1); return sp;
 }
 const constNames = new THREE.Group(); skyGroup.add(constNames);
-for (const [ra, dec, name] of CONST_NAMES) {
+// CONST_NAMES は [略号, 和名, ra, dec] の4要素。ここを [ra, dec, name] として展開していたため、
+// 赤経に "And" のような文字列が入って座標が NaN になり、星座名が一度も出ていなかった。
+for (const [, ja, ra, dec] of CONST_NAMES) {
   const v = raDecToVec(ra, dec);
-  const sp = makeLabel(name, "#8aa0c8", R * 0.02);
+  const sp = makeLabel(ja, "#8aa0c8", R * 0.02);
   sp.position.set(v[0] * R * 0.98, v[1] * R * 0.98, v[2] * R * 0.98);
   constNames.add(sp);
 }
@@ -579,18 +581,23 @@ function resize() {
   }
 }
 // VR中のコントローラ操作: スティック左右で時間送り、A/X(またはトリガ)で「今」に戻す
-let vrPrevReset = false;
+let vrPrevReset = false, vrPrevMenu = false;
 function vrInput(dt) {
   const s = renderer.xr.getSession();
   if (!s) return false;
-  let stick = 0, reset = false;
+  let stick = 0, reset = false, menu = false;
   for (const src of s.inputSources) {
     const gp = src.gamepad;
     if (!gp) continue;
     const ax = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);  // サムスティックX
     if (Math.abs(ax) > Math.abs(stick)) stick = ax;
-    if ((gp.buttons[4] && gp.buttons[4].pressed) || (gp.buttons[0] && gp.buttons[0].pressed)) reset = true;
+    // A / X は常に「今」。トリガーはパネルを開いている間はボタン押しに使うので除く。
+    if (gp.buttons[4] && gp.buttons[4].pressed) reset = true;
+    if (!uiPanel.visible && gp.buttons[0] && gp.buttons[0].pressed) reset = true;
+    if (gp.buttons[5] && gp.buttons[5].pressed) menu = true;          // B / Y = パネル開閉
   }
+  if (menu && !vrPrevMenu) setVrPanel(!uiPanel.visible);
+  vrPrevMenu = menu;
   let changed = false;
   if (Math.abs(stick) > 0.15) { curJd += stick * Math.abs(stick) * 0.3 * dt; changed = true; }  // 全倒し≒6時間/秒
   if (reset && !vrPrevReset) { curJd = jdFromDate(new Date()); changed = true; }
@@ -604,7 +611,7 @@ function tick(now) {
   const dt = prevNow ? Math.min(0.1, (now - prevNow) / 1000) : 0; prevNow = now;
   let changed = false;
   if (playing) { curJd += (Number(el("pl-speed").value) / 1440) * dt; changed = true; }  // 分/秒→日
-  if (renderer.xr.isPresenting) { if (vrInput(dt)) changed = true; }
+  if (renderer.xr.isPresenting) { if (vrInput(dt)) changed = true; updateVrHover(); }
   else { camera.rotation.set(pitch, yaw, 0, "YXZ"); camera.position.set(0, 1.6, 0); }
   if (changed) { syncControls(); update(); }
   renderer.render(scene, camera);
@@ -613,6 +620,182 @@ renderer.setAnimationLoop(tick);
 
 syncControls();
 update();
+
+/* ---- VR内のメニューパネル ----
+   ヘッドセットを被ったままレイヤを切り替えるためのパネル。コントローラから伸びるレイで指し、
+   トリガーで押す。状態は画面下のチェックボックスを唯一の源にし (VR側では持たない)、
+   押されたら el(id).click() で既存のハンドラをそのまま動かす = 二重管理にならない。
+   ?vrpanel=1 を付けると、ヘッドセット無しでも同じパネルをデスクトップで確認・操作できる。 */
+const VR_ROWS = [
+  { id: "pl-lines", label: "星座線" },
+  { id: "pl-names", label: "星座名" },
+  { id: "pl-deep", label: "深い星 V≤10" },
+  { id: "pl-planets", label: "惑星・月" },
+  { id: "pl-mw", label: "天の川" },
+  { id: "pl-comets", label: "彗星" },
+  { id: "pl-sats", label: "人工衛星" },
+  { act: "pl-play", label: "時間送り（再生／停止）" },
+  { act: "pl-now", label: "「今」に戻す" },
+];
+const UI_W = 512, UI_H = 700, UI_TOP = 78, UI_ROW = 62;
+
+const uiCanvas = document.createElement("canvas");
+uiCanvas.width = UI_W; uiCanvas.height = UI_H;
+const uiCtx = uiCanvas.getContext("2d");
+const uiTex = new THREE.CanvasTexture(uiCanvas);
+const uiPanel = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.62, 0.62 * UI_H / UI_W),
+  new THREE.MeshBasicMaterial({ map: uiTex, transparent: true, depthTest: false, depthWrite: false }));
+uiPanel.renderOrder = 9000;      // ラベル類が depthTest:false なので、最後に描いて手前に出す
+uiPanel.visible = false;
+scene.add(uiPanel);
+
+function rr(g, x, y, w, h, r) {
+  if (g.roundRect) { g.beginPath(); g.roundRect(x, y, w, h, r); return; }
+  g.beginPath(); g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+
+function drawVrUi(hover = -1) {
+  const g = uiCtx;
+  g.clearRect(0, 0, UI_W, UI_H);
+  rr(g, 1, 1, UI_W - 2, UI_H - 2, 20);
+  g.fillStyle = "rgba(8,13,26,0.94)"; g.fill();
+  g.strokeStyle = "#35589c"; g.lineWidth = 2; g.stroke();
+  g.textBaseline = "middle";
+  g.fillStyle = "#e6eeff"; g.font = "bold 27px sans-serif";
+  g.fillText("表示設定", 26, 42);
+  g.fillStyle = "#7c88a3"; g.font = "16px sans-serif";
+  g.textAlign = "right"; g.fillText("B / Y ボタンで開閉", UI_W - 26, 42); g.textAlign = "left";
+
+  VR_ROWS.forEach((r, i) => {
+    const y = UI_TOP + i * UI_ROW;
+    const on = r.id ? el(r.id).checked : false;
+    rr(g, 18, y, UI_W - 36, UI_ROW - 8, 11);
+    g.fillStyle = i === hover ? "rgba(53,88,156,0.65)" : "rgba(19,27,48,0.92)"; g.fill();
+    g.strokeStyle = on ? "#35589c" : "#1d2437"; g.lineWidth = 1.5; g.stroke();
+    g.fillStyle = r.act ? "#cfe0ff" : (on ? "#e6eeff" : "#7c88a3");
+    g.font = "22px sans-serif";
+    g.fillText(r.label, 40, y + (UI_ROW - 8) / 2);
+    if (r.id) {                                  // トグル行だけ ON/OFF のピルを出す
+      const pw = 62, px = UI_W - 36 - pw - 14;
+      rr(g, px, y + 12, pw, 30, 15);
+      g.fillStyle = on ? "#23407a" : "#131b30"; g.fill();
+      g.strokeStyle = on ? "#6ea8ff" : "#2a3450"; g.lineWidth = 1.5; g.stroke();
+      g.fillStyle = on ? "#e6eeff" : "#6b7890"; g.font = "bold 16px sans-serif";
+      g.textAlign = "center"; g.fillText(on ? "ON" : "OFF", px + pw / 2, y + 27); g.textAlign = "left";
+    }
+  });
+  uiTex.needsUpdate = true;
+}
+
+/** パネルを視線の正面 (水平方向) に置く。見上げていても足元に回り込まないようにする。 */
+function placeVrPanel() {
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  if (!renderer.xr.isPresenting) {
+    // デスクトップ確認用: カメラの向きは描画ループ内で毎フレーム入れ直しているので、
+    // ここで先に反映させないと「向いていない方向」にパネルを置いてしまう。
+    camera.rotation.set(pitch, yaw, 0, "YXZ");
+    camera.position.set(0, 1.6, 0);
+  }
+  cam.updateMatrixWorld();
+  const p = new THREE.Vector3(), q = new THREE.Quaternion();
+  cam.getWorldPosition(p); cam.getWorldQuaternion(q);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+  fwd.y = 0;
+  if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);
+  fwd.normalize();
+  uiPanel.position.copy(p).addScaledVector(fwd, 1.3);
+  uiPanel.position.y = p.y - 0.02;     // ほぼ目の高さ (下げすぎると下端が視野から外れる)
+  uiPanel.lookAt(p);
+}
+
+let vrHover = -1;
+function setVrPanel(v) {
+  uiPanel.visible = v;
+  if (v) { placeVrPanel(); vrHover = -1; drawVrUi(); }
+}
+function rowFromUv(uv) {
+  const y = (1 - uv.y) * UI_H;                   // uv は下が0、canvas は上が0
+  const i = Math.floor((y - UI_TOP) / UI_ROW);
+  return (y >= UI_TOP && i >= 0 && i < VR_ROWS.length) ? i : -1;
+}
+function activateVrRow(i) {
+  const r = VR_ROWS[i];
+  if (!r) return;
+  el(r.id || r.act).click();                     // 既存のハンドラをそのまま動かす
+  drawVrUi(i);
+}
+// 画面下のパネルで切り替えたときも、VRパネルの ON/OFF 表示を合わせる
+for (const r of VR_ROWS) {
+  el(r.id || r.act).addEventListener(r.id ? "change" : "click",
+    () => { if (uiPanel.visible) drawVrUi(vrHover); });
+}
+
+// ---- コントローラ (レイで指してトリガーで押す) ----
+const uiRay = new THREE.Raycaster();
+const uiMat4 = new THREE.Matrix4();
+const controllers = [];
+function setupControllers() {
+  if (controllers.length) return;
+  for (const i of [0, 1]) {
+    const c = renderer.xr.getController(i);
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(
+        [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
+      new THREE.LineBasicMaterial({ color: 0x6ea8ff, transparent: true, opacity: 0.85,
+                                    depthTest: false }));
+    line.renderOrder = 9001; line.scale.z = 3;
+    c.add(line);
+    c.addEventListener("selectstart", () => {
+      if (!uiPanel.visible) return;
+      const hit = hitFromController(c);
+      if (hit) { const r = rowFromUv(hit.uv); if (r >= 0) activateVrRow(r); }
+    });
+    scene.add(c);
+    controllers.push(c);
+  }
+}
+function hitFromController(c) {
+  uiMat4.identity().extractRotation(c.matrixWorld);
+  uiRay.ray.origin.setFromMatrixPosition(c.matrixWorld);
+  uiRay.ray.direction.set(0, 0, -1).applyMatrix4(uiMat4);
+  return uiRay.intersectObject(uiPanel, false)[0] || null;
+}
+/** レイが当たっている行をハイライトする (毎フレーム。変化したときだけ描き直す)。 */
+function updateVrHover() {
+  if (!uiPanel.visible || !renderer.xr.isPresenting) return;
+  let h = -1;
+  for (const c of controllers) {
+    const hit = hitFromController(c);
+    if (hit) { h = rowFromUv(hit.uv); break; }
+  }
+  if (h !== vrHover) { vrHover = h; drawVrUi(h); }
+}
+
+// ---- ヘッドセット無しでの確認用 (?vrpanel=1): マウスを同じレイとして扱う ----
+if (new URLSearchParams(location.search).get("vrpanel") === "1") setVrPanel(true);
+function hitFromMouse(e) {
+  const r = canvas.getBoundingClientRect();
+  uiRay.setFromCamera(new THREE.Vector2(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+  return uiRay.intersectObject(uiPanel, false)[0] || null;
+}
+canvas.addEventListener("pointermove", (e) => {
+  if (!uiPanel.visible || renderer.xr.isPresenting) return;
+  const hit = hitFromMouse(e);
+  const h = hit ? rowFromUv(hit.uv) : -1;
+  if (h !== vrHover) { vrHover = h; drawVrUi(h); }
+});
+canvas.addEventListener("click", (e) => {
+  if (!uiPanel.visible || renderer.xr.isPresenting) return;
+  const hit = hitFromMouse(e);
+  if (!hit) return;
+  const r = rowFromUv(hit.uv);
+  if (r >= 0) activateVrRow(r);
+});
 
 // ---- VRモード (WebXR: 天球の中心に立って見上げる) ----
 setupVR();
@@ -631,7 +814,11 @@ function setupVR() {
       renderer.xr.setReferenceSpaceType("local-floor");  // 立って見上げる=床基準
       await renderer.xr.setSession(session);
       btn.textContent = "VRを終了";
-      session.addEventListener("end", () => { session = null; btn.textContent = "VRで見る"; });
+      setupControllers();
+      setVrPanel(true);        // 最初は出しておく (出し方が分からないと設定を変えられないため)
+      session.addEventListener("end", () => {
+        session = null; btn.textContent = "VRで見る"; setVrPanel(false);
+      });
     });
   });
 }
