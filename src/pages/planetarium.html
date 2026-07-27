@@ -209,11 +209,14 @@ function makeLabel(text, color, size = 0.5) {
 const constNames = new THREE.Group(); skyGroup.add(constNames);
 // CONST_NAMES は [略号, 和名, ra, dec] の4要素。ここを [ra, dec, name] として展開していたため、
 // 赤経に "And" のような文字列が入って座標が NaN になり、星座名が一度も出ていなかった。
+// 高度の判定に使うので、スプライトと J2000 の方向ベクトルを組で持っておく
+const constNameItems = [];
 for (const [, ja, ra, dec] of CONST_NAMES) {
   const v = raDecToVec(ra, dec);
   const sp = makeLabel(ja, "#8aa0c8", R * 0.02);
   sp.position.set(v[0] * R * 0.98, v[1] * R * 0.98, v[2] * R * 0.98);
   constNames.add(sp);
+  constNameItems.push({ sp, v });
 }
 constNames.visible = false;
 
@@ -502,6 +505,11 @@ function update() {
     b.grp.visible = h.u > -0.05;                 // 地平線下は隠す
     b.grp.position.copy(toDir(h).multiplyScalar(R * 0.96));
   }
+  // 星座名は地平線下では出さない。ラベルは他のラベル類と同じく depthTest:false で描いており、
+  // 地面のメッシュに隠れてくれないので、高度で明示的に消す必要がある
+  // (恒星・星座線は depthTest:true なので地面に隠れる)。地平線に跨がらないよう少し上で切る。
+  for (const it of constNameItems) it.sp.visible = applySky(M, it.v).u > 0.03;
+
   updateComets(Mn);   // 彗星 (早見盤と同じ軌道要素・等級式)
   updateSats();       // 人工衛星 (SGP4。鮮度の窓の中だけ)
   // 日時表示
