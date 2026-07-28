@@ -64,14 +64,14 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
-scene.add(new THREE.AmbientLight(0x99aacc, 0.8));   // 夜側も地球と分かる程度に持ち上げる
+scene.add(new THREE.AmbientLight(0x99aacc, 1.5));   // 夜側も地球と分かる程度に持ち上げる
 
 // 地球と衛星を全部載せる器。VR ではこの world ごと縮小して目の前に浮かべる
 // (太陽系3D と同じ考え方)。太陽光も中に入れておかないと、縮めたとき昼夜の向きがずれる。
 const world = new THREE.Group();
 scene.add(world);
 
-const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+const sunLight = new THREE.DirectionalLight(0xffffff, 1.8);
 world.add(sunLight);
 world.add(sunLight.target);
 
@@ -129,7 +129,8 @@ async function loadSats() {
     satColors = new Float32Array(sats.length * 3);
     geo.setAttribute("color", new THREE.BufferAttribute(satColors, 3));
     satPoints = new THREE.Points(geo, new THREE.PointsMaterial({
-      size: 0.5, sizeAttenuation: false, vertexColors: true, map: dot(), transparent: true, depthWrite: false }));
+      // sizeAttenuation:false = 画面上のピクセル固定。0.5px では点にもならず見えなかった
+      size: 4.5, sizeAttenuation: false, vertexColors: true, map: dot(), transparent: true, depthWrite: false }));
     world.add(satPoints);
     el("earth-pick").textContent = `${sats.length} 機を表示中。衛星をクリックで軌道表示`;
     selectFromUrl();
@@ -154,7 +155,7 @@ async function loadStarlink() {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(starRecs.length * 3), 3));
     starPoints = new THREE.Points(geo, new THREE.PointsMaterial({
-      size: 0.32, sizeAttenuation: false, color: 0x9fb8d0, map: dot(),
+      size: 2.2, sizeAttenuation: false, color: 0x9fb8d0, map: dot(),
       transparent: true, opacity: 0.7, depthWrite: false }));
     starPoints.visible = el("earth-starlink").checked;
     world.add(starPoints);
