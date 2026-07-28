@@ -168,7 +168,7 @@ def main() -> int:
                  "asteroids.json", "asteroids_solar.json", "asteroids_tier2.bin",
                  "asteroids_catalog.json", "asteroids_neo.json", "asteroids_notable.json",
                  "satellites.json", "satellites_starlink.json", "variables.json",
-                 "dso.json", "voyager6-manual.pdf", "llms.txt"]:
+                 "dso.json", "coastlines.bin", "voyager6-manual.pdf", "llms.txt"]:
         f = SRC / name
         if f.exists():
             shutil.copy2(f, DIST / name)

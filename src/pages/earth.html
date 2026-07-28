@@ -27,6 +27,8 @@ bodyclass: solar-page
     <button id="earth-search-btn">選択</button>
   </div>
   <div class="row toggles">
+    <label><input type="checkbox" id="earth-line" checked>線画で描く</label>
+    <label><input type="checkbox" id="earth-fixjp">日本を正面に固定</label>
     <label><input type="checkbox" id="earth-guides" checked>GEO軌道の輪・グリッド</label>
     <label><input type="checkbox" id="earth-orbit" checked>選択衛星の軌道</label>
     <label><input type="checkbox" id="earth-starlink">Starlink網</label>
@@ -90,6 +92,55 @@ for (let d = 0; d <= 360; d += 2) geoPts.push(new THREE.Vector3(GEO_R * Math.cos
 guides.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(geoPts),
   new THREE.LineBasicMaterial({ color: 0x884444, transparent: true, opacity: 0.5 })));
 guides.add(new THREE.PolarGridHelper(GEO_R, 8, 6, 64, 0x223, 0x18213a));
+
+/* ---- 線画モード ----
+   写真テクスチャは 1024x512 しかなく、拡大すると眠い。海岸線を線で描いたほうが
+   このサイトの見た目 (静かな星図) にも合う。球体は暗い無地にして裏側の線を隠し、
+   昼夜の陰影だけ残す。海岸線は地球の子にするので、自転にそのまま乗る。
+   地球ローカル座標: 経度λ・緯度φ → r(cosλcosφ, sinφ, −sinλcosφ)
+   (three.js の SphereGeometry の UV と一致する向き。λ=0 が +x、λ=+90° が −z) */
+const earthPhotoMat = earth.material;
+const earthDarkMat = new THREE.MeshPhongMaterial({ color: 0x0b1a2e, shininess: 0 });
+let coastLines = null, coastTried = false;
+
+async function loadCoastlines() {
+  if (coastTried) return;
+  coastTried = true;
+  try {
+    const buf = await fetch("../coastlines.bin")
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)));
+    const dv = new DataView(buf);
+    let o = 0;
+    const nLines = dv.getUint32(o, true); o += 4;
+    const rr = EARTH_R * 1.002;            // わずかに浮かせて z-fighting を避ける
+    const pos = [];
+    for (let i = 0; i < nLines; i++) {
+      const m = dv.getUint16(o, true); o += 2;
+      let px = 0, py = 0, pz = 0;
+      for (let k = 0; k < m; k++) {
+        const lon = (dv.getUint16(o, true) / 65535) * 360 - 180; o += 2;
+        const lat = (dv.getUint16(o, true) / 65535) * 180 - 90; o += 2;
+        const a = lon * Math.PI / 180, b = lat * Math.PI / 180, cb = Math.cos(b);
+        const x = rr * Math.cos(a) * cb, y = rr * Math.sin(b), z = -rr * Math.sin(a) * cb;
+        if (k > 0) pos.push(px, py, pz, x, y, z);    // LineSegments 用に線分で積む
+        px = x; py = y; pz = z;
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    coastLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({
+      color: 0x74b4ff, transparent: true, opacity: 0.95 }));
+    earth.add(coastLines);                 // 地球の子 = 自転に乗る
+    applyEarthStyle();
+  } catch (e) { /* 線画データが無ければ写真のまま */ }
+}
+
+function applyEarthStyle() {
+  const line = el("earth-line").checked;
+  earth.material = line ? earthDarkMat : earthPhotoMat;
+  if (coastLines) coastLines.visible = line;
+  if (line) loadCoastlines();
+}
 
 // 地軸 (北極の向き)
 guides.add(new THREE.Line(
@@ -218,7 +269,9 @@ function selectFromUrl() {
 function update() {
   const date = new Date(curMs);
   const jd = jdFromDate(date);
-  earth.rotation.y = satLib ? satLib.gstime(date) : 0;   // 自転
+  lastGmst = satLib ? satLib.gstime(date) : 0;
+  earth.rotation.y = lastGmst;                           // 自転
+  applyWorldSpin();
   // 太陽方向 (ECI) → 平行光
   const s = sunPosition(jd);
   const sv = raDecToVec(s.ra, s.dec);
@@ -265,10 +318,32 @@ function update() {
     + `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} JST`;
 }
 
+/* ---- 日本を正面に固定 ----
+   衛星は ECI (慣性系) にいるので、地球は時間とともに回っていく。日本の上空を誰が通るのかを
+   見たいときは、地球ごと回して日本をこちら (カメラ側 = three の +z) に向けたまま止める。
+   経度λの地点は GMST+λ の方向にいるので、world を −90°−(GMST+λ) だけ回すと +z を向く。 */
+const JP_LON = 139.77 * Math.PI / 180;      // 東京
+let lastGmst = 0, vrSpin = 0;
+function applyWorldSpin() {
+  const fix = el("earth-fixjp").checked ? (-Math.PI / 2 - (lastGmst + JP_LON)) : 0;
+  world.rotation.y = vrSpin + fix;
+}
+
 // ---- UI ----
 function setOffset(min) { curMs = baseMs + min * 60000; update(); }
 el("earth-time").addEventListener("input", () => setOffset(Number(el("earth-time").value)));
 el("earth-now").addEventListener("click", () => { curMs = Date.now(); el("earth-time").value = 0; update(); });
+el("earth-line").addEventListener("change", applyEarthStyle);
+el("earth-fixjp").addEventListener("change", () => {
+  if (el("earth-fixjp").checked && !renderer.xr.isPresenting) {
+    // 日本 (北緯35.7°) の真上から見下ろす位置にカメラを置く。経度は world 側で
+    // 正面に向けてあるので、あとは緯度ぶん持ち上げれば日本が画面中央に来る。
+    const d = 62.8, la = 35.68 * Math.PI / 180;
+    camera.position.set(0, d * Math.sin(la), d * Math.cos(la));
+    controls.target.set(0, 0, 0); controls.update();
+  }
+  update();
+});
 el("earth-guides").addEventListener("change", () => (guides.visible = el("earth-guides").checked));
 el("earth-orbit").addEventListener("change", () => { if (orbitLine) orbitLine.visible = el("earth-orbit").checked; });
 el("earth-starlink").addEventListener("change", () => {
@@ -331,7 +406,7 @@ function vrInput(dt) {
     else if (Math.abs(ax) > Math.abs(stick)) stick = ax;
     if (gp.buttons[4] && gp.buttons[4].pressed) reset = true;          // A / X
   }
-  if (Math.abs(spin) > 0.15) world.rotation.y += spin * Math.abs(spin) * 1.2 * dt;
+  if (Math.abs(spin) > 0.15) { vrSpin += spin * Math.abs(spin) * 1.2 * dt; applyWorldSpin(); }
   if (Math.abs(stick) > 0.15) {      // 全倒しで約2時間/秒
     let min = (curMs - baseMs) / 60000 + stick * Math.abs(stick) * 120 * dt;
     min = Math.max(-720, Math.min(720, min));
@@ -340,7 +415,7 @@ function vrInput(dt) {
     update();
   }
   if (reset && !vrPrevReset) {
-    curMs = baseMs; el("earth-time").value = 0; world.rotation.y = 0; update();
+    curMs = baseMs; el("earth-time").value = 0; vrSpin = 0; update();
   }
   vrPrevReset = reset;
 }
@@ -363,7 +438,7 @@ function enterVR(saved) {
 function exitVR(saved) {
   world.scale.setScalar(saved.scale);
   world.position.copy(saved.pos);
-  world.rotation.y = 0;              // VR中に回した向きは持ち帰らない
+  vrSpin = 0; applyWorldSpin();      // VR中に回した向きは持ち帰らない
   controls.enabled = true;
   if (saved.starlink) { el("earth-starlink").checked = true; el("earth-starlink").dispatchEvent(new Event("change")); }
   el("earth-speed").value = saved.speed;
@@ -433,5 +508,6 @@ function tick(now) {
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(tick);
+applyEarthStyle();
 loadSats();
 </script>
