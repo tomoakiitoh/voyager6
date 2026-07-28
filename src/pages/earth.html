@@ -10,6 +10,7 @@ bodyclass: solar-page
   <div class="row">
     <span id="earth-date" class="info"></span>
     <span class="grow"></span>
+    <button id="earth-vr" hidden>VRで見る</button>
     <button id="earth-now" class="primary">今</button>
   </div>
   <div class="row">
@@ -54,6 +55,7 @@ const toV = (p) => new THREE.Vector3(p.x * K, p.z * K, -p.y * K);
 const canvas = el("solar-canvas");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.xr.enabled = true;         // WebXR (VRモード)
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070d);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 4000);
@@ -63,9 +65,15 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 
 scene.add(new THREE.AmbientLight(0x99aacc, 0.8));   // 夜側も地球と分かる程度に持ち上げる
+
+// 地球と衛星を全部載せる器。VR ではこの world ごと縮小して目の前に浮かべる
+// (太陽系3D と同じ考え方)。太陽光も中に入れておかないと、縮めたとき昼夜の向きがずれる。
+const world = new THREE.Group();
+scene.add(world);
+
 const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
-scene.add(sunLight);
-scene.add(sunLight.target);
+world.add(sunLight);
+world.add(sunLight.target);
 
 // ---- 地球 (テクスチャ＋昼夜。自転は GMST で回す) ----
 const earthTex = new THREE.TextureLoader().load("../assets/earth.jpg");
@@ -73,10 +81,10 @@ earthTex.colorSpace = THREE.SRGBColorSpace;
 const earth = new THREE.Mesh(
   new THREE.SphereGeometry(EARTH_R, 64, 48),
   new THREE.MeshPhongMaterial({ map: earthTex, shininess: 8 }));
-scene.add(earth);
+world.add(earth);
 // 赤道リング (静止軌道) と赤道面グリッド (向きの手がかり)
 const guides = new THREE.Group();
-scene.add(guides);
+world.add(guides);
 const geoPts = [];
 for (let d = 0; d <= 360; d += 2) geoPts.push(new THREE.Vector3(GEO_R * Math.cos(d * Math.PI / 180), 0, GEO_R * Math.sin(d * Math.PI / 180)));
 guides.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(geoPts),
@@ -94,7 +102,7 @@ let selected = -1;
 const selMarker = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16),
   new THREE.MeshBasicMaterial({ color: 0xffffff }));
 selMarker.visible = false;
-scene.add(selMarker);
+world.add(selMarker);
 let orbitLine = null;
 
 // 軌道高度で色分け (LEO=シアン / MEO=橙 / GEO付近=赤)
@@ -122,7 +130,7 @@ async function loadSats() {
     geo.setAttribute("color", new THREE.BufferAttribute(satColors, 3));
     satPoints = new THREE.Points(geo, new THREE.PointsMaterial({
       size: 0.5, sizeAttenuation: false, vertexColors: true, map: dot(), transparent: true, depthWrite: false }));
-    scene.add(satPoints);
+    world.add(satPoints);
     el("earth-pick").textContent = `${sats.length} 機を表示中。衛星をクリックで軌道表示`;
     selectFromUrl();
     update();
@@ -149,7 +157,7 @@ async function loadStarlink() {
       size: 0.32, sizeAttenuation: false, color: 0x9fb8d0, map: dot(),
       transparent: true, opacity: 0.7, depthWrite: false }));
     starPoints.visible = el("earth-starlink").checked;
-    scene.add(starPoints);
+    world.add(starPoints);
     update();
   } catch (e) { /* Starlink 無しでも動く */ }
 }
@@ -177,7 +185,7 @@ function eciOf(satrec, date) {
 
 /** 選択衛星の軌道線 (1周ぶんを ECI でサンプル。ECI では軌道はほぼ固定)。 */
 function buildOrbit(s) {
-  if (orbitLine) { scene.remove(orbitLine); orbitLine.geometry.dispose(); orbitLine = null; }
+  if (orbitLine) { world.remove(orbitLine); orbitLine.geometry.dispose(); orbitLine = null; }
   const periodMin = (2 * Math.PI) / s.satrec.no;   // no = 平均運動 [rad/min]
   const pts = [];
   for (let k = 0; k <= 180; k++) {
@@ -188,7 +196,7 @@ function buildOrbit(s) {
   orbitLine = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({ color: 0x7fe0ff, transparent: true, opacity: 0.9 }));
   orbitLine.visible = el("earth-orbit").checked;
-  scene.add(orbitLine);
+  world.add(orbitLine);
 }
 
 function selectSat(i) {
@@ -298,15 +306,118 @@ canvas.addEventListener("click", (ev) => {
   if (best >= 0) selectSat(best);
 });
 
+/* ---- VRモード (WebXR: 地球と衛星群を目の前に浮かべて眺める) ----
+   太陽系3D と同じで、world ごと縮めて頭の正面に置く。縮尺は「静止軌道の輪が
+   目の前に収まり、地球が抱えられる大きさの球に見える」ところを狙う。
+   衛星の点は sizeAttenuation:false (画面上のピクセル固定) なので、縮めても消えない。 */
+// 静止軌道の輪が頭の前に収まる範囲で、地球をできるだけ大きく見せる縮尺。
+// (GEO半径は地球半径の6.6倍あるので、輪を前に収める限り地球は見かけ14°前後が上限)
+const VR_SCALE = 0.03;               // 42,164km(GEO半径) → 約1.26m
+const VR_DIST = 1.55;                // 頭の正面 約1.55m先 (輪の手前側でも約0.3m先)
+
+let vrPrevReset = false;
+function vrInput(dt) {
+  const s = renderer.xr.getSession();
+  if (!s) return;
+  // 右スティック=時間送り、左スティック=地球を回す (VR では視点を動かせないので、
+  // 回せないと裏側が永久に見えない)。A/X で「今」と向きを戻す。
+  let stick = 0, spin = 0, reset = false;
+  for (const src of s.inputSources) {
+    const gp = src.gamepad;
+    if (!gp) continue;
+    const ax = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);   // サムスティックX
+    if (src.handedness === "left") { if (Math.abs(ax) > Math.abs(spin)) spin = ax; }
+    else if (Math.abs(ax) > Math.abs(stick)) stick = ax;
+    if (gp.buttons[4] && gp.buttons[4].pressed) reset = true;          // A / X
+  }
+  if (Math.abs(spin) > 0.15) world.rotation.y += spin * Math.abs(spin) * 1.2 * dt;
+  if (Math.abs(stick) > 0.15) {      // 全倒しで約2時間/秒
+    let min = (curMs - baseMs) / 60000 + stick * Math.abs(stick) * 120 * dt;
+    min = Math.max(-720, Math.min(720, min));
+    curMs = baseMs + min * 60000;
+    el("earth-time").value = min;
+    update();
+  }
+  if (reset && !vrPrevReset) {
+    curMs = baseMs; el("earth-time").value = 0; world.rotation.y = 0; update();
+  }
+  vrPrevReset = reset;
+}
+
+function enterVR(saved) {
+  saved.scale = world.scale.x;
+  saved.pos = world.position.clone();
+  world.scale.setScalar(VR_SCALE);
+  world.position.set(0, 0, -VR_DIST);
+  controls.enabled = false;
+  // Starlink 網は間引いても約3000機。SGP4 を毎フレーム回すと 72Hz に間に合わないので
+  // VR 中は退避して切る (実測: 176機で0.57ms → 3000機なら約10ms で予算13.9msを圧迫)。
+  saved.starlink = el("earth-starlink").checked;
+  if (saved.starlink) { el("earth-starlink").checked = false; el("earth-starlink").dispatchEvent(new Event("change")); }
+  // 止まっていると「回っている」ことが伝わらないので、ゆっくり再生しておく
+  saved.playing = playing; saved.speed = el("earth-speed").value;
+  el("earth-speed").value = "10"; lastT = 0;
+  playing = true; el("earth-play").textContent = "■";
+}
+function exitVR(saved) {
+  world.scale.setScalar(saved.scale);
+  world.position.copy(saved.pos);
+  world.rotation.y = 0;              // VR中に回した向きは持ち帰らない
+  controls.enabled = true;
+  if (saved.starlink) { el("earth-starlink").checked = true; el("earth-starlink").dispatchEvent(new Event("change")); }
+  el("earth-speed").value = saved.speed;
+  playing = saved.playing; el("earth-play").textContent = playing ? "■" : "▶";
+}
+
+/* ヘッドセット無しで縮尺と配置を確かめるための簡易プレビュー (?vrpreview=1)。
+   VR と同じ world 変換をかけ、カメラを頭の位置 (原点・-z 向き) に固定する。
+   WebXR は手元で検証できないので、大きさの当たりをここで付ける。 */
+const VR_PREVIEW = new URLSearchParams(location.search).get("vrpreview") === "1";
+if (VR_PREVIEW) {
+  enterVR({});
+  camera.position.set(0, 0, 0);
+  camera.rotation.set(0, 0, 0);
+  camera.fov = 70; camera.updateProjectionMatrix();   // ヘッドセットに近い画角
+}
+
+setupVR();
+function setupVR() {
+  const btn = el("earth-vr");
+  if (!navigator.xr) return;         // WebXR 非対応ブラウザではボタンを出さない
+  navigator.xr.isSessionSupported("immersive-vr").then((ok) => {
+    if (!ok) return;
+    btn.hidden = false;
+    let session = null;
+    const saved = {};
+    btn.addEventListener("click", async () => {
+      if (session) { session.end(); return; }
+      try {
+        session = await navigator.xr.requestSession("immersive-vr",
+          { optionalFeatures: ["local-floor"] });
+      } catch (e) { alert("VRを開始できませんでした。Quest のブラウザで開いてください。"); return; }
+      renderer.xr.setReferenceSpaceType("local");   // 頭の初期位置が原点 (着席/立位どちらでも)
+      await renderer.xr.setSession(session);
+      btn.textContent = "VRを終了";
+      enterVR(saved);
+      session.addEventListener("end", () => {
+        session = null; btn.textContent = "VRで見る"; exitVR(saved);
+      });
+    });
+  });
+}
+
 function resize() {
+  if (renderer.xr.isPresenting) return;      // VR中は XR 側がサイズを持つ
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== w || canvas.height !== h) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h; camera.updateProjectionMatrix();
   }
 }
+let prevNow = 0;
 function tick(now) {
   resize();
+  const dt = prevNow ? Math.min(0.1, (now - prevNow) / 1000) : 0; prevNow = now;
   if (playing && satLib) {
     const dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
     let min = (curMs - baseMs) / 60000 + dt * Number(el("earth-speed").value);
@@ -316,7 +427,8 @@ function tick(now) {
     el("earth-time").value = min;
     update();
   }
-  controls.update();
+  if (renderer.xr.isPresenting) vrInput(dt);   // VR中は頭が視点。スティックで時間送り
+  else if (!VR_PREVIEW) controls.update();     // プレビュー中は視点を動かさない
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(tick);
