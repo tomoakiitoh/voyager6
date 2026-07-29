@@ -34,6 +34,7 @@ bodyclass: solar-page
     <label><input type="checkbox" id="earth-starlink">Starlink網</label>
   </div>
   <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
+  <div class="row"><span class="info">VR中もコントローラで操作できます（<b>B / Y</b>で設定パネル開閉、レイで衛星を指してトリガーで選択。右スティック横＝時間送り、左スティック横＝回転・縦＝拡大縮小、A / X でリセット）。視界の下に日時と選択中の衛星がいつも出ます。</span></div>
 </div>
 
 <script type="importmap">
@@ -42,6 +43,7 @@ bodyclass: solar-page
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "../assets/OrbitControls.js";
+import { VrPanel } from "../assets/vrpanel.js";
 
 // astro.js のグローバル (sunPosition / raDecToVec / jdFromDate) を使う。
 // 衛星の位置は satellite.js の SGP4 (早見盤 F1 と同じ。Vallado 参照実装と照合済み)。
@@ -426,14 +428,14 @@ canvas.addEventListener("click", (ev) => {
 const VR_SCALE = 0.03;               // 42,164km(GEO半径) → 約1.26m
 const VR_DIST = 1.55;                // 頭の正面 約1.55m先 (輪の手前側でも約0.3m先)
 
-let vrPrevReset = false;
+let vrPrevReset = false, vrPrevMenu = false;
 function vrInput(dt) {
   const s = renderer.xr.getSession();
   if (!s) return;
   // 右スティック横=時間送り、左スティック横=地球を回す・縦=拡大縮小。
   // (VR では視点を動かせないので、回せないと裏側が見えず、寄れないと細部が見えない)
   // A/X で「今」・向き・倍率をまとめて戻す。
-  let stick = 0, spin = 0, zoom = 0, reset = false;
+  let stick = 0, spin = 0, zoom = 0, reset = false, menu = false;
   for (const src of s.inputSources) {
     const gp = src.gamepad;
     if (!gp) continue;
@@ -444,7 +446,10 @@ function vrInput(dt) {
       if (Math.abs(ay) > Math.abs(zoom)) zoom = ay;
     } else if (Math.abs(ax) > Math.abs(stick)) stick = ax;
     if (gp.buttons[4] && gp.buttons[4].pressed) reset = true;          // A / X
+    if (gp.buttons[5] && gp.buttons[5].pressed) menu = true;           // B / Y = パネル開閉
   }
+  if (menu && !vrPrevMenu) vrPanel.toggle();
+  vrPrevMenu = menu;
   if (Math.abs(spin) > 0.15) { vrSpin += spin * Math.abs(spin) * 1.2 * dt; applyWorldSpin(); }
   if (Math.abs(zoom) > 0.15) {                 // 前に倒す=寄る。指数で効かせて等比に変える
     vrZoom = Math.max(0.35, Math.min(8, vrZoom * Math.exp(-zoom * 1.5 * dt)));
@@ -490,6 +495,50 @@ function exitVR(saved) {
   playing = saved.playing; el("earth-play").textContent = playing ? "■" : "▶";
 }
 
+/* ---- VR内の操作パネル (VRプラネタリウム と共有部品) ----
+   ステータス帯には日時と、選んでいる衛星の諸元を出す。VR で早送りすると
+   「何時で止まったのか」が分からず、点が飛んでいるだけでは何の衛星かも分からないため。
+   レイがパネルを外したときは衛星の掴み取りに回す (デスクトップのクリック選択と同じこと)。 */
+const vrPanel = new VrPanel({
+  renderer, scene, camera,
+  rows: [
+    { id: "earth-line", label: "線画で描く" },
+    { id: "earth-fixjp", label: "日本を正面に固定" },
+    { id: "earth-guides", label: "GEO軌道の輪・グリッド" },
+    { id: "earth-orbit", label: "選択衛星の軌道" },
+    { id: "earth-starlink", label: "Starlink網（重い）" },
+    { act: "earth-play", label: "時間送り（再生／停止）" },
+    { act: "earth-now", label: "「今」に戻す" },
+  ],
+  status: () => {
+    const t = el("earth-date").textContent;
+    const p = el("earth-pick").textContent;
+    return p.startsWith("★") ? t + "\n" + p.replace(/^★\s*/, "") : t;
+  },
+  onMiss: (ray) => pickSatWithRay(ray),
+  panelOffsetX: -0.42,      // 地球が真後ろに隠れないよう少し左へ
+  domTarget: canvas,
+  preview: new URLSearchParams(location.search).get("vrpreview") === "1",
+});
+
+/** レイに一番近い衛星を選ぶ (VR用)。画面座標が無いので、レイからの角度で測る。 */
+function pickSatWithRay(ray) {
+  if (!satPoints || !sats.length) return;
+  const pos = satPoints.geometry.getAttribute("position");
+  const v = new THREE.Vector3();
+  let best = -1, bestAng = 0.07;         // 約4°以内を拾う
+  for (let i = 0; i < sats.length; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+    satPoints.localToWorld(v);
+    v.sub(ray.ray.origin);
+    const d = v.length();
+    if (d < 1e-6) continue;
+    const ang = v.normalize().angleTo(ray.ray.direction);
+    if (ang < bestAng) { bestAng = ang; best = i; }
+  }
+  if (best >= 0) selectSat(best);
+}
+
 /* ヘッドセット無しで縮尺と配置を確かめるための簡易プレビュー (?vrpreview=1)。
    VR と同じ world 変換をかけ、カメラを頭の位置 (原点・-z 向き) に固定する。
    WebXR は手元で検証できないので、大きさの当たりをここで付ける。 */
@@ -499,6 +548,7 @@ if (VR_PREVIEW) {
   camera.position.set(0, 0, 0);
   camera.rotation.set(0, 0, 0);
   camera.fov = 70; camera.updateProjectionMatrix();   // ヘッドセットに近い画角
+  vrPanel.setVisible(true); vrPanel.setStatusVisible(true);   // カメラを直してから置き直す
 }
 
 setupVR();
@@ -520,8 +570,12 @@ function setupVR() {
       await renderer.xr.setSession(session);
       btn.textContent = "VRを終了";
       enterVR(saved);
+      vrPanel.mountControllers();
+      vrPanel.setVisible(true);
+      vrPanel.setStatusVisible(true);
       session.addEventListener("end", () => {
         session = null; btn.textContent = "VRで見る"; exitVR(saved);
+        vrPanel.setVisible(false); vrPanel.setStatusVisible(false);
       });
     });
   });
@@ -550,6 +604,7 @@ function tick(now) {
   }
   if (renderer.xr.isPresenting) vrInput(dt);   // VR中は頭が視点。スティックで時間送り
   else if (!VR_PREVIEW) controls.update();     // プレビュー中は視点を動かさない
+  vrPanel.update();
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(tick);
