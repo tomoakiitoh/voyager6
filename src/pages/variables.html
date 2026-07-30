@@ -111,14 +111,14 @@ const TYPE_JA = {
 const isEclipse = (t) => t === "EA" || t === "EB" || t === "EW";
 const isCep = (t) => t.startsWith("DCEP") || t === "CEP" || t.startsWith("CW");
 const FAMILIES = [
-  ["ミラ型", (t) => t === "M"],
-  ["半規則", (t) => t.startsWith("SR")],
-  ["食変光", isEclipse],
-  ["セファイド", isCep],
-  ["こと座RR型", (t) => t.startsWith("RR")],
-  ["新星・矮新星", (t) => t.startsWith("N") || t.startsWith("UG")],
+  ["ミラ型", (t) => t === "M", "mira"],
+  ["半規則", (t) => t.startsWith("SR"), "sr"],
+  ["食変光", isEclipse, "eclipse"],
+  ["セファイド", isCep, "cepheid"],
+  ["こと座RR型", (t) => t.startsWith("RR"), "rr"],
+  ["新星・矮新星", (t) => t.startsWith("N") || t.startsWith("UG"), "nova"],
   ["その他", (t) => !(t === "M" || t.startsWith("SR") || isEclipse(t) || isCep(t)
-    || t.startsWith("RR") || t.startsWith("N") || t.startsWith("UG"))],
+    || t.startsWith("RR") || t.startsWith("N") || t.startsWith("UG")), "other"],
 ];
 const mainType = (t) => t.split("/")[0].split("+")[0].trim().replace(/:$/, "");
 
@@ -200,6 +200,41 @@ let shown = 60;                   // 段階表示
 
 const el = (id) => document.getElementById(id);
 
+/* ---- URL パラメータ (住所系) ----
+   ?q= 検索語 / ?tonight=1 今夜見える / ?peak=1 極大が近い / ?type=mira,eclipse 型
+   ?lat= ?lon= 観測地。操作したら URL に書き戻すので、この画面をそのまま渡せる。 */
+function applyUrl() {
+  const p = new URLSearchParams(location.search);
+  if (p.get("q")) el("q").value = p.get("q");
+  el("tonight").checked = p.get("tonight") === "1";
+  el("peak").checked = p.get("peak") === "1";
+  for (const k of (p.get("type") || "").split(",").filter(Boolean)) {
+    const fam = FAMILIES.find(([, , key]) => key === k);
+    if (fam) active.add(fam[0]);
+  }
+  const lat = Number(p.get("lat")), lon = Number(p.get("lon"));
+  if (Number.isFinite(lat) && Number.isFinite(lon) && p.has("lat") && p.has("lon")) {
+    site = { name: `${lat.toFixed(2)}, ${lon.toFixed(2)}`, lat, lon };
+  }
+}
+let urlTimer = null;
+function writeUrl() {
+  clearTimeout(urlTimer);
+  urlTimer = setTimeout(() => {
+    const p = new URLSearchParams();
+    if (el("q").value.trim()) p.set("q", el("q").value.trim());
+    if (el("tonight").checked) p.set("tonight", "1");
+    if (el("peak").checked) p.set("peak", "1");
+    const keys = FAMILIES.filter(([label]) => active.has(label)).map(([, , k]) => k);
+    if (keys.length) p.set("type", keys.join(","));
+    if (el("tonight").checked) {                 // 今夜見えるは観測地に依存するので一緒に載せる
+      p.set("lat", site.lat.toFixed(4)); p.set("lon", site.lon.toFixed(4));
+    }
+    const qs = p.toString();
+    history.replaceState(null, "", location.pathname + (qs ? "?" + qs : ""));
+  }, 300);
+}
+
 Promise.all([
   fetch("../variables.json").then((r) => r.json()).catch(() => []),
   fetch("../variables_all.json").then((r) => r.json()).catch(() => []),
@@ -216,14 +251,16 @@ Promise.all([
   }
   ALL = [...seen.values()].sort((a, b) => (Number(b.star) - Number(a.star)) || (a.mx - b.mx));
   buildChips();
+  applyUrl();
+  for (const c of document.querySelectorAll(".chip")) c.classList.toggle("on", active.has(c.dataset.f));
   fillSiteSelect(el("site"), site);
   mats = tonightWindow(site);
   render();
 }).catch(() => { el("count").textContent = "変光星データを読み込めませんでした。"; });
 
 function buildChips() {
-  el("chips").innerHTML = FAMILIES.map(([label]) =>
-    `<span class="chip" data-f="${esc(label)}">${esc(label)}</span>`).join("");
+  el("chips").innerHTML = FAMILIES.map(([label, , key]) =>
+    `<span class="chip" data-f="${esc(label)}" data-k="${esc(key)}">${esc(label)}</span>`).join("");
   el("chips").addEventListener("click", (e) => {
     const c = e.target.closest(".chip"); if (!c) return;
     const f = c.dataset.f;
@@ -293,6 +330,7 @@ function render() {
     + (list.length > shown ? `（${shown} 個を表示中）` : "");
   el("list").innerHTML = list.slice(0, shown).map(card).join("");
   el("more").hidden = list.length <= shown;
+  writeUrl();
 }
 
 el("q").addEventListener("input", () => { shown = 60; render(); });

@@ -124,8 +124,17 @@ def write_data_index() -> None:
          "description": "Starlink 群の TLE (約1万機) / Starlink constellation (TLE)",
          "format": "JSON array of arrays", "fields": ["name", "norad_id", "tle_line1", "tle_line2"],
          "source": "CelesTrak (Dr. T.S. Kelso)", "license": "no restrictions (CelesTrak)", "cadence": "daily"},
+        {"name": "variables_all", "url": f"{origin}/variables_all.json",
+         "description": ("変光星の拡張カタログ (GCVS 5.1、V等級で最大10等以下) / "
+                         "extended variable star catalogue. epoch is maximum for pulsating, "
+                         "minimum for eclipsing binaries"),
+         "format": "JSON array of arrays",
+         "fields": ["name", "ra_deg", "dec_deg", "type", "mag_max", "mag_min", "period_days",
+                    "epoch_JD_minus_2400000"],
+         "source": "GCVS 5.1 (Samus+)", "license": "academic use with attribution",
+         "cadence": "static"},
         {"name": "variables", "url": f"{origin}/variables.json",
-         "description": "著名な変光星 (観測星図むけ) / famous variable stars",
+         "description": "著名な変光星 (観測星図むけ・23個の厳選版) / famous variable stars (curated)",
          "format": "JSON array of arrays",
          "fields": ["name", "ra_deg", "dec_deg", "type", "mag_max", "mag_min", "period_days", "note"],
          "source": "GCVS (Samus+)", "license": "academic use with attribution", "cadence": "static"},
