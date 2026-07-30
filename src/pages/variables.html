@@ -270,6 +270,26 @@ function buildChips() {
   });
 }
 
+/** 検索の一致判定。GCVS名・記号表示(χ Cyg)・綴り(chi Cyg / omicron Cet) のどれでも当たるように。
+    target= の名前解決と挙動を揃えてある (片方で引けて片方で引けない、を避ける)。 */
+const GREEK_SPELL = { alf: "alpha", bet: "beta", gam: "gamma", del: "delta", eps: "epsilon",
+  zet: "zeta", eta: "eta", the: "theta", iot: "iota", kap: "kappa", lam: "lambda", mu: "mu",
+  nu: "nu", xi: "xi", omi: "omicron", pi: "pi", rho: "rho", sig: "sigma", tau: "tau",
+  ups: "upsilon", phi: "phi", khi: "chi", chi: "chi", psi: "psi", ome: "omega" };
+function searchKeys(name) {
+  const keys = [normKey(name), normKey(displayName(name))];
+  const m = name.match(/^([A-Za-z]+)\.?\s*(\d*)\s+(\w+)$/);
+  if (m) {
+    const sp = GREEK_SPELL[m[1].toLowerCase()];
+    if (sp) keys.push(normKey(sp + m[2] + m[3]));
+  }
+  return keys;
+}
+function searchHit(v, q) {
+  if (!v._keys) v._keys = searchKeys(v.name);
+  return v._keys.some((k) => k.includes(q));
+}
+
 function filtered() {
   const q = normKey(el("q").value);
   const jd = jdFromDate(new Date());
@@ -277,7 +297,7 @@ function filtered() {
   const wantPeak = el("peak").checked;
   const out = [];
   for (const v of ALL) {
-    if (q && !(normKey(v.name).includes(q) || normKey(displayName(v.name)).includes(q))) continue;
+    if (q && !searchHit(v, q)) continue;
     const t = mainType(v.type);
     if (active.size) {
       const fam = FAMILIES.find(([, test]) => test(t));

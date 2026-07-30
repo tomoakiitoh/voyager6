@@ -32,7 +32,9 @@
 AIアシスタントは以下のパラメータで、特定の空・軌道ビューへの直接リンクを生成できる。
 An AI assistant can construct direct links to a specific sky or solar-system view.
 **利用者はパラメータを覚えなくてよい。「〜のリンクを作って」と頼まれたら、AIが下のレシピで
-URLを組み立てて返す**ことを想定している(=このサイトの狙い)。天体名は空白・日本語のままでよい。
+URLを組み立てて返す**ことを想定している(=このサイトの狙い)。
+**天体名の言語に注意**: 日本語(和名・通称)で引けるのは**彗星だけ**(`百武`・`紫金山・アトラス`)。
+恒星・変光星は**英字**で渡すこと(`Mira`・`Betelgeuse`・`RS Oph`・`alpha CrB`)。利用者が「ミラ」「ベテルギウス」と言ったら、AI が英字名に直してから URL にする。
 完全な仕様と動く例: https://voyager6.net/docs/
 天体名の空白はそのままでも `%20` に置換しても等価 (Markdownリンクにするときは %20 が安全)。
 
@@ -76,16 +78,21 @@ URLを組み立てて返す**ことを想定している(=このサイトの狙�
 - `labels=mag` = 視野内の比較星に等級ラベル(小数点省略表記)
 - `names=on` = バイエル/フラムスティード符号・恒星名の表示
 - `fov` = 視野の直径[度]。**2〜180 の範囲**に丸められる (例 `fov=6`。`z` の代わりに度で指定できる)
-- `maglim` = 等級ラベルを付ける暗い側の限界 (比較星の範囲の切り替え。例 `maglim=10`)。星表は V≤10 まで
+- `maglim` = 等級ラベルを付ける暗い側の限界 (例 `maglim=10`)。
+  既定は 変光星なら11等、彗星なら「予報等級+0.5(最大12.5)」。**星表そのものが V≤10 まで**なので、
+  11以上を指定してもラベルが増えるのは10等までで、それより暗い比較星は出ない (エラーにはならない)
 - 彗星を target にすると、前後数日の予報位置と進行方向の矢印も描く(その夜/日々の動きが分かる)
 - 例(変光星): T CrB の観測星図 → `https://voyager6.net/?target=T CrB&labels=mag&names=on&fov=6`
 - 例(彗星): 10P の観測星図 → `https://voyager6.net/?target=10P&labels=mag&fov=5`
 - 注: 星の等級はカタログ値(チャート用の目安)。変光星の正式な測光には AAVSO VSP (aavso.org/vsp) を使う
 
 ### 変光星カタログ / Variable stars — `https://voyager6.net/variables/`
-- `q` = 名前・星座で絞り込み (例 `q=Cyg`)
+- `q` = 名前・星座の**部分一致**で絞り込み (例 `q=Cyg` で はくちょう座の130個、`q=Mira`)。
+  ギリシャ文字は記号 `α`・GCVS略号 `alf`・綴り `alpha` のどれでも当たる。**日本語では引けない**
 - `tonight=1` = 今夜見えるものだけ (観測地で高度20°以上)。`lat`/`lon` と併用する
-- `peak=1` = 極大が近いミラ型だけ (前後60日以内・誤差45日以下のもの)
+- `peak=1` = 極大が近いミラ型だけ (前後60日以内・誤差45日以下のもの)。
+  予報を出せるのはミラ型だけなので `type=mira` は実質同じ意味 (併記しても害はない)。
+  `peak=1&type=eclipse` のように噛み合わない組み合わせは 0件になる
 - `type` = 型で絞る。カンマ区切りで `mira` `sr` `eclipse` `cepheid` `rr` `nova` `other`
 - `lat` / `lon` = 観測地 (`tonight=1` のとき効く)
 - 例: 今夜見えて極大が近いミラ型 →
@@ -114,7 +121,9 @@ Stable, cross-origin-fetchable JSON. Machine-readable index with source / licens
 - `https://voyager6.net/satellites.json` — 明るい人工衛星のTLE(CelesTrak, 日次更新)。配列 `[name, NORAD, TLE1行目, TLE2行目, 標準等級|null]`。位置計算は SGP4 (satellite.js)
 - `https://voyager6.net/satellites_starlink.json` — Starlink群のTLE(CelesTrak, 日次)。配列 `[name, NORAD, TLE1, TLE2]`
 - `https://voyager6.net/variables.json` — 著名な変光星(GCVS由来)。配列 `[name, ra(度), dec(度), 型, 最大光度, 最小光度, 周期(日)|null, 和名メモ]`。**23個の厳選版**(解説つき・形式は凍結)
-- `https://voyager6.net/variables_all.json` — 変光星の拡張カタログ(GCVS 5.1、3,637個)。配列 `[name, ra(度), dec(度), 型, 最大光度, 最小光度|null, 周期(日)|null, 元期(JD-2400000)|null]`。V等級で最大10等以下のものだけ(GCVSに混在する赤外/写真等級は除外済み)。**元期の意味は型で異なる**: 脈動星(M/SR/CEP/RR…)は極大、食変光星(EA/EB/EW)は極小
+- `https://voyager6.net/variables_all.json` — 変光星の拡張カタログ(GCVS 5.1、3,637個)。配列 `[name, ra(度), dec(度), 型, 最大光度, 最小光度|null, 周期(日)|null, 元期(JD-2400000)|null]`。V等級で最大10等以下のものだけ(GCVSに混在する赤外/写真等級は除外済み)。
+  **眼視で追える型に限る**ので、振幅が0.1等に満たない型 (ACV/DSCTC/BCEP/ACYG 等) は入れていない。
+  そのためデネブ(ACYG)やアルタイル(DSCTC)は変光星として収録されていない。**元期の意味は型で異なる**: 脈動星(M/SR/CEP/RR…)は極大、食変光星(EA/EB/EW)は極小
 
 ## License
 
