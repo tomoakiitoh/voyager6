@@ -1588,6 +1588,51 @@ function loadStarNames() {
     .then((d) => { starNamesIdx = d; }).catch(() => {});
 }
 
+/* GCVS 拡張カタログ (variables_all.json, 約3,600件・216KB)。
+   著名版・符号星・彗星のどれでも当たらなかったときだけ読む。目標天体の指定が無い人に
+   216KB を読ませないための遅延ロード。 */
+let variablesAll = null, variablesAllTried = false;
+function loadVariablesAll() {
+  if (variablesAllTried) return Promise.resolve();
+  variablesAllTried = true;
+  return fetch("variables_all.json").then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((d) => { variablesAll = d; }).catch(() => {});
+}
+
+/* GCVS のギリシャ文字略号 → 一般的な綴り。GCVS は "alf Ori"・"omi Cet"・"khi Cyg"・"mu. Cep"
+   のように独自の3文字略号 (末尾ピリオドつきもある) を使うので、利用者が書く
+   "alpha Ori" / "α Ori" / "chi Cyg" と突き合わせられるようにする。 */
+const GCVS_GREEK = {
+  alf: ["alpha", "α"], bet: ["beta", "β"], gam: ["gamma", "γ"], del: ["delta", "δ"],
+  eps: ["epsilon", "ε"], zet: ["zeta", "ζ"], eta: ["eta", "η"], the: ["theta", "θ"],
+  iot: ["iota", "ι"], kap: ["kappa", "κ"], lam: ["lambda", "λ"], mu: ["mu", "μ"],
+  nu: ["nu", "ν"], xi: ["xi", "ξ"], omi: ["omicron", "ο"], pi: ["pi", "π"],
+  rho: ["rho", "ρ"], sig: ["sigma", "σ"], tau: ["tau", "τ"], ups: ["upsilon", "υ"],
+  phi: ["phi", "φ"], khi: ["chi", "χ"], chi: ["chi", "χ"], psi: ["psi", "ψ"],
+  ome: ["omega", "ω"],
+};
+
+/** GCVS 名から、利用者が書きそうな綴りの候補を作る ("alf Ori" → alfori/alphaori/αori)。 */
+function gcvsNameKeys(name) {
+  const keys = [normKey(name)];
+  const m = name.match(/^([A-Za-z]+)\.?\s*(\d*)\s+(\w+)$/);
+  if (m) {
+    const g = GCVS_GREEK[m[1].toLowerCase()];
+    if (g) for (const alt of g) keys.push(normKey(alt + m[2] + m[3]));
+  }
+  return keys;
+}
+
+/** variables_all.json から名前で探す。 */
+function matchVariableAll(spec) {
+  if (!variablesAll) return null;
+  const k = normKey(spec);
+  for (const v of variablesAll) {
+    if (gcvsNameKeys(v[0]).includes(k)) return v;
+  }
+  return null;
+}
+
 /** 恒星の表示名。バイエル(α CrB)優先、次にフラムスティード(5 CrB)、次に固有名。 */
 function starDisplayName(s) {
   const [, , , bayer, flam, con] = s;
@@ -1632,6 +1677,10 @@ function resolveTarget(spec) {
     const mag = cometMagnitude(cm.M1, cm.K1, g.r, g.delta);
     return { ra: g.ra, dec: g.dec, name: cm.name, kind: "comet", mag, el: cm.el, M1: cm.M1, K1: cm.K1 };
   }
+  // 最後に GCVS 拡張カタログ (ここまで来たときだけ読み込むので、通常は取りに行かない)
+  const va = matchVariableAll(spec);
+  if (va) return { ra: va[1], dec: va[2], name: va[0], kind: "variable",
+                   magMax: va[4], magMin: va[5], type: va[3] };
   return null;
 }
 
@@ -1667,6 +1716,10 @@ async function initObsChart() {
   await Promise.all(jobs);
   if (obsTargetSpec) {
     obsTarget = resolveTarget(obsTargetSpec);
+    if (!obsTarget) {                       // 著名版・符号星・彗星で当たらなければ拡張カタログへ
+      await loadVariablesAll();
+      obsTarget = resolveTarget(obsTargetSpec);
+    }
     if (obsTarget) centerOnTarget();
   }
   draw();
