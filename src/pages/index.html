@@ -85,6 +85,8 @@ bodyclass: sky-page
     <label><input type="checkbox" id="t-sats">人工衛星</label>
     <label><input type="checkbox" id="t-guides">補助線</label>
     <label><input type="checkbox" id="t-grid">赤道座標</label>
+    <label id="l-maglabels" title="比較星に等級を書き込む（望遠鏡モードで効きます）"><input type="checkbox" id="t-maglabels">比較星の等級</label>
+    <label id="l-desig" title="バイエル/フラムスティード符号・恒星名を出す"><input type="checkbox" id="t-desig">星の符号</label>
     <label><input type="checkbox" id="t-night">赤色ナイトモード</label>
   </div>
 
@@ -2418,6 +2420,9 @@ function stateParams() {
     if (Math.abs(state.view.roll) > 1e-3) p.set("roll", state.view.roll.toFixed(3));
   }
   if (show.comets && deepLinkComet) p.set("comet", deepLinkComet);   // 彗星ディープリンクを保持
+  if (obsTargetSpec) p.set("target", obsTargetSpec);                 // 観測星図の目標天体
+  if (showMagLabels) p.set("labels", "mag");
+  if (showDesignations) p.set("names", "on");
   return p;
 }
 
@@ -2966,6 +2971,26 @@ sheetBtn.addEventListener("click", () => {
 el("sky-wrap").addEventListener("pointerdown", () => {
   if (document.body.classList.contains("sheet-open")) setSheet(false);
 }, true);
+
+/* ---- 観測星図の表示切り替え ----
+   これまで labels=mag / names=on は URL でしか変えられなかった。
+   観測星図を開いたあとに「等級を消して星の並びを見たい」ができるようにする。
+   状態は URL に書き戻すので、切り替えた画面をそのまま渡せる (住所系を保つ)。 */
+el("t-maglabels").checked = showMagLabels;
+el("t-desig").checked = showDesignations;
+function onObsToggle() {
+  showMagLabels = el("t-maglabels").checked;
+  showDesignations = el("t-desig").checked;
+  // 必要なデータを読んでから描き直す (等級ラベルは変光星除外に variables.json が要る)
+  const jobs = [];
+  if (showMagLabels) jobs.push(loadVariables());
+  if (showDesignations) jobs.push(loadStarNames());
+  Promise.all(jobs).then(() => { draw(); scheduleUrlWrite(); });
+  draw();
+  scheduleUrlWrite();
+}
+el("t-maglabels").addEventListener("change", onObsToggle);
+el("t-desig").addEventListener("change", onObsToggle);
 
 window.addEventListener("resize", resize);
 // 枠の実サイズに追従する (初期レイアウト確定・シート以外の高さ変化・画面回転すべてに効く)
