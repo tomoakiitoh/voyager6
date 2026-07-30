@@ -542,6 +542,7 @@ function draw() {
   if (show.constNames) drawConstNames(M, place);
   // 観測星図モード (望遠鏡モードで target/labels/names 指定時のみ)
   if (telescope && (obsTarget || showMagLabels || showDesignations)) drawObsChart(M);
+  if (telescope) drawBelowHorizonNote(M);   // 目標が地平線下なら盤面に知らせる
 
   if (!telescope) drawCompass();
   updateInfo();
@@ -1740,6 +1741,49 @@ function drawArrow(x1, y1, x2, y2, color) {
 }
 
 /** 目標マーク・比較星の等級ラベル・符号を描く (望遠鏡モードで)。 */
+/* ---- 目標天体が地平線下のときの注意書き ----
+   観測星図は望遠鏡モードなので地平線に関係なく描けてしまい、「なぜ比較星が出ないのか」
+   「今すぐ見られるのか」が分からない。スマホでは操作シートを畳んでいるので、盤面に直接描く。
+   印刷チャートは屋外で使うものなので、こちらには出さない (printMode では描かない)。 */
+function nextRiseText(M0) {
+  if (!obsTarget) return "";
+  const v = raDecToVec(obsTarget.ra, obsTarget.dec);
+  // これから24時間を10分刻みで見て、最初に高度20°を超える時刻を探す
+  for (let i = 1; i <= 144; i++) {
+    const ms = state.ms + i * 10 * 60000;
+    const Mi = skyMatrix(jdFromDate(new Date(ms)), SITE.lat, SITE.lon);
+    if (Math.asin(Math.max(-1, Math.min(1, applySky(Mi, v).u))) > 20 * DEG) {
+      const t = jstParts(ms);
+      return `次に高度20°を超えるのは ${t.hh}:${p2(t.mm)}ごろ`;
+    }
+  }
+  return "今日のうちは高度20°まで昇りません";
+}
+
+function drawBelowHorizonNote(M) {
+  if (!obsTarget || printMode) return;
+  const h = applySky(M, raDecToVec(obsTarget.ra, obsTarget.dec));
+  const alt = Math.asin(Math.max(-1, Math.min(1, h.u))) / DEG;
+  if (alt > 0) return;
+  const lines = [`いま地平線の下です（高度 ${alt.toFixed(0)}°）`, nextRiseText(M)];
+  ctx.save();
+  ctx.font = `${Math.max(12, R / 26)}px "Hiragino Sans", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const w = Math.max(...lines.map((t) => ctx.measureText(t).width)) + 26;
+  const lh = Math.max(16, R / 20), x = cx, y = Math.max(6, cy - R + 4);
+  ctx.fillStyle = "rgba(20,12,8,0.86)";
+  ctx.strokeStyle = "#a8632e";
+  ctx.lineWidth = 1.5;
+  const bx = x - w / 2, bh = lh * lines.length + 12;
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, y, w, bh, 8); }
+  else { ctx.beginPath(); ctx.rect(bx, y, w, bh); }
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#ffcf9a";
+  lines.forEach((t, i) => ctx.fillText(t, x, y + 6 + i * lh));
+  ctx.restore();
+}
+
 function drawObsChart(M) {
   // 比較星の等級レンジ。maglim= で暗い側の限界を切り替えられる。
   // うちの星表は V≤10 まで(深い比較星は将来のTycho-2再ビルド)。範囲がそこと交わらないと
