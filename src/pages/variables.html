@@ -42,7 +42,12 @@ bodyclass: vars-page
   <li><b>「極大が近い」</b>: ミラ型について、GCVS の元期と周期から次の極大を計算します。
     <b>これは目安です</b>——元期が古い星ほど外挿の誤差が積み上がるので、
     <b>星ごとに誤差を計算して併記</b>し、誤差が大きすぎる星には予報を出しません（周期だけ示します）。
-    実際の光度は <a href="https://www.aavso.org/vsp">AAVSO</a> をご覧ください。</li>
+    <b>実際にいま何等なのかは、カードの「最近の観測」</b>（世界の観測者がAAVSOに報告した実測値）
+    をご覧ください。予報の誤差が大きい星ほど、こちらが確実です。</li>
+  <li><b>カードの3つのボタン</b>:
+    「観測星図」= このサイトの星図（比較星の等級つき・印刷可）、
+    「比較星図(AAVSO)」= AAVSOの<b>較正済み</b>比較星が入った星図（<b>報告用の等級はこちら</b>）、
+    「最近の観測」= 直近の実測光度の一覧。</li>
 </ul>
 
 </main>
@@ -325,6 +330,9 @@ function card(v) {
   const vspMag = Math.min(16, Math.max(8, Math.round(((v.mn ?? v.mx + 4) + 1) * 10) / 10));
   const vsp = `https://apps.aavso.org/vsp/chart/?star=${encodeURIComponent(v.name)}`
             + `&fov=120&maglimit=${vspMag}&orientation=visual&type=chart`;
+  // 実測の光度 (AAVSO WebObs)。予報の誤差が大きい星ほど、これを見るのが確実。
+  const obs = `https://apps.aavso.org/webobs/results/?star=${encodeURIComponent(v.name)}`
+            + `&num_results=25`;
   const mn = (v.mn == null) ? "?" : v.mn;
   let peak = "";
   if (v._peak) {
@@ -342,7 +350,10 @@ function card(v) {
     ${v.note ? `<div class="vnote">${esc(v.note)}</div>` : ""}
     <div class="vlinks">
       <a class="vbtn" href="${chart}">観測星図</a>
-      <a class="vbtn sub" href="${vsp}" target="_blank" rel="noopener">AAVSO VSP</a>
+      <a class="vbtn sub" href="${vsp}" target="_blank" rel="noopener"
+         title="AAVSO の較正済み比較星が入った星図（報告用の等級はこちら）">比較星図(AAVSO)</a>
+      <a class="vbtn sub" href="${obs}" target="_blank" rel="noopener"
+         title="世界の観測者が報告した最近の実測光度">最近の観測</a>
     </div>
   </div>`;
 }
