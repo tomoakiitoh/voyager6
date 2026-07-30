@@ -320,8 +320,11 @@ function card(v) {
     ? `周期 ${v.per >= 400 ? (v.per / 365).toFixed(1) + "年" : Math.round(v.per) + "日"}`
     : "不規則";
   const chart = `../?target=${encodeURIComponent(v.name)}&labels=mag&names=on&fov=6`;
+  // AAVSO VSP は fov(分角) と maglimit が**必須**。付けないとエラー画面になる。
+  // 暗い側は「その星が最も暗くなる等級 +1」まで見えるようにして、極小期でも追えるようにする。
+  const vspMag = Math.min(16, Math.max(8, Math.round(((v.mn ?? v.mx + 4) + 1) * 10) / 10));
   const vsp = `https://apps.aavso.org/vsp/chart/?star=${encodeURIComponent(v.name)}`
-            + `&scale=C&orientation=visual&type=chart`;
+            + `&fov=120&maglimit=${vspMag}&orientation=visual&type=chart`;
   const mn = (v.mn == null) ? "?" : v.mn;
   let peak = "";
   if (v._peak) {
