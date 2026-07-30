@@ -23,6 +23,11 @@ bodyclass: sky-page
 </script>
 <div id="sky-wrap"><canvas id="sky"></canvas></div>
 <div id="popup"></div>
+
+<!-- 埋め込み時だけ出るクレジットバッジ。埋め込んだ人が何もしなくても CC BY-SA の帰属を
+     満たすようにする (規約でなく UX で解決する)。クリックで同じ状態の本体ページが開くので、
+     帰属・送客・被リンクを一つで兼ねる。 -->
+<a id="embed-badge" href="./" target="_blank" rel="noopener">voyager6.net</a>
 <div id="panel">
   <!-- 常時見えるのはこの1行だけ (UI整理 F1)。スマホでは以下が畳まれ、空が主役になる。 -->
   <div class="row" id="toolbar">
@@ -174,6 +179,20 @@ bodyclass: sky-page
       <label class="info"><input type="checkbox" id="print-white" checked>SVGを白地にする</label>
     </div>
     <div class="row"><span class="info">いま表示中の視野をそのまま出力します。印刷/PDFは望遠鏡脇で読める白地。SVGはブログ・スライドのベクター図版にも使えます。</span></div>
+  </details>
+
+  <!-- 静かな公開の間は隠しておく。?embed_ui=1 で出せる (テスト用)。
+       正式公開のときにこの hidden を外す。 -->
+  <details id="embed-panel" hidden>
+    <summary>この空をWebページに埋め込む</summary>
+    <div class="row">
+      <button id="btn-embed">埋め込みコードをコピー</button>
+      <label class="info"><input type="checkbox" id="embed-static-opt">表示専用（操作させない）</label>
+      <label class="info"><input type="checkbox" id="embed-white-opt">白地にする</label>
+      <span id="embed-note" class="info"></span>
+    </div>
+    <div class="row"><textarea id="embed-code" rows="3" readonly spellcheck="false"></textarea></div>
+    <div class="row"><span class="info">いまの日時・観測地・視野・彗星をそのまま貼れます。ブログ・学校・科学館・報道での埋め込みは自由です。貼った先には小さな「voyager6.net」バッジが出るので、クレジット表記は自動で満たされます（バッジを押すと同じ空が本体で開きます）。</span></div>
   </details>
 
   <!-- スマホでは共通フッタを隠すので、出典への導線をシート内にも残す (CC BY-SA の帰属を1タップ以内に保つ) -->
@@ -356,6 +375,22 @@ const PAINT = {
 function pt() { return printMode ? PAINT.print : PAINT.screen; }
 /** 星の色: 画面はB-V由来、印刷は黒一色。 */
 function starFill(bv) { return printMode ? PAINT.print.starMono : bvColor(bv); }
+
+// ---- 埋め込みモード (Google Maps の「地図を埋め込む」に相当。住所系の延長) ----
+//   ?embed=1        … 最小クローム (空だけ。ヘッダ・メニュー・操作パネルを出さない)
+//   ?interactive=0  … 表示専用。指の操作を奪わない (学校・自治体サイトでスクロール事故を防ぐ)
+//   ?theme=white    … 白地 (印刷テーマの流用)。明るい紙面のブログに馴染ませる用
+// 日時・観測地・視野・彗星などは既存パラメータをそのまま受ける。埋め込み専用の別ページを
+// 作らないのは、住所系の一貫性 (同じ URL 仕様がそのまま埋め込みにも効く) が本体だから。
+const EMBED = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get("embed") !== "1") return null;
+  const cfg = { interactive: q.get("interactive") !== "0", white: q.get("theme") === "white" };
+  document.body.classList.add("embed");
+  if (!cfg.interactive) document.body.classList.add("embed-static");
+  if (cfg.white) { document.body.classList.add("embed-white"); printMode = true; }
+  return cfg;
+})();
 let R = 300, cx = 0, cy = 0;
 let view = null; // 現在の描画ビュー (draw / pickObject の直前に buildView() で更新)
 let telescopeMode = false; // 望遠鏡モードか (地平線下も描くカリング分岐に使う)
@@ -2314,7 +2349,8 @@ function raDecOf(h) {
 // 現在の日時・場所・視野を URL に書き戻す (コピーで同じ画面を再現。共有・ブログ連携の基盤)。
 let urlTimer = null;
 function scheduleUrlWrite() { clearTimeout(urlTimer); urlTimer = setTimeout(writeUrl, 400); }
-function writeUrl() {
+/** いまの日時・場所・視野を URL パラメータにする (URL書き戻し・埋め込みコードの共通の土台)。 */
+function stateParams() {
   const t = jstParts(state.ms);
   const p = new URLSearchParams();
   p.set("t", `${t.y}-${p2(t.mo)}-${p2(t.d)}T${p2(t.hh)}:${p2(t.mm)}`);
@@ -2329,6 +2365,18 @@ function writeUrl() {
     if (Math.abs(state.view.roll) > 1e-3) p.set("roll", state.view.roll.toFixed(3));
   }
   if (show.comets && deepLinkComet) p.set("comet", deepLinkComet);   // 彗星ディープリンクを保持
+  return p;
+}
+
+function writeUrl() {
+  const p = stateParams();
+  if (EMBED) {
+    // 埋め込み中は親ページの中なので履歴はいじらない。代わりにバッジの行き先を
+    // 「いま映っている空」に追随させる (押すと本体で同じ空が開く)。
+    const badge = document.getElementById("embed-badge");
+    if (badge) badge.href = location.origin + location.pathname + "?" + p.toString();
+    return;
+  }
   history.replaceState(null, "", location.pathname + "?" + p.toString());
 }
 
@@ -2812,6 +2860,43 @@ async function openPrint() {
   el("print-area").hidden = true;                   // 印刷後は隠す
 }
 el("btn-print").addEventListener("click", () => { openPrint(); });
+
+/* ---- 埋め込みコードの生成 (Google Maps の「地図を埋め込む」に相当) ----
+   いまの状態をそのまま iframe スニペットにする。幅は 100%・高さは aspect-ratio で
+   レスポンシブにし、loading="lazy" で埋め込み先ページの表示を邪魔しない。 */
+function embedSnippet() {
+  const p = stateParams();
+  p.set("embed", "1");
+  if (el("embed-static-opt").checked) p.set("interactive", "0");
+  if (el("embed-white-opt").checked) p.set("theme", "white");
+  const url = location.origin + location.pathname + "?" + p.toString();
+  const t = jstParts(state.ms);
+  const title = `${t.y}年${t.mo}月${t.d}日 ${p2(t.hh)}:${p2(t.mm)} ${SITE.name}の星空 — voyager6.net`;
+  return `<iframe src="${url}"\n  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"\n  title="${title}"></iframe>`;
+}
+function refreshEmbedCode() { el("embed-code").value = embedSnippet(); }
+for (const id of ["embed-static-opt", "embed-white-opt"]) {
+  el(id).addEventListener("change", refreshEmbedCode);
+}
+if (new URLSearchParams(location.search).get("embed_ui") === "1") {
+  el("embed-panel").hidden = false;      // 静かな公開の間の確認用
+}
+el("embed-panel").addEventListener("toggle", () => {
+  if (el("embed-panel").open) refreshEmbedCode();
+});
+el("btn-embed").addEventListener("click", async () => {
+  refreshEmbedCode();
+  const code = el("embed-code").value;
+  const note = el("embed-note");
+  try {
+    await navigator.clipboard.writeText(code);
+    note.textContent = "コピーしました";
+  } catch (e) {
+    el("embed-code").select();          // 権限がない環境では手で選べる状態にする
+    note.textContent = "下の枠をコピーしてください";
+  }
+  setTimeout(() => { note.textContent = ""; }, 2600);
+});
 
 /* ---- 操作シートの開閉 (UI整理 F1) ----
    シートは盤面に重なるだけで #panel の高さを変えないので、開閉で resize() は起きない。 */

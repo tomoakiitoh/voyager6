@@ -202,6 +202,36 @@ body.night { filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(5) bright
 /* ---- 操作シート (UI整理 F1) ----
    広い画面では従来どおり操作系を全部出す。開閉ボタンとシート内クレジットはスマホ専用。 */
 #sheet-toggle, #sheet-credits { display: none; }
+
+/* 埋め込みコードの表示欄 (読むためでなく、コピーに失敗したとき手で選ぶための保険) */
+#embed-code {
+  width: 100%; resize: vertical;
+  background: #0d1424; color: var(--dim); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---- 埋め込み (?embed=1) ----
+   他人のページの中で動くので、出すのは「空」と小さなクレジットバッジだけにする。 */
+#embed-badge { display: none; }
+body.embed { background: #05070d; }
+body.embed #site-header,
+body.embed #site-footer,
+body.embed #panel { display: none; }
+body.embed #sky-wrap { padding: 0; }
+body.embed #embed-badge {
+  display: block; position: fixed; right: 8px; bottom: 8px; z-index: 20;
+  padding: 4px 9px; border-radius: 999px;
+  background: rgba(10, 16, 30, 0.72); color: #cfe0ff; text-decoration: none;
+  font-size: 11px; letter-spacing: 0.03em; border: 1px solid rgba(120, 160, 220, 0.35);
+}
+body.embed #embed-badge:hover { color: #fff; border-color: var(--accent); }
+/* 表示専用: 指の操作を奪わない (埋め込み先のページスクロールが引っかからないように) */
+body.embed-static #sky { pointer-events: none; touch-action: auto; }
+/* 白地テーマ (明るい紙面のブログ向け) */
+body.embed-white { background: #fff; }
+body.embed-white #embed-badge {
+  background: rgba(255, 255, 255, 0.85); color: #17325e; border-color: #b9cae6;
+}
 /* 望遠鏡モード専用の行。中身が全部 hidden のときは行ごと畳む (空の行が余白を作らないように) */
 #scope-row:not(:has(> *:not([hidden]))) { display: none; }
 

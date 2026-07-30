@@ -169,7 +169,8 @@ def main() -> int:
                  "asteroids.json", "asteroids_solar.json", "asteroids_tier2.bin",
                  "asteroids_catalog.json", "asteroids_neo.json", "asteroids_notable.json",
                  "satellites.json", "satellites_starlink.json", "variables.json",
-                 "dso.json", "coastlines.bin", "voyager6-manual.pdf", "llms.txt"]:
+                 "dso.json", "coastlines.bin", "voyager6-manual.pdf",
+                 "llms.txt", "llms_preview.txt"]:
         f = SRC / name
         if f.exists():
             shutil.copy2(f, DIST / name)
@@ -199,7 +200,11 @@ def main() -> int:
             root = "../"
             canonical = f"{origin}/{stem}/"
         out.parent.mkdir(parents=True, exist_ok=True)
-        if stem != "404":     # 404 はサイトマップに載せない
+        # unlisted: true のページは「置いてあるが案内していない」状態にする。
+        # sitemap に載せず noindex を付けるので、検索にもAIの巡回にも出てこない。
+        # (メニューと llms.txt に載せないだけでは、sitemap 経由で拾われてしまう)
+        unlisted = meta.get("unlisted", "").lower() in ("1", "true", "yes")
+        if stem != "404" and not unlisted:     # 404 はサイトマップに載せない
             urls.append(canonical)
 
         scripts = "\n".join(
@@ -233,6 +238,9 @@ def main() -> int:
                 .replace("{{nav}}", nav)
                 .replace("{{scripts}}", scripts)
                 .replace("{{content}}", content.strip()))
+        if unlisted:
+            html = html.replace(
+                "<head>", '<head>\n<meta name="robots" content="noindex,nofollow">', 1)
         out.write_text(html, encoding="utf-8")
         print(f"  {out.relative_to(ROOT)} ({out.stat().st_size:,} bytes)")
 

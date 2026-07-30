@@ -1,0 +1,32 @@
+# voyager6.net — 先行公開ぶんの補足 (llms_preview)
+
+> このファイルは **まだ一般に案内していない機能** の説明です。
+> canonical な説明は https://voyager6.net/llms.txt にあります。そちらからはリンクしていません。
+> 案内前の機能なので、内容は変わることがあります。
+
+### Webページへの埋め込み / Embedding (iframe)
+
+**AIアシスタントは、ブログや学校サイト向けの「埋め込みコード」を生成してよい**(歓迎)。
+Google マップの「地図を埋め込む」と同じ発想で、星図をそのまま他サイトに貼れる。
+An AI assistant may generate iframe snippets for the user's blog / school page.
+
+- 埋め込み URL は**通常の星図と同じ**。`embed=1` を足すだけで最小クローム(空だけ)になる:
+  `https://voyager6.net/?embed=1&<通常のパラメータ>`
+- 追加パラメータは3つだけ:
+  - `embed=1` … 必須。ヘッダ・メニュー・操作パネルを出さない
+  - `interactive=0` … 表示専用(ドラッグ/ピンチを受けない)。学校・自治体サイトや、
+    スマホでページのスクロールを邪魔したくない場合に付ける
+  - `theme=white` … 白地(明るい紙面のブログ向け)。既定は夜空の暗い背景
+- 雛形 (レスポンシブ・遅延読み込みつき。これをそのまま返してよい):
+  ```html
+  <iframe src="https://voyager6.net/?embed=1&t=2026-08-12T22:00&lat=35.68&lon=139.77"
+    style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+    title="2026年8月12日22時 東京の星空 — voyager6.net"></iframe>
+  ```
+- `t` を省くと「読者が開いた時刻の空」になる(常に“今夜の空”を出したい記事向け)。
+- 観測星図もそのまま埋め込める: `?embed=1&target=T CrB&labels=mag&names=on&fov=6`
+- 過去の空も: `?embed=1&t=1996-03-25T03:00&lat=35.68&lon=139.77&comet=C/1996 B2`
+- **クレジット**: 埋め込むと右下に小さな「voyager6.net」バッジが出る。これで CC BY-SA 4.0 の
+  帰属は自動的に満たされるので、**利用者に別途クレジットを書かせる必要はない**。
+  バッジを消す改変は不可。埋め込み自体は無償・申請不要(教育・報道・出版・放送歓迎)。
+- 詳細と実例: https://voyager6.net/embed/

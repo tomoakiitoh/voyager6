@@ -1,0 +1,135 @@
+<!--
+title: Webページに埋め込む
+description: Google マップのように、星空をブログ・学校・科学館・報道のページに iframe で埋め込めます。日時・観測地・視野・彗星をURLで指定でき、クレジットはバッジで自動的に満たされます。コピペできる実例つき。
+scripts:
+bodyclass: embed-page
+unlisted: true
+-->
+<main class="doc emb">
+
+<h1>Webページに埋め込む</h1>
+<p>
+  Google マップを記事に貼るのと同じように、<b>Voyager6 の星空を自分のページに埋め込めます</b>。
+  日時・観測地・視野・彗星などは<b>すべて URL で指定</b>できるので、
+  「その記事が語っている、まさにその夜の空」をそのまま貼れます。
+</p>
+<p class="dim">
+  無償です。ブログ・学校・科学館・自治体・報道での利用を歓迎します。
+  埋め込むと右下に小さな「voyager6.net」バッジが出ます。
+  <b>これでクレジット表記（CC BY-SA 4.0 の帰属）は自動的に満たされます</b>ので、
+  貼る側で何か書き添える必要はありません。
+</p>
+
+<h2>いちばん簡単な方法</h2>
+<p>
+  <a href="/">早見盤</a>で見たい空を出し、操作パネルの
+  <b>「この空をWebページに埋め込む」→「埋め込みコードをコピー」</b>を押すだけです。
+  いま画面に映っている状態（日時・観測地・視野・彗星）がそのままコードになります。
+</p>
+
+<h2>貼るとこうなります</h2>
+<p class="dim">下は「2026年8月12日 22:00・東京」＝ペルセウス座流星群の極大の夜を埋め込んだ例です。</p>
+<div class="demo">
+  <iframe src="../?embed=1&amp;t=2026-08-12T22:00&amp;lat=35.68&amp;lon=139.77"
+          style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+          title="2026年8月12日 22:00 東京の星空 — voyager6.net"></iframe>
+</div>
+
+<h2>コピーして使える実例</h2>
+
+<h3>今夜の東京の空</h3>
+<p class="dim"><code>t</code> を消すと「開いた時刻の空」になります。読者がいつ見ても“今の空”です。</p>
+<div class="pbox"><code class="ptext">&lt;iframe src="https://voyager6.net/?embed=1&amp;lat=35.68&amp;lon=139.77"
+  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+  title="今夜の東京の星空 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
+
+<h3>特定の夜（ペルセウス座流星群の極大）</h3>
+<div class="pbox"><code class="ptext">&lt;iframe src="https://voyager6.net/?embed=1&amp;t=2026-08-12T22:00&amp;lat=35.68&amp;lon=139.77"
+  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+  title="2026年8月12日22時 東京の星空 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
+
+<h3>白地・表示専用（学校・自治体のページ向け）</h3>
+<p class="dim">
+  <code>theme=white</code> で明るい紙面に馴染む白地に、<code>interactive=0</code> で
+  <b>指の操作を奪わない</b>表示専用になります（スマホでページのスクロールが引っかかりません）。
+</p>
+<div class="pbox"><code class="ptext">&lt;iframe src="https://voyager6.net/?embed=1&amp;interactive=0&amp;theme=white&amp;t=2026-08-12T22:00&amp;lat=35.68&amp;lon=139.77"
+  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+  title="2026年8月12日22時 東京の星空 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
+
+<h3>観測星図（変光星の会報・彗星の記事に）</h3>
+<p class="dim">比較星の等級つきチャートも、そのまま埋め込めます。</p>
+<div class="pbox"><code class="ptext">&lt;iframe src="https://voyager6.net/?embed=1&amp;target=T CrB&amp;labels=mag&amp;names=on&amp;fov=6"
+  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+  title="T CrB の観測星図 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
+
+<h3>過去の空（1996年の百武彗星）</h3>
+<div class="pbox"><code class="ptext">&lt;iframe src="https://voyager6.net/?embed=1&amp;t=1996-03-25T03:00&amp;lat=35.68&amp;lon=139.77&amp;comet=C/1996 B2"
+  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+  title="1996年3月25日 百武彗星の空 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
+
+<h2>AI に作らせる</h2>
+<p>
+  URL の仕様を覚える必要はありません。AI にこう頼めば、埋め込みコードが返ってきます。
+</p>
+<div class="pbox"><code class="ptext">https://voyager6.net/llms.txt を読んで、今夜の東京の星空をブログに埋め込む iframe のコードを作ってください。</code><button class="copybtn" type="button">コピー</button></div>
+<p class="dim">ほかの頼み方は <a href="/ask/">AIに聞いてみる</a> にまとめてあります。</p>
+
+<h2>埋め込み用のパラメータ</h2>
+<table>
+  <tr><th>パラメータ</th><th>意味</th></tr>
+  <tr><td><code>embed=1</code></td><td>埋め込みモード。ヘッダ・メニュー・操作パネルを出さず、空だけを表示します（必須）</td></tr>
+  <tr><td><code>interactive=0</code></td><td>表示専用。ドラッグやピンチを受け付けません（既定は操作できる <code>1</code>）</td></tr>
+  <tr><td><code>theme=white</code></td><td>白地。明るいページに馴染ませたいときに（既定は夜空の暗い背景）</td></tr>
+</table>
+<p class="dim">
+  日時 <code>t</code>・観測地 <code>lat</code>/<code>lon</code>・視野 <code>fov</code>・
+  目標天体 <code>target</code>・彗星 <code>comet</code> など、
+  <b>ほかのパラメータは通常の星図とまったく同じ</b>です。
+  一覧は <a href="/docs/">URLパラメータ仕様</a> にあります。
+</p>
+
+<h2>ご利用にあたって</h2>
+<ul class="notes">
+  <li>埋め込みは<b>無償・申請不要</b>です。教育・報道・出版・放送での利用を歓迎します。</li>
+  <li>クレジットは<b>バッジで自動的に満たされます</b>。バッジを消す改変はご遠慮ください（帰属表示にあたるためです）。</li>
+  <li>バッジを押すと、<b>同じ空が本体サイトで開きます</b>。読者はそこから日時を動かしたり、望遠鏡の視野で見たりできます。</li>
+  <li><code>loading="lazy"</code> を付けておくと、読者がその位置までスクロールするまで読み込まれず、記事の表示が軽くなります（上の実例には入れてあります）。</li>
+  <li>星の位置は JPL Horizons と照合済みです。彗星・小惑星は接触軌道要素による概略です。詳しくは <a href="/credits/">出典とライセンス</a> をご覧ください。</li>
+</ul>
+
+</main>
+
+<style>
+  .emb .pbox { display: flex; gap: 8px; align-items: stretch; margin: 8px 0;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .emb .ptext { flex: 1; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #dbe4f7; word-break: break-all; white-space: pre-wrap; align-self: center; }
+  .emb .copybtn { flex: 0 0 auto; align-self: center; background: #23407a; border: 1px solid #35589c;
+    color: #e6eeff; border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .emb .copybtn:hover { background: #2b4c90; }
+  .emb .copybtn.done { background: #2f7a4a; border-color: #3c9c5e; }
+  .emb h2 { margin-top: 30px; }
+  .emb h3 { font-size: 14px; margin: 22px 0 6px; color: #cfe0ff; }
+  .emb .demo { margin: 12px 0 4px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .emb .notes { line-height: 1.9; }
+</style>
+
+<script>
+"use strict";
+document.querySelectorAll(".copybtn").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const node = btn.parentElement.querySelector(".ptext");
+    try {
+      await navigator.clipboard.writeText(node.textContent);
+    } catch (e) {
+      const r = document.createRange();          // クリップボード不可の環境は選択にフォールバック
+      r.selectNodeContents(node);
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    }
+    const old = btn.textContent;
+    btn.textContent = "コピーしました"; btn.classList.add("done");
+    setTimeout(() => { btn.textContent = old; btn.classList.remove("done"); }, 1400);
+  });
+});
+</script>
