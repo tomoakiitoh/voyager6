@@ -1,7 +1,7 @@
 <!--
 title: 変光星カタログ
-description: 肉眼〜双眼鏡で楽しめる著名な変光星の一覧。ミラ・アルゴル・T CrB など。カードから比較星の等級つき観測星図をワンタップで開ける。
-scripts:
+description: 眼視〜双眼鏡で追える変光星 約3,600個。今夜見えるもの・ミラ型の極大予報（誤差つき）で絞り込み、カードから比較星の等級つき観測星図をワンタップで開ける。
+scripts: astro.js sites.js
 bodyclass: vars-page
 -->
 <main class="doc vars">
@@ -10,22 +10,62 @@ bodyclass: vars-page
 <p>
   変光星は、明るさが時間とともに変わる星です。理由はさまざまで——
   ふくらんだり縮んだりする<b>脈動</b>、たがいに隠しあう連星の<b>食（しょく）</b>、
-  ときに<b>爆発</b>するものまで。ここでは肉眼〜双眼鏡で追える著名なものを集めました。
+  ときに<b>爆発</b>するものまで。ここでは眼視〜双眼鏡で追えるものを集めました。
 </p>
 <p class="dim">
-  各カードの「観測星図を出す」を押すと、まわりの<b>比較星に等級を書き込んだチャート</b>が開きます
+  各カードの「観測星図」を押すと、まわりの<b>比較星に等級を書き込んだチャート</b>が開きます
   （印刷もできます）。数字は小数点を省いた等級（<b>84 = 8.4 等</b>）＝変光星観測の伝統的な表記です。
-  星の等級はカタログ値（チャート用の目安）なので、正式な測光・報告には
-  <a href="https://www.aavso.org/vsp">AAVSO VSP</a> の較正済み比較星をご使用ください。
+  星の等級はカタログ値（チャート用の目安）なので、<b>正式な測光・報告には
+  <a href="https://www.aavso.org/vsp">AAVSO VSP</a></b> の較正済み比較星をご使用ください
+  （各カードから直接開けます）。
 </p>
 
+<div class="vctl">
+  <input type="search" id="q" placeholder="星の名前・星座で絞り込み（例: Mira, Cyg, R Leo）" autocomplete="off">
+  <label class="vchk"><input type="checkbox" id="tonight">今夜見える</label>
+  <label class="vchk"><input type="checkbox" id="peak">極大が近い</label>
+  <label class="info">観測地 <select id="site"></select></label>
+</div>
+<div class="vchips" id="chips"></div>
+<p class="vcount" id="count">読み込み中…</p>
+
 <div id="list" class="vlist"></div>
+<p class="vmore"><button id="more" hidden>もっと見る</button></p>
+
+<h2>この一覧について</h2>
+<ul class="notes">
+  <li><b>収録</b>: GCVS（変光星総合カタログ）から、<b>V等級で最大10等より明るい</b>変光星
+    約3,600個。うち23個は解説つきの著名星です。
+    <span class="dim">GCVS には赤外線や写真の等級も混在するため、眼視の目安になる V 等級のものだけを採っています。</span></li>
+  <li><b>「今夜見える」</b>: 選んだ観測地で、今夜の暗い時間帯（薄明が終わってから）に
+    <b>高度20°以上</b>になるものを抽出します。</li>
+  <li><b>「極大が近い」</b>: ミラ型について、GCVS の元期と周期から次の極大を計算します。
+    <b>これは目安です</b>——元期が古い星ほど外挿の誤差が積み上がるので、
+    <b>星ごとに誤差を計算して併記</b>し、誤差が大きすぎる星には予報を出しません（周期だけ示します）。
+    実際の光度は <a href="https://www.aavso.org/vsp">AAVSO</a> をご覧ください。</li>
+</ul>
 
 </main>
 
 <style>
-  .vars .vlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 12px; margin: 18px 0; }
+  /* 数千件のカードを並べるので、このページだけ本文幅を広げる (他の文書ページは 760px のまま) */
+  .doc.vars { max-width: 1100px; }
+  .vars .vctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 18px 0 10px; }
+  .vars .vctl #q { flex: 1 1 260px; min-width: 200px; background: #0d1424; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font: inherit; font-size: 14px; }
+  .vars .vchk { display: inline-flex; align-items: center; gap: 6px; background: #131b30;
+    border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; font-size: 13px;
+    color: var(--dim); cursor: pointer; white-space: nowrap; }
+  .vars .vchk:has(input:checked) { color: var(--fg); border-color: #35589c; background: #17233f; }
+  .vars .vctl select { background: #17203a; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px; }
+  .vars .vchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .vars .chip { background: #131b30; border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 11px; font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; }
+  .vars .chip.on { color: #e6eeff; border-color: #35589c; background: #23407a; }
+  .vars .vcount { color: var(--dim); font-size: 13px; margin: 4px 0 0; }
+  .vars .vlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+    gap: 12px; margin: 14px 0; }
   .vars .vcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
     background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
   .vars .vname { font-size: 16px; font-weight: 700; color: #e6eeff; }
@@ -34,47 +74,237 @@ bodyclass: vars-page
   .vars .vmag { font-size: 13px; color: var(--fg); font-variant-numeric: tabular-nums; }
   .vars .vper { color: var(--dim); margin-left: 8px; }
   .vars .vnote { font-size: 13px; color: var(--dim); line-height: 1.6; flex: 1; }
-  .vars .vbtn { align-self: flex-start; margin-top: 2px; background: #23407a; border: 1px solid #35589c;
-    color: #e6eeff; border-radius: 7px; padding: 7px 13px; font-size: 13px; text-decoration: none; }
+  .vars .vpeak { font-size: 12px; line-height: 1.6; color: #cfe0ff; background: #16243d;
+    border: 1px solid #26406e; border-radius: 7px; padding: 6px 9px; }
+  .vars .vpeak .err { color: var(--dim); }
+  .vars .vtn { font-size: 12px; color: #8fd3ff; }
+  .vars .vlinks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+  .vars .vbtn { background: #23407a; border: 1px solid #35589c; color: #e6eeff;
+    border-radius: 7px; padding: 7px 13px; font-size: 13px; text-decoration: none; }
   .vars .vbtn:hover { background: #2b4c90; }
+  .vars .vbtn.sub { background: transparent; border-color: var(--line); color: var(--dim); }
+  .vars .vbtn.sub:hover { color: var(--fg); border-color: #35589c; }
+  .vars .vmore { text-align: center; margin: 6px 0 0; }
+  .vars .vmore button { background: #17203a; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 22px; font: inherit; font-size: 14px; cursor: pointer; }
+  .vars .notes { line-height: 1.9; }
 </style>
 
 <script>
 "use strict";
-// 型コード(GCVS)を専門用語に不慣れでも分かる和名に。
+// astro.js: julianDay / jdFromDate / raDecToVec / skyMatrix / applySky / sunPosition
+// sites.js: SITE_GROUPS / loadSite / saveSite / fillSiteSelect
+
 const TYPE_JA = {
-  M: "ミラ型（脈動・長周期）", EA: "アルゴル型（食変光）", EB: "こと座β型（食変光）",
-  DCEP: "セファイド（脈動）", NR: "再帰新星（突発）", RCB: "かんむり座R型（不規則な減光）",
-  SRC: "半規則型（赤色超巨星）", GCAS: "カシオペヤ座γ型（Be星）", LC: "低速不規則型",
-  RRAB: "こと座RR型（脈動）", UGSS: "矮新星（突発）", RVA: "RVタウリ型（脈動）",
+  M: "ミラ型（脈動・長周期）", SR: "半規則型（脈動）", SRA: "半規則型（脈動）",
+  SRB: "半規則型（脈動）", SRC: "半規則型（赤色超巨星）", SRD: "半規則型（脈動）",
+  EA: "アルゴル型（食変光）", EB: "こと座β型（食変光）", EW: "おおぐま座W型（食変光）",
+  DCEP: "セファイド（脈動）", DCEPS: "セファイド（脈動）", CEP: "セファイド（脈動）",
+  CW: "こと座W型（脈動）", RRAB: "こと座RR型（脈動）", RRC: "こと座RR型（脈動）",
+  NR: "再帰新星（突発）", N: "新星（突発）", NA: "新星（突発）", NB: "新星（突発）",
+  UG: "矮新星（突発）", UGSS: "矮新星（突発）", UGSU: "矮新星（突発）", UGZ: "矮新星（突発）",
+  RCB: "かんむり座R型（不規則な減光）", GCAS: "カシオペヤ座γ型（Be星）",
+  LB: "低速不規則型", LC: "低速不規則型", RVA: "RVタウリ型（脈動）", RVB: "RVタウリ型（脈動）",
   SDOR: "高光度青色変光星（LBV）",
 };
+// 絞り込みチップ。GCVS の細かい型をこの大きな分類にまとめる。
+const isEclipse = (t) => t === "EA" || t === "EB" || t === "EW";
+const isCep = (t) => t.startsWith("DCEP") || t === "CEP" || t.startsWith("CW");
+const FAMILIES = [
+  ["ミラ型", (t) => t === "M"],
+  ["半規則", (t) => t.startsWith("SR")],
+  ["食変光", isEclipse],
+  ["セファイド", isCep],
+  ["こと座RR型", (t) => t.startsWith("RR")],
+  ["新星・矮新星", (t) => t.startsWith("N") || t.startsWith("UG")],
+  ["その他", (t) => !(t === "M" || t.startsWith("SR") || isEclipse(t) || isCep(t)
+    || t.startsWith("RR") || t.startsWith("N") || t.startsWith("UG"))],
+];
+const mainType = (t) => t.split("/")[0].split("+")[0].trim().replace(/:$/, "");
+
 const GREEK_WORD = { alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε",
   zeta: "ζ", eta: "η", theta: "θ", iota: "ι", kappa: "κ", lambda: "λ", mu: "μ",
-  nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ", sigma: "σ", tau: "τ", chi: "χ", omega: "ω" };
-// "delta Cep" → "δ Cep"、固有名/変光星符号はそのまま
+  nu: "ν", xi: "ξ", omicron: "ο", pi: "π", rho: "ρ", sigma: "σ", tau: "τ", chi: "χ", omega: "ω",
+  // GCVS の独自略号
+  alf: "α", bet: "β", gam: "γ", del: "δ", eps: "ε", zet: "ζ", the: "θ", iot: "ι",
+  kap: "κ", lam: "λ", omi: "ο", sig: "σ", ups: "υ", khi: "χ", ome: "ω", psi: "ψ", phi: "φ" };
+/** "delta Cep"/"alf Ori"/"mu. Cep" → "δ Cep"。符号星(R Leo, V1405 Cas)はそのまま。 */
 function displayName(name) {
-  const m = name.match(/^([a-z]+)\s+(.+)$/i);
-  if (m && GREEK_WORD[m[1].toLowerCase()]) return `${GREEK_WORD[m[1].toLowerCase()]} ${m[2]}`;
+  const m = name.match(/^([A-Za-z]+)\.?\s*(\d*)\s+(\w+)$/);
+  if (m) {
+    const g = GREEK_WORD[m[1].toLowerCase()];
+    if (g) return `${g}${m[2]} ${m[3]}`;
+  }
   return name;
 }
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const normKey = (s) => String(s || "").trim().toLowerCase().replace(/[\s\-_.]+/g, "");
 
-fetch("../variables.json").then((r) => r.json()).then((data) => {
-  // 明るい順(最大光度の明るいもの=肉眼向けを先頭に)
-  data.sort((a, b) => a[4] - b[4]);
-  const list = document.getElementById("list");
-  list.innerHTML = data.map(([name, ra, dec, type, magMax, magMin, period, note]) => {
-    const per = period ? `周期 ${period >= 400 ? (period / 365).toFixed(1) + "年" : period + "日"}` : "不規則";
-    const url = `../?target=${encodeURIComponent(name)}&labels=mag&names=on&fov=6`;
-    return `<div class="vcard">
-      <div class="vname">${esc(displayName(name))}<span class="vtype">${esc(TYPE_JA[type] || type)}</span></div>
-      <div class="vmag">約 ${magMax} 〜 ${magMin} 等<span class="vper">${per}</span></div>
-      <div class="vnote">${esc(note)}</div>
-      <a class="vbtn" href="${url}">観測星図を出す →</a>
-    </div>`;
-  }).join("");
-}).catch(() => {
-  document.getElementById("list").innerHTML = '<p class="dim">変光星データを読み込めませんでした。</p>';
+/* ---- 極大の予報 (ミラ型) ----
+   GCVS の元期・周期から次の極大を出すが、元期が古い星ほど「周期の誤差 × 経過周期数」が
+   積み上がる。VSX の現代元期と突き合わせた実測では R Leo で186日ずれた。
+   そこで星ごとに誤差を見積もり、大きすぎるものには予報を出さない。
+     σ ≒ √( (経過周期数 × 周期 × 0.3%)² + 25² )   25日 = 極大時刻そのもののばらつき
+   0.3% は GCVS と VSX の周期差の実測中央値。 */
+const PEAK_SIGMA_LIMIT = 45;     // これより誤差が大きい星は予報しない [日]
+function peakForecast(period, epoch, jdNow) {
+  if (!period || !epoch || period <= 0) return null;
+  const ep = epoch + 2400000;
+  const n = Math.ceil((jdNow - ep) / period);
+  if (n < 0) return null;
+  const next = ep + n * period;
+  const sigma = Math.hypot(n * period * 0.003, 25);
+  return { jd: next, days: Math.round(next - jdNow), sigma: Math.round(sigma), cycles: n };
+}
+function jdToDate(jd) { return new Date((jd - 2440587.5) * 86400000); }
+function fmtMonthish(d) {
+  const day = d.getUTCDate();
+  const ten = day <= 10 ? "上旬" : day <= 20 ? "中旬" : "下旬";
+  return `${d.getUTCFullYear()}年${d.getUTCMonth() + 1}月${ten}`;
+}
+
+/* ---- 今夜の見え方 ----
+   今日の正午から翌正午までを30分刻みでたどり、太陽高度が −12°(航海薄明)より下の時間帯だけを
+   集めて、その星が届く最高高度を返す。20°以上なら「今夜見える」。 */
+function tonightWindow(s) {
+  const start = new Date(); start.setHours(12, 0, 0, 0);
+  const out = [];
+  for (let i = 0; i <= 48; i++) {
+    const t = new Date(start.getTime() + i * 30 * 60000);
+    const jd = jdFromDate(t);
+    const M = skyMatrix(jd, s.lat, s.lon);
+    const sun = sunPosition(jd);
+    const sh = applySky(M, raDecToVec(sun.ra, sun.dec));
+    if (Math.asin(Math.max(-1, Math.min(1, sh.u))) * 180 / Math.PI < -12) out.push(M);
+  }
+  return out;
+}
+function maxAltitude(mm, ra, dec) {
+  const v = raDecToVec(ra, dec);
+  let best = -90;
+  for (const M of mm) {
+    const h = applySky(M, v);
+    const alt = Math.asin(Math.max(-1, Math.min(1, h.u))) * 180 / Math.PI;
+    if (alt > best) best = alt;
+  }
+  return best;
+}
+
+// ---- 状態 ----
+let ALL = [];                     // 統合済みカタログ
+let site = loadSite();
+let mats = [];                    // 今夜の暗い時間帯の変換行列
+const active = new Set();         // 選ばれている型チップ
+let shown = 60;                   // 段階表示
+
+const el = (id) => document.getElementById(id);
+
+Promise.all([
+  fetch("../variables.json").then((r) => r.json()).catch(() => []),
+  fetch("../variables_all.json").then((r) => r.json()).catch(() => []),
+]).then(([named, all]) => {
+  // 著名版 (解説つき) を優先し、拡張側の重複は落とす。元期だけは拾っておく
+  const seen = new Map();
+  for (const [name, ra, dec, type, mx, mn, per, note] of named) {
+    seen.set(normKey(name), { name, ra, dec, type, mx, mn, per, note, epoch: null, star: true });
+  }
+  for (const [name, ra, dec, type, mx, mn, per, epoch] of all) {
+    const k = normKey(name);
+    if (seen.has(k)) { const o = seen.get(k); if (o.epoch == null) { o.epoch = epoch; if (!o.per) o.per = per; } continue; }
+    seen.set(k, { name, ra, dec, type, mx, mn, per, note: "", epoch, star: false });
+  }
+  ALL = [...seen.values()].sort((a, b) => (Number(b.star) - Number(a.star)) || (a.mx - b.mx));
+  buildChips();
+  fillSiteSelect(el("site"), site);
+  mats = tonightWindow(site);
+  render();
+}).catch(() => { el("count").textContent = "変光星データを読み込めませんでした。"; });
+
+function buildChips() {
+  el("chips").innerHTML = FAMILIES.map(([label]) =>
+    `<span class="chip" data-f="${esc(label)}">${esc(label)}</span>`).join("");
+  el("chips").addEventListener("click", (e) => {
+    const c = e.target.closest(".chip"); if (!c) return;
+    const f = c.dataset.f;
+    if (active.has(f)) { active.delete(f); c.classList.remove("on"); }
+    else { active.add(f); c.classList.add("on"); }
+    shown = 60; render();
+  });
+}
+
+function filtered() {
+  const q = normKey(el("q").value);
+  const jd = jdFromDate(new Date());
+  const wantTonight = el("tonight").checked;
+  const wantPeak = el("peak").checked;
+  const out = [];
+  for (const v of ALL) {
+    if (q && !(normKey(v.name).includes(q) || normKey(displayName(v.name)).includes(q))) continue;
+    const t = mainType(v.type);
+    if (active.size) {
+      const fam = FAMILIES.find(([, test]) => test(t));
+      if (!fam || !active.has(fam[0])) continue;
+    }
+    v._alt = mats.length ? maxAltitude(mats, v.ra, v.dec) : null;
+    if (wantTonight && !(v._alt >= 20)) continue;
+    v._peak = (t === "M") ? peakForecast(v.per, v.epoch, jd) : null;
+    if (v._peak && v._peak.sigma > PEAK_SIGMA_LIMIT) v._peak = null;
+    if (wantPeak && !(v._peak && Math.abs(v._peak.days) <= 60)) continue;
+    out.push(v);
+  }
+  if (wantPeak) out.sort((a, b) => Math.abs(a._peak.days) - Math.abs(b._peak.days));
+  else if (wantTonight) out.sort((a, b) => (b._alt - a._alt) || (a.mx - b.mx));
+  return out;
+}
+
+function card(v) {
+  const per = v.per
+    ? `周期 ${v.per >= 400 ? (v.per / 365).toFixed(1) + "年" : Math.round(v.per) + "日"}`
+    : "不規則";
+  const chart = `../?target=${encodeURIComponent(v.name)}&labels=mag&names=on&fov=6`;
+  const vsp = `https://apps.aavso.org/vsp/chart/?star=${encodeURIComponent(v.name)}`
+            + `&scale=C&orientation=visual&type=chart`;
+  const mn = (v.mn == null) ? "?" : v.mn;
+  let peak = "";
+  if (v._peak) {
+    const d = jdToDate(v._peak.jd);
+    peak = `<div class="vpeak">次の極大 <b>${fmtMonthish(d)}ごろ</b>`
+         + `<span class="err">（±約${v._peak.sigma}日・GCVS元期から${v._peak.cycles}周期の外挿）</span></div>`;
+  }
+  const tn = (v._alt != null && v._alt >= 20)
+    ? `<div class="vtn">今夜 最高高度 約${Math.round(v._alt)}°</div>` : "";
+  return `<div class="vcard">
+    <div class="vname">${esc(displayName(v.name))}<span class="vtype">${
+      esc(TYPE_JA[mainType(v.type)] || v.type)}</span></div>
+    <div class="vmag">約 ${v.mx} 〜 ${mn} 等<span class="vper">${per}</span></div>
+    ${peak}${tn}
+    ${v.note ? `<div class="vnote">${esc(v.note)}</div>` : ""}
+    <div class="vlinks">
+      <a class="vbtn" href="${chart}">観測星図</a>
+      <a class="vbtn sub" href="${vsp}" target="_blank" rel="noopener">AAVSO VSP</a>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const list = filtered();
+  el("count").textContent = `${list.length.toLocaleString()} 個`
+    + (list.length > shown ? `（${shown} 個を表示中）` : "");
+  el("list").innerHTML = list.slice(0, shown).map(card).join("");
+  el("more").hidden = list.length <= shown;
+}
+
+el("q").addEventListener("input", () => { shown = 60; render(); });
+for (const id of ["tonight", "peak"]) el(id).addEventListener("change", () => { shown = 60; render(); });
+el("more").addEventListener("click", () => { shown += 120; render(); });
+el("site").addEventListener("change", () => {
+  const [lat, lon] = String(el("site").value).split(",").map(Number);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    site = { name: el("site").selectedOptions[0].textContent, lat, lon };
+    saveSite(site);
+    mats = tonightWindow(site);
+    render();
+  }
 });
 </script>
