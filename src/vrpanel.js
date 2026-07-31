@@ -69,6 +69,7 @@ export class VrPanel {
     this._ray = new THREE.Raycaster();
     this._m4 = new THREE.Matrix4();
     this._lastStatus = null;
+    this._notice = null;   // 移動待ちなどの一時的な知らせ (ステータス帯を横取りする)
 
     this.cols = this.rows.length >= COL_AT ? 2 : 1;
     this.perCol = Math.ceil(this.rows.length / this.cols);
@@ -247,10 +248,42 @@ export class VrPanel {
   activate(i) {
     const r = this.rows[i];
     if (!r) return;
-    if (r.go) { location.href = r.go(); return; }   // 三部作の行き来 (下の注記を読むこと)
+    if (r.go) { this._goto(r.go()); return; }        // 三部作の行き来 (下の _goto を読むこと)
     const e = this.el(r.id || r.act);
     if (e) e.click();                            // 既存のハンドラをそのまま動かす
     this.draw();
+  }
+
+  /* 別ページへ移る。順番が大事で、**必ず先に VR を閉じてから** location を変える。
+     没入セッションに入ったまま遷移すると、Quest ではブラウザの板が戻らないまま
+     読み込み待ちになり、何もない空間に取り残される (実機で確認)。
+     先に閉じておけば、板の中に今のページが見えたまま次のページに切り替わる。
+
+     さらに、行き先の先読みが終わっていなければ**VRの中で待つ**。
+     待ち時間そのものは回線ぶんだけ必ずかかるが、何も無い空間で待つのと、
+     見るものがある空間で「読み込み中」と出たまま待つのとでは意味が違う。 */
+  async _goto(url) {
+    const path = new URL(url, location.href).pathname;
+    const st = prefetching.get(path);
+    if (st) {
+      let waiting = true;
+      const tick = () => {                       // 量が増えるのが見えれば「動いている」と分かる
+        if (!waiting) return;
+        this._notice = "移動先を読み込んでいます\n" + st.mb.toFixed(1) + " MB";
+        setTimeout(tick, 200);
+      };
+      tick();
+      await Promise.race([st.done, new Promise((r) => setTimeout(r, 20000))]);
+      waiting = false; this._notice = null;
+    }
+    const s = this.o.renderer.xr.getSession();
+    if (!s) { location.href = url; return; }
+    let done = false;
+    const go = () => { if (!done) { done = true; location.href = url; } };
+    s.addEventListener("end", go, { once: true });
+    // end() は selectstart の配送中に呼ばない (Quest で握り潰されることがある)
+    setTimeout(() => { try { s.end(); } catch (e) { go(); } }, 0);
+    setTimeout(go, 2000);        // 閉じられなくても取り残さない
   }
 
   // ---- コントローラ ----
@@ -281,7 +314,8 @@ export class VrPanel {
 
   /** 毎フレーム呼ぶ: レイのホバー表示とステータスの更新。 */
   update() {
-    if (this.o.status) this.drawStatus(this.o.status());
+    const st = this._notice || (this.o.status ? this.o.status() : null);
+    if (st != null) this.drawStatus(st);
     if (this.status.mesh.visible) this._followStatus();
     if (!this.o.renderer.xr.isPresenting || !this.board.mesh.visible) return;
     let h = -1;
@@ -339,6 +373,22 @@ const PREFETCH = {
   "/solar/": ["/comets_all.json", "/comets_historic.json"],
 };
 let prefetched = false;
+const prefetching = new Map();     // 行き先のパス → { done: Promise, mb: 読んだ量 }
+
+/** 本体を読み切らないと転送が完了しない。中身は捨ててよい (要るのは HTTP キャッシュ)。
+    読みながら量を数えておき、待たせるときに出す。
+    ※ 割合(%)は出さない。gzip されていると Content-Length は圧縮後、読めるのは展開後の
+      バイト数で、分母と分子の単位が違う。数えられるものだけ出す。 */
+async function fetchCounted(u, st) {
+  const res = await fetch(u);
+  if (!res.body) { await res.arrayBuffer(); return; }
+  const rd = res.body.getReader();
+  for (;;) {
+    const { done, value } = await rd.read();
+    if (done) break;
+    st.mb += value.length / 1048576;
+  }
+}
 function prefetchTargets(rows) {
   if (prefetched) return;
   prefetched = true;
@@ -348,10 +398,9 @@ function prefetchTargets(rows) {
     const l = document.createElement("link");      // ページ本体は普通の先読みでよい
     l.rel = "prefetch"; l.as = "document"; l.href = path;
     document.head.appendChild(l);
-    for (const u of PREFETCH[path] || []) {
-      // 本体を読み切らないと転送が完了しない。読んだ中身は捨ててよい (要るのはキャッシュ)
-      fetch(u).then((res) => res.arrayBuffer()).catch(() => {});
-    }
+    const st = { mb: 0 };
+    st.done = Promise.all((PREFETCH[path] || []).map((u) => fetchCounted(u, st).catch(() => {})));
+    prefetching.set(path, st);
   }
 }
 
