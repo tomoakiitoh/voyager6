@@ -35,7 +35,7 @@ bodyclass: solar-page
     <label><input type="checkbox" id="earth-starlink">Starlink網</label>
   </div>
   <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
-  <div class="row"><span class="info">VR中もコントローラで操作できます（<b>B / Y</b>で設定パネル開閉、レイで衛星を指してトリガーで選択。右スティック横＝時間送り、左スティック横＝回転・縦＝拡大縮小、A / X でリセット）。視界の下に日時と選択中の衛星がいつも出ます。</span></div>
+  <div class="row"><span class="info">VR中もコントローラで操作できます（<b>B / Y</b>で設定パネル開閉、レイで衛星を指してトリガーで選択。右スティック横＝時間送り、左スティック横＝回転・縦＝拡大縮小、A / X でリセット）。視界の下に日時と選択中の衛星がいつも出ます。<b>静止衛星</b>をONにすると静止軌道の輪の上に570機が並びます（みちびき・ひまわりには名前が出ます。みちびきは準天頂軌道なので、「日本を正面に固定」して時間を進めると日本の上空で8の字を描きます）。</span></div>
 </div>
 
 <script type="importmap">
@@ -272,7 +272,7 @@ async function loadGeo() {
     const data = await fetch("../satellites_geo.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
     for (const [name, norad, l1, l2] of data) {
       const rec = satLib.twoline2satrec(l1, l2);
-      if (!rec.error) geoRecs.push(rec);
+      if (!rec.error) geoRecs.push({ name: name.trim(), norad, satrec: rec });
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(geoRecs.length * 3), 3));
@@ -377,7 +377,7 @@ function update() {
   if (geoPoints && geoPoints.visible) {
     const pos = geoPoints.geometry.getAttribute("position");
     for (let i = 0; i < geoRecs.length; i++) {
-      const p = eciOf(geoRecs[i], date);
+      const p = eciOf(geoRecs[i].satrec, date);
       if (!p) { pos.setXYZ(i, 0, 0, 0); continue; }
       const v = toV(p); pos.setXYZ(i, v.x, v.y, v.z);
     }
@@ -624,8 +624,11 @@ function makeSatLabel(color) {
   const g = c.getContext("2d");
   const tex = new THREE.CanvasTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: tex, transparent: true, depthTest: false, depthWrite: false }));
-  sp.scale.set(2.6, 0.65, 1);       // world 単位 (地球半径6.37)。小さく、衛星のすぐ脇に
+    map: tex, transparent: true, depthTest: false, depthWrite: false,
+    sizeAttenuation: false }));     // 画面上で一定の大きさにする
+  // sizeAttenuation:false のとき scale は「画面に占める割合」。距離で大きさが変わらないので、
+  // カメラのすぐ近くに来る静止衛星 (VRでは目の前30cm) のラベルが巨大にならない。
+  sp.scale.set(0.13, 0.0325, 1);
   sp.renderOrder = 8000;
   let cur = null;
   sp.setText = (t) => {
@@ -641,6 +644,11 @@ function makeSatLabel(color) {
   world.add(sp);
   return sp;
 }
+/* 静止衛星のうち名前を出すもの。570機を全部ラベルにすると文字の壁になるので、
+   日本で知名度の高いものだけ。みちびきは静止軌道ではなく**準天頂軌道**(傾斜した静止同期軌道)で、
+   「日本を正面に固定」して時間を進めると日本の上空で8の字を描くのが見える。 */
+const GEO_LABEL = /QZS|MICHIBIKI|HIMAWARI/i;
+let geoLabels = null;
 let famousLabels = null, hoverLabel = null;
 function updateSatLabels() {
   if (!satPoints || !sats.length) return;
@@ -659,6 +667,25 @@ function updateSatLabels() {
     hoverLabel = makeSatLabel("#9fe8ff");
   }
   for (const f of famousLabels) { f.sp.setText(sats[f.i].name); at(f.sp, f.i, 0.9); }
+
+  // 静止衛星の著名機 (みちびき・ひまわり)
+  if (geoPoints && geoPoints.visible && geoRecs.length) {
+    if (!geoLabels) {
+      geoLabels = geoRecs.map((g, i) => (GEO_LABEL.test(g.name)
+        ? { i, sp: makeSatLabel("#ffb98a") } : null)).filter(Boolean);
+    }
+    const gp = geoPoints.geometry.getAttribute("position");
+    const t2 = new THREE.Vector3();
+    for (const g of geoLabels) {
+      g.sp.setText(geoRecs[g.i].name.replace(/\s*\(.*\)$/, ""));   // 括弧内の別名は省く
+      t2.set(gp.getX(g.i), gp.getY(g.i), gp.getZ(g.i));
+      const len = t2.length() || 1;
+      g.sp.position.copy(t2).multiplyScalar(1 + 0.9 / len);
+      g.sp.visible = true;
+    }
+  } else if (geoLabels) {
+    for (const g of geoLabels) g.sp.visible = false;
+  }
   // レイの先の衛星 (VR中のみ)
   let h = -1;
   if (renderer.xr.isPresenting && vrPanel.controllers.length) {
