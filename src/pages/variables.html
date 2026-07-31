@@ -154,7 +154,34 @@ const normKey = (s) => String(s || "").trim().toLowerCase().replace(/[\s\-_.]+/g
    そこで星ごとに誤差を見積もり、大きすぎるものには予報を出さない。
      σ ≒ √( (経過周期数 × 周期 × 0.3%)² + 25² )   25日 = 極大時刻そのもののばらつき
    0.3% は GCVS と VSX の周期差の実測中央値。 */
-const PEAK_SIGMA_LIMIT = 45;     // これより誤差が大きい星は予報しない [日]
+const PEAK_SIGMA_LIMIT = 45;     // ミラ型: これより誤差が大きい星は予報しない [日]
+
+/* 食変光星の極小予報。ミラ型とは事情がまったく違う:
+   食は公転=軌道力学なので周期が安定していて、GCVS も7桁で持っている
+   (脈動の周期は揺らぎ、GCVS も2桁しかない)。VSX の現代元期と突き合わせた実測では
+   U Cep 0.0時間 / RZ Cas 0.1 / λ Tau 1.3 / Algol 4.3 / β Lyr 8.6時間 のずれ。
+   周期に対する割合ではミラ型の 5〜60% に対し 3〜10% で、こちらの方がずっと当たる。
+     σ ≒ √((周期数 × 周期 × 1e-5)² + 0.02²) 日   1e-5=実測の周期誤差、0.02日=食時刻自体のばらつき
+   誤差が周期の25%を超えたら位相が分からないのと同じなので出さない (93%が通る)。 */
+const ECL_PHASE_LIMIT = 0.25;
+function minimumForecast(period, epoch, jdNow) {
+  if (!period || !epoch || period <= 0) return null;
+  const ep = epoch + 2400000;
+  const n = Math.ceil((jdNow - ep) / period);
+  if (n < 0) return null;
+  const sigma = Math.hypot(n * period * 1e-5, 0.02);      // 日
+  if (sigma / period > ECL_PHASE_LIMIT) return null;
+  return { jd: ep + n * period, sigma, cycles: n };
+}
+function fmtDateTime(d, jdAhead) {
+  const p2n = (x) => String(x).padStart(2, "0");
+  // 30日より先なら年を付ける (ε Aur のような27年周期の星で「8月22日」とだけ出さない)
+  const y = jdAhead > 30 ? `${d.getUTCFullYear()}年` : "";
+  return `${y}${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${p2n(d.getUTCHours())}:${p2n(d.getUTCMinutes())}`;
+}
+function fmtSpan(days) {
+  return days < 1 ? `${(days * 24).toFixed(1)}時間` : `${days.toFixed(1)}日`;
+}
 function peakForecast(period, epoch, jdNow) {
   if (!period || !epoch || period <= 0) return null;
   const ep = epoch + 2400000;
@@ -327,6 +354,7 @@ function filtered() {
     if (wantTonight && !(v._alt >= 20)) continue;
     v._peak = (t === "M") ? peakForecast(v.per, v.epoch, jd) : null;
     if (v._peak && v._peak.sigma > PEAK_SIGMA_LIMIT) v._peak = null;
+    v._ecl = isEclipse(t) ? minimumForecast(v.per, v.epoch, jd) : null;
     if (wantPeak && !(v._peak && Math.abs(v._peak.days) <= 60)) continue;
     out.push(v);
   }
@@ -341,7 +369,57 @@ function filtered() {
    高さ方向は GCVS の最大〜最小をそのまま使うが、**振幅は周期ごとに変わる**ので
    「いま何等」とは読ませない。予報の不確かさ σ は横方向の帯で示す。 */
 const PH_W = 236, PH_H = 56;
+/* 食変光星の位相図。ほぼ平坦で、位相0に主極小の谷。谷の幅は GCVS の D (食の継続時間の%)。
+   EB/EW は位相0.5にも副極小が出るので浅い谷を入れる (EA は出さない)。 */
+function eclipseSvg(v) {
+  const t = mainType(v.type);
+  const dur = Math.min(0.45, (v.rise != null ? v.rise : 12) / 100);   // 食の継続時間(位相)
+  const jd = jdFromDate(new Date());
+  const ph = ((((jd - (v.epoch + 2400000)) / v.per) % 1) + 1) % 1;
+  const half = dur / 2;
+  const dip = (x, depth) => {                    // x=中心からの位相差
+    const u = Math.abs(x) / half;
+    return u >= 1 ? 0 : depth * (1 + Math.cos(Math.PI * u)) / 2;
+  };
+  const secondary = (t === "EB" || t === "EW") ? (t === "EW" ? 0.85 : 0.35) : 0;
+  const yOf = (q) => {
+    const d1 = Math.max(dip(q, 1), dip(q - 1, 1));            // 主極小 (位相0と1)
+    const d2 = secondary ? dip(q - 0.5, secondary) : 0;
+    return 4 + Math.max(d1, d2) * (PH_H - 18);
+  };
+  let d = "";
+  for (let i = 0; i <= 120; i++) {
+    const q = i / 120, x = 6 + q * (PH_W - 12);
+    d += (i ? "L" : "M") + x.toFixed(1) + " " + yOf(q).toFixed(1);
+  }
+  const x = (q) => 6 + q * (PH_W - 12);
+  const sig = Math.min(0.5, v._ecl.sigma / v.per);
+  const rect = (a, b) => `<rect x="${x(a).toFixed(1)}" y="2" `
+    + `width="${Math.max(0.5, x(b) - x(a)).toFixed(1)}" height="${PH_H - 12}" `
+    + `fill="#6ea8ff" opacity="0.16"/>`;
+  const lo = ph - sig, hi = ph + sig;
+  const band = lo < 0 ? rect(0, hi) + rect(lo + 1, 1)
+             : hi > 1 ? rect(lo, 1) + rect(0, hi - 1) : rect(lo, hi);
+  const when = new Date((v._ecl.jd - 2440587.5) * 86400000 + 9 * 3600000);   // JST
+  return `<svg class="phsvg" viewBox="0 0 ${PH_W} ${PH_H}" role="img"
+      aria-label="位相図（模式）。いま周期の${Math.round(ph * 100)}%の位置">
+    ${band}
+    <line x1="6" y1="${PH_H - 10}" x2="${PH_W - 6}" y2="${PH_H - 10}" stroke="#2a3450"/>
+    <path d="${d}" fill="none" stroke="#5f7fb5" stroke-width="1.6"/>
+    <line x1="${x(ph).toFixed(1)}" y1="2" x2="${x(ph).toFixed(1)}" y2="${PH_H - 10}"
+          stroke="#ffcf9a" stroke-width="1.4"/>
+    <circle cx="${x(ph).toFixed(1)}" cy="${yOf(ph).toFixed(1)}" r="3.4" fill="#ffcf9a"/>
+    <text x="6" y="${PH_H - 1}" fill="#7c88a3" font-size="9">極小</text>
+    ${secondary ? `<text x="${x(0.5).toFixed(1)}" y="${PH_H - 1}" fill="#7c88a3" font-size="9"
+          text-anchor="middle">副極小</text>` : ""}
+    <text x="${PH_W - 6}" y="${PH_H - 1}" fill="#7c88a3" font-size="9" text-anchor="end">極小</text>
+  </svg>
+  <div class="phnote">次の極小 <b>${fmtDateTime(when, v._ecl.jd - jd)}ごろ</b>（±${fmtSpan(v._ecl.sigma)}・
+    GCVS元期から${v._ecl.cycles.toLocaleString()}周期の外挿）。実際の明るさは「最近の観測」で</div>`;
+}
+
 function phaseSvg(v) {
+  if (v._ecl && v.per && v.epoch) return eclipseSvg(v);
   if (mainType(v.type) !== "M" || !v.per || !v.epoch || !v._peak) return "";
   const rise = (v.rise != null ? v.rise : 45) / 100;      // 極小→極大の割合
   const jd = jdFromDate(new Date());
@@ -388,7 +466,9 @@ function phaseSvg(v) {
 
 function card(v) {
   const per = v.per
-    ? `周期 ${v.per >= 400 ? (v.per / 365).toFixed(1) + "年" : Math.round(v.per) + "日"}`
+    ? `周期 ${v.per >= 400 ? (v.per / 365.25).toFixed(1) + "年"
+        : v.per < 10 ? v.per.toFixed(2) + "日"          // 食変光星は小数が効く (Algol 2.87日)
+        : Math.round(v.per) + "日"}`
     : "不規則";
   const chart = `../?target=${encodeURIComponent(v.name)}&labels=mag&names=on&fov=6`;
   // AAVSO VSP は fov(分角) と maglimit が**必須**。付けないとエラー画面になる。

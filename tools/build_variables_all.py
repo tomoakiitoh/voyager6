@@ -154,11 +154,16 @@ def main() -> int:
             rise = num(p[11])
             if rise is not None and not (0 < rise < 100):
                 rise = None
+            # 最小光度の欄が "( 0.4 )" のように括弧つきのときは**振幅**であって等級ではない
+            # (del Vel は「最大1.96 / 振幅0.4」。そのまま読むと最小が最大より明るくなる)
+            mag_min = None if "(" in p[5] else num(p[5])
             out.append([name, round(c[0], 5), round(c[1], 5), typ,
                         round(mag_max, 2),
-                        (round(num(p[5]), 2) if num(p[5]) is not None else None),
-                        (round(period, 4) if period is not None else None),
-                        (round(num(p[8]), 3) if num(p[8]) is not None else None),
+                        (round(mag_min, 2) if mag_min is not None else None),
+                        # 周期は丸めない。食変光星は GCVS が7桁持っており、4桁に丸めると
+                        # 数千周期ぶん外挿したときに食の時刻が数時間ずれる
+                        (period if period is not None else None),
+                        (num(p[8]) if num(p[8]) is not None else None),   # 元期も丸めない
                         (round(rise, 1) if rise is not None else None)])
 
     out.sort(key=lambda r: r[4])       # 明るい順
