@@ -14,11 +14,18 @@ import * as THREE from "three";
    ヘッドセットが無くても確認できるよう、マウスを同じレイとして扱う道も用意してある
    (preview: true)。 */
 
-const W = 512;          // パネルのテクスチャ幅 [px]
+const W = 512;          // ステータス帯と、1列組みのときのパネルのテクスチャ幅 [px]
+const W2 = 780;         // 2列組みのときのパネルのテクスチャ幅 [px]
 const ROW = 62;         // 1行の高さ [px]
 const TOP = 78;         // 1行目の上端 [px]
 const BOTTOM = 20;      // 下の余白 [px]
+const COLGAP = 14;      // 列の間 [px]
 const STATUS_H = 74;    // ステータス帯の高さ [px]
+/* 行が増えたら2列に組む。1列のまま伸ばすと、視界の下のステータス帯とぶつかるうえ、
+   端の行を押すのに首を振ることになる。文字の見かけの大きさは
+   (文字[px] / テクスチャ幅[px]) × 板の実幅[m] で決まるので、幅と実寸を同じ比で
+   広げれば2列にしても文字は小さくならない (512:0.62 ≒ 780:0.94)。 */
+const COL_AT = 9;       // この行数以上で2列にする
 
 function rr(g, x, y, w, h, r) {
   if (g.roundRect) { g.beginPath(); g.roundRect(x, y, w, h, r); return; }
@@ -28,12 +35,12 @@ function rr(g, x, y, w, h, r) {
 }
 
 /** キャンバス1枚 + それを貼った板。テクスチャは中身が変わったときだけ更新する。 */
-function makeBoard(hPx, worldW) {
+function makeBoard(hPx, worldW, wPx = W) {
   const canvas = document.createElement("canvas");
-  canvas.width = W; canvas.height = hPx;
+  canvas.width = wPx; canvas.height = hPx;
   const tex = new THREE.CanvasTexture(canvas);
   const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(worldW, worldW * hPx / W),
+    new THREE.PlaneGeometry(worldW, worldW * hPx / wPx),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true,
                                   depthTest: false, depthWrite: false }));
   mesh.renderOrder = 9000;      // ラベル類が depthTest:false なので最後に描いて手前に出す
@@ -63,8 +70,12 @@ export class VrPanel {
     this._m4 = new THREE.Matrix4();
     this._lastStatus = null;
 
-    const hPx = TOP + this.rows.length * ROW + BOTTOM;
-    this.board = makeBoard(hPx, 0.62);
+    this.cols = this.rows.length >= COL_AT ? 2 : 1;
+    this.perCol = Math.ceil(this.rows.length / this.cols);
+    this.pw = this.cols === 2 ? W2 : W;
+    this.colW = (this.pw - 36 - (this.cols - 1) * COLGAP) / this.cols;
+    const hPx = TOP + this.perCol * ROW + BOTTOM;
+    this.board = makeBoard(hPx, this.cols === 2 ? 0.94 : 0.62, this.pw);
     this.board.mesh.visible = false;
     o.scene.add(this.board.mesh);
 
@@ -88,30 +99,35 @@ export class VrPanel {
   get visible() { return this.board.mesh.visible; }
 
   // ---- 描画 ----
+  /** 行 i の左上 (テクスチャ座標)。2列組みでは前半が左列・後半が右列。 */
+  _rowXY(i) {
+    const col = Math.floor(i / this.perCol);
+    return { x: 18 + col * (this.colW + COLGAP), y: TOP + (i % this.perCol) * ROW };
+  }
   draw() {
-    const g = this.board.ctx, H = this.board.canvas.height;
-    g.clearRect(0, 0, W, H);
-    rr(g, 1, 1, W - 2, H - 2, 20);
+    const g = this.board.ctx, H = this.board.canvas.height, PW = this.pw;
+    g.clearRect(0, 0, PW, H);
+    rr(g, 1, 1, PW - 2, H - 2, 20);
     g.fillStyle = "rgba(8,13,26,0.94)"; g.fill();
     g.strokeStyle = "#35589c"; g.lineWidth = 2; g.stroke();
     g.textBaseline = "middle";
     g.fillStyle = "#e6eeff"; g.font = "bold 27px sans-serif";
     g.fillText(this.o.title || "表示設定", 26, 42);
     g.fillStyle = "#7c88a3"; g.font = "16px sans-serif";
-    g.textAlign = "right"; g.fillText("B / Y ボタンで開閉", W - 26, 42); g.textAlign = "left";
+    g.textAlign = "right"; g.fillText("B / Y ボタンで開閉", PW - 26, 42); g.textAlign = "left";
 
     this.rows.forEach((r, i) => {
-      const y = TOP + i * ROW;
+      const { x, y } = this._rowXY(i);
       const box = this.el(r.id);
       const on = r.id ? !!(box && box.checked) : false;
-      rr(g, 18, y, W - 36, ROW - 8, 11);
+      rr(g, x, y, this.colW, ROW - 8, 11);
       g.fillStyle = i === this.hover ? "rgba(53,88,156,0.65)" : "rgba(19,27,48,0.92)"; g.fill();
       g.strokeStyle = on ? "#35589c" : "#1d2437"; g.lineWidth = 1.5; g.stroke();
-      g.fillStyle = r.act ? "#cfe0ff" : (on ? "#e6eeff" : "#7c88a3");
+      g.fillStyle = (r.act || r.go) ? "#cfe0ff" : (on ? "#e6eeff" : "#7c88a3");
       g.font = "22px sans-serif";
-      g.fillText(r.label, 40, y + (ROW - 8) / 2);
+      g.fillText(r.label, x + 22, y + (ROW - 8) / 2);
       if (r.id) {
-        const pw = 62, px = W - 36 - pw - 14;
+        const pw = 62, px = x + this.colW - pw - 14;
         rr(g, px, y + 12, pw, 30, 15);
         g.fillStyle = on ? "#23407a" : "#131b30"; g.fill();
         g.strokeStyle = on ? "#6ea8ff" : "#2a3450"; g.lineWidth = 1.5; g.stroke();
@@ -185,6 +201,9 @@ export class VrPanel {
   _followStatus() {
     const xr = this.o.renderer.xr;
     const cam = xr.isPresenting ? xr.getCamera() : this.o.camera;
+    // デスクトップ確認時はページ側がカメラの向きを毎フレーム作り直すので、
+    // place() と同じ手当てをしないと帯だけ別の向きに付いてパネルと重なって見える
+    if (!xr.isPresenting && this.o.beforePlace) this.o.beforePlace();
     cam.updateMatrixWorld();
     const p = new THREE.Vector3(), q = new THREE.Quaternion();
     cam.getWorldPosition(p); cam.getWorldQuaternion(q);
@@ -206,8 +225,13 @@ export class VrPanel {
   _rowFromUv(uv) {
     const H = this.board.canvas.height;
     const y = (1 - uv.y) * H;                   // uv は下が0、canvas は上が0
-    const i = Math.floor((y - TOP) / ROW);
-    return (y >= TOP && i >= 0 && i < this.rows.length) ? i : -1;
+    const row = Math.floor((y - TOP) / ROW);
+    if (y < TOP || row < 0 || row >= this.perCol) return -1;
+    // 列の間の隙間は近いほうの列に寄せる (狙いを外しても押せるように)
+    const col = Math.max(0, Math.min(this.cols - 1,
+      Math.floor((uv.x * this.pw - 18) / (this.colW + COLGAP))));
+    const i = col * this.perCol + row;
+    return i < this.rows.length ? i : -1;
   }
   _hitFromController(c) {
     this._m4.identity().extractRotation(c.matrixWorld);
@@ -219,6 +243,7 @@ export class VrPanel {
   activate(i) {
     const r = this.rows[i];
     if (!r) return;
+    if (r.go) { location.href = r.go(); return; }   // 三部作の行き来 (下の注記を読むこと)
     const e = this.el(r.id || r.act);
     if (e) e.click();                            // 既存のハンドラをそのまま動かす
     this.draw();
@@ -286,6 +311,33 @@ export class VrPanel {
       if (this.o.onMiss) this.o.onMiss(this._ray, null);
     });
   }
+}
+
+/* ---- 三部作の行き来 ----
+   WebXR のセッションはドキュメントに紐づくので、**ページを移った時点でセッションは必ず切れる**
+   (仕様上どうにもならない。移動先で自動的に VR に入ることも、ユーザー操作が要るためできない)。
+   できるのは「移った先で1タップで戻れて、設定が残っている」ところまで。
+   設定は urlstate.js が URL に載せているので、更新でも移動でも消えない。 */
+
+/** 三部作の別ページへ行く URL。移動先で入り直しボタンを出すため vr=1 を付ける。 */
+export function vrLink(path) { return path + "?vr=1"; }
+
+/** ?vr=1 で着いたとき、画面いっぱいの「VRに戻る」を出す。
+    Quest ではブラウザが2Dの板に戻るので、コントローラで狙いやすい大きさにしておく。 */
+export function vrReturnPrompt(btn) {
+  if (new URLSearchParams(location.search).get("vr") !== "1") return;
+  const d = document.createElement("div");
+  d.id = "vr-return";
+  d.innerHTML = '<button type="button">VR に戻る</button>'
+    + "<p>VR から移動してきました。表示設定はそのままです。</p>";
+  document.body.appendChild(d);
+  const close = () => {
+    d.remove();
+    const u = new URLSearchParams(location.search); u.delete("vr");
+    history.replaceState(null, "", location.pathname + (u.toString() ? "?" + u : ""));
+  };
+  d.querySelector("button").addEventListener("click", () => { close(); btn.click(); });
+  d.addEventListener("click", (e) => { if (e.target === d) close(); });   // 外を押したら閉じる
 }
 
 /** B/Y ボタンの押し下がりを拾う小道具 (ページ側の vrInput から呼ぶ)。 */

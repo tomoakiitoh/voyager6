@@ -46,7 +46,8 @@ bodyclass: planetarium-page
 </script>
 <script type="module">
 import * as THREE from "three";
-import { VrPanel } from "../assets/vrpanel.js";
+import { VrPanel, vrLink, vrReturnPrompt } from "../assets/vrpanel.js";
+import { bindUrlState } from "../assets/urlstate.js";
 // astro.js: raDecToVec / skyMatrix / applySky / skyMatrixNoPrecession / planetPosition /
 //   moonPosition / moonTopocentric / sunPosition / julianDay / jdFromDate。data.js/sites.js。
 // 星の方向は早見盤とまったく同じ (e,n,u)。VRでは (e, u, -n) 方向に置くだけ。
@@ -635,6 +636,10 @@ update();
    共有部品 vrpanel.js を使う (地球周回3D と同じもの)。状態はこのページの
    チェックボックスが持ち、パネルは押して click() するだけ。
    ?vrpanel=1 でヘッドセット無しでもデスクトップで確認・操作できる。 */
+/* 表示レイヤの ON/OFF を URL に持たせる。更新しても消えず、三部作を行き来しても残る。 */
+bindUrlState([{ id: "pl-deep" }, { id: "pl-lines" }, { id: "pl-names" }, { id: "pl-planets" },
+               { id: "pl-mw" }, { id: "pl-comets" }, { id: "pl-sats" }]);
+
 const vrPanel = new VrPanel({
   renderer, scene, camera,
   rows: [
@@ -647,6 +652,9 @@ const vrPanel = new VrPanel({
     { id: "pl-sats", label: "人工衛星" },
     { act: "pl-play", label: "時間送り（再生／停止）" },
     { act: "pl-now", label: "「今」に戻す" },
+    { go: () => vrLink("/earth/"), label: "地球周回3Dへ" },
+    { go: () => vrLink("/solar/"), label: "太陽系3Dへ" },
+    { act: "pl-vr", label: "VRを終了する" },   // Home ボタンで抜けると設定が失われる
   ],
   // VR で早送りすると「何時で止まったか」が分からなくなるので、常に日時を出す
   status: () => el("pl-info").textContent,
@@ -668,9 +676,16 @@ function setupVR() {
   navigator.xr.isSessionSupported("immersive-vr").then((ok) => {
     if (!ok) return;
     btn.hidden = false;
+    vrReturnPrompt(btn);   // ?vr=1 = 別のVRページから移ってきた
     let session = null;
     btn.addEventListener("click", async () => {
-      if (session) { session.end(); return; }
+      // パネルの行は selectstart の中で click() を投げるので、同じセッションの
+      // イベント配送中に end() を呼ぶことになる。次のタスクに逃がしてから閉じる。
+      const cur = session || renderer.xr.getSession();
+      if (cur) {
+        setTimeout(() => { try { cur.end(); } catch (e) { /* 既に終了済み */ } }, 0);
+        return;
+      }
       try {
         session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
       } catch (e) { alert("VRを開始できませんでした。Quest のブラウザで開いてください。"); return; }

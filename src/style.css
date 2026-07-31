@@ -445,6 +445,19 @@ body.embed-white #embed-badge {
 .sheet .memo { border: 1px solid #999; height: 20mm; }
 .sheet .variant[hidden] { display: none; }
 
+/* ---- VR から別ページへ移ってきたときの入り直し (?vr=1) ---- */
+/* Quest ではブラウザが2Dの板に戻るので、コントローラで狙える大きさにしておく。 */
+#vr-return {
+  position: fixed; inset: 0; z-index: 50; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(3, 6, 14, 0.86); backdrop-filter: blur(2px);
+}
+#vr-return button {
+  font-size: 26px; font-weight: 700; padding: 22px 56px; border-radius: 14px;
+  color: #eaf1ff; background: #23407a; border: 2px solid var(--accent); cursor: pointer;
+}
+#vr-return p { margin: 0; color: #9fb0cd; font-size: 14px; text-align: center; padding: 0 16px; }
+
 /* ---- 印刷 ---- */
 
 @page { size: A4 portrait; margin: 10mm; }

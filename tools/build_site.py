@@ -68,7 +68,8 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
           "svgcanvas.esm.js",  # チャートSVG出力 (F8) 用に vendoring (MIT)
           "satellite.es.js",   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
-          "vrpanel.js",        # VR内の操作パネル (VRプラネタリウム / 地球周回3D で共有)
+          "vrpanel.js",        # VR内の操作パネル (三部作の3Dページで共有)
+          "urlstate.js",       # 表示レイヤの ON/OFF を URL に載せる (同上)
           "earth.jpg"]         # 地球周回3D (PLAN6 F4) の地球テクスチャ (NASA Blue Marble, PD)
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)

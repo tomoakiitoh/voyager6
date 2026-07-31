@@ -55,6 +55,8 @@ bodyclass: solar-page
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "../assets/OrbitControls.js";
+import { VrPanel, vrLink, vrReturnPrompt } from "../assets/vrpanel.js";
+import { bindUrlState } from "../assets/urlstate.js";
 
 // astro.js のグローバル (orbitPosition / heliocentric / PLANET_ELEMENTS / sunEclipticJ2000 /
 // julianDay / jdFromDate / schlyterDay / DEG) をそのまま使う。位置計算は望遠鏡モード(F3/F4)と
@@ -235,6 +237,7 @@ Promise.all([
     size: 4.0, sizeAttenuation: false, transparent: true, opacity: 0.95, vertexColors: true,
     map: softDotTexture(), depthWrite: false,   // 丸く柔らかい点に (四角い硬点はSSAAでチラつく)
   }));
+  cometPoints.visible = el("solar-comets").checked;   // 読み込み前に URL/VR で切られている場合がある
   orbitingGroup.add(cometPoints);
   buildCometOrbits();
   update();
@@ -450,10 +453,14 @@ function scheduleUrlWrite() { clearTimeout(urlTimer); urlTimer = setTimeout(writ
 function writeSolarUrl() {
   const d = new Date((curJd - 2440587.5) * 86400000 + TZ_MIN * 60000);
   const p2n = (n) => String(n).padStart(2, "0");
-  const p = new URLSearchParams();
+  // 今の URL を土台にする。まっさらに組み直すと、表示レイヤ (urlstate.js) など
+  // ここが知らないパラメータを毎回消してしまう
+  const p = new URLSearchParams(location.search);
   p.set("date", `${d.getUTCFullYear()}-${p2n(d.getUTCMonth() + 1)}-${p2n(d.getUTCDate())}`);
   if (selectedIndex >= 0 && comets) p.set("comet", desigKeyOf(comets[selectedIndex][0]));
+  else p.delete("comet");
   if (selAst) { p.set("ael", selAst.el.map((x) => +(+x).toFixed(6)).join(",")); p.set("aname", selAst.name); }
+  else { p.delete("ael"); p.delete("aname"); }
   history.replaceState(null, "", location.pathname + "?" + p.toString());
 }
 
@@ -620,19 +627,24 @@ function resize() {
   }
 }
 // VR中のコントローラ操作: スティック左右で時間送り、A/X(またはトリガ)で「今」に戻す
-let vrPrevReset = false, vrPrevNow = 0;
+let vrPrevReset = false, vrPrevNow = 0, vrPrevMenu = false;
 function vrInput(now) {
   const s = renderer.xr.getSession();
   if (!s) return;
   const dt = vrPrevNow ? Math.min(0.1, (now - vrPrevNow) / 1000) : 0; vrPrevNow = now;
-  let stick = 0, reset = false;
+  let stick = 0, reset = false, menu = false;
   for (const src of s.inputSources) {
     const gp = src.gamepad;
     if (!gp) continue;
     const ax = gp.axes.length >= 4 ? gp.axes[2] : (gp.axes[0] || 0);  // サムスティックX
     if (Math.abs(ax) > Math.abs(stick)) stick = ax;
-    if ((gp.buttons[4] && gp.buttons[4].pressed) || (gp.buttons[0] && gp.buttons[0].pressed)) reset = true;
+    // A / X は常に「今」。トリガーはパネルを開いている間はボタン押しに使うので除く。
+    if (gp.buttons[4] && gp.buttons[4].pressed) reset = true;
+    if (!vrPanel.visible && gp.buttons[0] && gp.buttons[0].pressed) reset = true;
+    if (gp.buttons[5] && gp.buttons[5].pressed) menu = true;          // B / Y = パネル開閉
   }
+  if (menu && !vrPrevMenu) vrPanel.toggle();
+  vrPrevMenu = menu;
   let changed = false;
   if (Math.abs(stick) > 0.15) {                       // 全倒し≒60日/秒
     let val = (curJd - J0) + stick * Math.abs(stick) * 60 * dt;
@@ -658,12 +670,43 @@ function tick(now) {
   }
   if (renderer.xr.isPresenting) vrInput(now);
   else if (!cineMode) controls.update();             // VR中は頭・シネマ中はスクリプトが視点
+  vrPanel.update();
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(tick);   // WebXR では requestAnimationFrame でなくこれを使う
 showAsteroidFromUrl();  // ?ael= で小惑星を軌道つき表示 (彗星は fetch 後に selectFromUrl)
 
-// ---- VRモード (WebXR。最小: 太陽系を目の前に浮かべて見回す) ----
+/* 表示レイヤの ON/OFF を URL に持たせる。更新しても消えず、三部作を行き来しても残る。 */
+bindUrlState([{ id: "solar-orbits" }, { id: "solar-comets" }, { id: "solar-comet-orbits" },
+               { id: "solar-asteroids" }, { id: "solar-asteroids2" },
+               { id: "solar-corotate" }, { id: "solar-names" }]);
+
+/* ---- VR内の操作パネル (VRプラネタリウム / 地球周回3D と共有部品) ----
+   状態はパネルが持たず、画面下の入力を click() するだけ。?vrpanel=1 で
+   ヘッドセット無しでもデスクトップで確認できる。
+   注: VR 入場時は重いレイヤ (彗星・小惑星) を切っている。パネルで戻せるが、
+   VR を出るときに入場前の値へ戻るので、そこは元の設定が勝つ。 */
+const vrPanel = new VrPanel({
+  renderer, scene, camera,
+  rows: [
+    { id: "solar-orbits", label: "惑星軌道" },
+    { id: "solar-names", label: "惑星名" },
+    { id: "solar-comets", label: "彗星（重い）" },
+    { id: "solar-asteroids", label: "小惑星（重い）" },
+    { id: "solar-corotate", label: "木星固定（回転座標系）" },
+    { act: "solar-play", label: "時間送り（再生／停止）" },
+    { act: "solar-now", label: "「今」に戻す" },
+    { go: () => vrLink("/planetarium/"), label: "VRプラネタリウムへ" },
+    { go: () => vrLink("/earth/"), label: "地球周回3Dへ" },
+    { act: "solar-vr", label: "VRを終了する" },   // Home ボタンで抜けると設定が失われる
+  ],
+  // VR で早送りすると「何年で止まったか」が分からなくなるので、常に日付を出す
+  status: () => el("solar-date").textContent,
+  domTarget: canvas,
+  preview: new URLSearchParams(location.search).get("vrpanel") === "1",
+});
+
+// ---- VRモード (WebXR。太陽系を目の前に浮かべて見回す) ----
 setupVR();
 function setupVR() {
   const btn = el("solar-vr");
@@ -671,12 +714,19 @@ function setupVR() {
   navigator.xr.isSessionSupported("immersive-vr").then((ok) => {
     if (!ok) return;
     btn.hidden = false;
+    vrReturnPrompt(btn);   // ?vr=1 = 別のVRページから移ってきた
     let session = null;
     // VR入場前の状態を退避して、退場時に戻す
     const saved = {};
     const heavy = ["solar-comets", "solar-asteroids", "solar-asteroids2"];
     btn.addEventListener("click", async () => {
-      if (session) { session.end(); return; }
+      // パネルの行は selectstart の中で click() を投げるので、同じセッションの
+      // イベント配送中に end() を呼ぶことになる。次のタスクに逃がしてから閉じる。
+      const cur = session || renderer.xr.getSession();
+      if (cur) {
+        setTimeout(() => { try { cur.end(); } catch (e) { /* 既に終了済み */ } }, 0);
+        return;
+      }
       try {
         session = await navigator.xr.requestSession("immersive-vr",
           { optionalFeatures: ["local-floor"] });
@@ -685,8 +735,13 @@ function setupVR() {
       await renderer.xr.setSession(session);
       btn.textContent = "VRを終了";
       enterVR(saved, heavy);
+      vrPanel.mountControllers();
+      vrPanel.setVisible(true);      // 出し方が分からないと設定を変えられないので最初は開いておく
+      vrPanel.setStatusVisible(true);
       session.addEventListener("end", () => {
-        session = null; btn.textContent = "VRで見る"; exitVR(saved, heavy);
+        session = null; btn.textContent = "VRで見る";
+        vrPanel.setVisible(false); vrPanel.setStatusVisible(false);
+        try { exitVR(saved, heavy); } catch (e) { console.error(e); }   // 復帰を途中で止めない
       });
     });
   });

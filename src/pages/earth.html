@@ -44,7 +44,8 @@ bodyclass: solar-page
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "../assets/OrbitControls.js";
-import { VrPanel } from "../assets/vrpanel.js";
+import { VrPanel, vrLink, vrReturnPrompt } from "../assets/vrpanel.js";
+import { bindUrlState } from "../assets/urlstate.js";
 
 // astro.js のグローバル (sunPosition / raDecToVec / jdFromDate) を使う。
 // 衛星の位置は satellite.js の SGP4 (早見盤 F1 と同じ。Vallado 参照実装と照合済み)。
@@ -557,6 +558,10 @@ function exitVR(saved) {
   playing = saved.playing; el("earth-play").textContent = playing ? "■" : "▶";
 }
 
+/* 表示レイヤの ON/OFF を URL に持たせる。更新しても消えず、三部作を行き来しても残る。 */
+bindUrlState([{ id: "earth-line" }, { id: "earth-fixjp" }, { id: "earth-guides" },
+               { id: "earth-orbit" }, { id: "earth-geo" }, { id: "earth-starlink" }]);
+
 /* ---- VR内の操作パネル (VRプラネタリウム と共有部品) ----
    ステータス帯には日時と、選んでいる衛星の諸元を出す。VR で早送りすると
    「何時で止まったのか」が分からず、点が飛んでいるだけでは何の衛星かも分からないため。
@@ -572,6 +577,8 @@ const vrPanel = new VrPanel({
     { id: "earth-starlink", label: "Starlink網（重い）" },
     { act: "earth-play", label: "時間送り（再生／停止）" },
     { act: "earth-now", label: "「今」に戻す" },
+    { go: () => vrLink("/planetarium/"), label: "VRプラネタリウムへ" },
+    { go: () => vrLink("/solar/"), label: "太陽系3Dへ" },
     { act: "earth-vr", label: "VRを終了する" },   // Home ボタンで抜けると設定が失われる
   ],
   status: () => {
@@ -587,7 +594,7 @@ const vrPanel = new VrPanel({
     return p.startsWith("★") ? t + "\n" + p.replace(/^★\s*/, "") : t;
   },
   onMiss: (ray) => pickSatWithRay(ray),
-  panelOffsetX: -0.42,      // 地球が真後ろに隠れないよう少し左へ
+  panelOffsetX: -0.5,       // 地球が真後ろに隠れないよう左へ (2列組みで幅0.94mぶん寄せる)
   domTarget: canvas,
   preview: new URLSearchParams(location.search).get("vrpreview") === "1",
 });
@@ -743,6 +750,7 @@ function setupVR() {
   navigator.xr.isSessionSupported("immersive-vr").then((ok) => {
     if (!ok) return;
     btn.hidden = false;
+    vrReturnPrompt(btn);   // ?vr=1 = 別のVRページから移ってきた
     let session = null;
     const saved = {};
     btn.addEventListener("click", async () => {

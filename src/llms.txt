@@ -106,6 +106,19 @@ URLを組み立てて返す**ことを想定している(=このサイトの狙�
 - 例: 2061年のハレー彗星 → `https://voyager6.net/solar/?date=2061-07-01&comet=1P`
 - 例(通称): 百武彗星の軌道 → `https://voyager6.net/solar/?date=1996-03-25&comet=Hyakutake`
 
+### 地球周回3D — `https://voyager6.net/earth/`
+- `sat` = NORAD番号 → その衛星を選択・軌道表示
+- 例: ISS → `https://voyager6.net/earth/?sat=25544`
+
+### 3Dの3ページ共通 — 表示レイヤの ON/OFF
+`/solar/` `/earth/` `/planetarium/` は、画面下のチェックボックスをそのまま URL に持つ。
+`1`=ON / `0`=OFF。既定と同じものは URL に出ない(既定のままなら書かなくてよい)。
+- `/earth/`: `line`(線画) `fixjp`(日本を正面) `guides`(GEO軌道の輪) `orbit`(選択衛星の軌道) `geo`(静止衛星) `starlink`
+- `/planetarium/`: `deep`(V≤10) `lines`(星座線) `names`(星座名) `planets`(惑星・月) `mw`(天の川) `comets` `sats`(人工衛星)
+- `/solar/`: `orbits`(惑星軌道) `comets` `comet-orbits` `asteroids` `asteroids2`(全量GPU) `corotate`(木星固定) `names`(惑星名)
+- 例: 静止衛星を出した地球周回3D → `https://voyager6.net/earth/?geo=1`
+- 例: 星座名つきのVRプラネタリウム → `https://voyager6.net/planetarium/?names=1`
+
 ## Data endpoints (stable JSON, CORS: `Access-Control-Allow-Origin: *`)
 
 パスはルート直下で安定運用する(変更時は旧パスを最低1年維持)。機械可読な索引と各データの
