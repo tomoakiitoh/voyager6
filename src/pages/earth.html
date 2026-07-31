@@ -14,7 +14,7 @@ bodyclass: solar-page
     <button id="earth-now" class="primary">今</button>
   </div>
   <div class="row">
-    <input type="range" id="earth-time" min="-720" max="720" step="0.5" value="0">
+    <input type="range" id="earth-time" min="-10080" max="10080" step="1" value="0">
   </div>
   <div class="row">
     <button id="earth-play" title="再生 / 停止">▶</button>
@@ -52,6 +52,9 @@ const K = 1 / 1000;                 // km → three.js 単位 (1単位=1000km)
 const EARTH_R = 6371 * K;           // 地球半径
 const GEO_R = 42164 * K;            // 静止軌道半径
 const TZ_MIN = 9 * 60;
+// 時間を動かせる範囲。TLE は元期から離れるほど誤差が増える (数日で数十km) ので、
+// 無制限にはしない。VR ではスライダーが見えないため、端に着いたことを文字で知らせる。
+const TIME_RANGE = 7 * 24 * 60;      // ±7日 [分]
 
 // ECI(TEME) km (x,y,z) → three.js (地球の自転軸=ECI z を three の上(y)に)
 const toV = (p) => new THREE.Vector3(p.x * K, p.z * K, -p.y * K);
@@ -349,6 +352,7 @@ function update() {
         `★ ${sats[selected].name}　高度 ${alt.toFixed(0)} km ・ 速度 ${spd.toFixed(2)} km/s ・ 周期 ${period.toFixed(0)}分 ・ NORAD ${sats[selected].norad}`;
     }
   }
+  updateSatLabels();
   const d = new Date(curMs + TZ_MIN * 60000);
   el("earth-date").textContent =
     `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} `
@@ -455,9 +459,9 @@ function vrInput(dt) {
     vrZoom = Math.max(0.35, Math.min(8, vrZoom * Math.exp(-zoom * 1.5 * dt)));
     world.scale.setScalar(VR_SCALE * vrZoom);
   }
-  if (Math.abs(stick) > 0.15) {      // 全倒しで約2時間/秒
-    let min = (curMs - baseMs) / 60000 + stick * Math.abs(stick) * 120 * dt;
-    min = Math.max(-720, Math.min(720, min));
+  if (Math.abs(stick) > 0.15) {      // 全倒しで約8時間/秒 (端まで約20秒)
+    let min = (curMs - baseMs) / 60000 + stick * Math.abs(stick) * 480 * dt;
+    min = Math.max(-TIME_RANGE, Math.min(TIME_RANGE, min));
     curMs = baseMs + min * 60000;
     el("earth-time").value = min;
     update();
@@ -511,7 +515,14 @@ const vrPanel = new VrPanel({
     { act: "earth-now", label: "「今」に戻す" },
   ],
   status: () => {
-    const t = el("earth-date").textContent;
+    const off = (curMs - baseMs) / 60000;
+    const days = (off / 1440);
+    let t = el("earth-date").textContent;
+    if (Math.abs(off) >= TIME_RANGE - 1) {
+      t += "  ← ここまで（TLEの限界±7日）";            // VRではスライダーが見えないので文字で
+    } else if (Math.abs(days) >= 0.5) {
+      t += `  (${days > 0 ? "+" : ""}${days.toFixed(1)}日)`;
+    }
     const p = el("earth-pick").textContent;
     return p.startsWith("★") ? t + "\n" + p.replace(/^★\s*/, "") : t;
   },
@@ -521,12 +532,12 @@ const vrPanel = new VrPanel({
   preview: new URLSearchParams(location.search).get("vrpreview") === "1",
 });
 
-/** レイに一番近い衛星を選ぶ (VR用)。画面座標が無いので、レイからの角度で測る。 */
-function pickSatWithRay(ray) {
-  if (!satPoints || !sats.length) return;
+/** レイに一番近い衛星の添字を返す (VR用)。画面座標が無いので、レイからの角度で測る。 */
+function nearestSatToRay(ray, maxAng = 0.07) {     // 約4°以内
+  if (!satPoints || !sats.length) return -1;
   const pos = satPoints.geometry.getAttribute("position");
   const v = new THREE.Vector3();
-  let best = -1, bestAng = 0.07;         // 約4°以内を拾う
+  let best = -1, bestAng = maxAng;
   for (let i = 0; i < sats.length; i++) {
     v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
     satPoints.localToWorld(v);
@@ -536,7 +547,76 @@ function pickSatWithRay(ray) {
     const ang = v.normalize().angleTo(ray.ray.direction);
     if (ang < bestAng) { bestAng = ang; best = i; }
   }
-  if (best >= 0) selectSat(best);
+  return best;
+}
+function pickSatWithRay(ray) {
+  const i = nearestSatToRay(ray);
+  if (i >= 0) selectSat(i);
+}
+
+/* ---- 衛星の名前ラベル ----
+   点が飛んでいるだけでは何の衛星か分からない、という指摘への対応。
+   (1) 標準等級を持つ著名機 (ISS/CSS/HST/TERRA/AQUA) は常に名前を出す
+   (2) コントローラのレイを向けた衛星の名前をその場に出す (掃くだけで分かる)
+   ラベルは world の子にして、地球や衛星と一緒に縮む・回る。 */
+function makeSatLabel(color) {
+  const c = document.createElement("canvas"); c.width = 256; c.height = 64;
+  const g = c.getContext("2d");
+  const tex = new THREE.CanvasTexture(c);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  sp.scale.set(5, 1.25, 1);         // world 単位 (地球半径6.37。大きすぎると盤面を覆う)
+  sp.renderOrder = 8000;
+  let cur = null;
+  sp.setText = (t) => {
+    if (t === cur) return;
+    cur = t;
+    g.clearRect(0, 0, 256, 64);
+    g.font = "bold 26px sans-serif"; g.fillStyle = color;
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(t, 128, 34);
+    tex.needsUpdate = true;
+  };
+  sp.visible = false;
+  world.add(sp);
+  return sp;
+}
+let famousLabels = null, hoverLabel = null;
+function updateSatLabels() {
+  if (!satPoints || !sats.length) return;
+  const pos = satPoints.geometry.getAttribute("position");
+  // ラベルは衛星の「地球中心から外向き」にずらす。真上にずらすと地球や他のラベルに重なる。
+  const tmp = new THREE.Vector3();
+  const at = (sp, i, out) => {
+    tmp.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+    const len = tmp.length() || 1;
+    sp.position.copy(tmp).multiplyScalar(1 + out / len);
+    sp.visible = true;
+  };
+  if (!famousLabels) {
+    famousLabels = sats.map((s, i) => (s.stdMag != null ? { i, sp: makeSatLabel("#ffe9b0") } : null))
+                       .filter(Boolean);
+    hoverLabel = makeSatLabel("#9fe8ff");
+  }
+  for (const f of famousLabels) { f.sp.setText(sats[f.i].name); at(f.sp, f.i, 2.2); }
+  // レイの先の衛星 (VR中のみ)
+  let h = -1;
+  if (renderer.xr.isPresenting && vrPanel.controllers.length) {
+    const m4 = new THREE.Matrix4(), rc = new THREE.Raycaster();
+    for (const c of vrPanel.controllers) {
+      m4.identity().extractRotation(c.matrixWorld);
+      rc.ray.origin.setFromMatrixPosition(c.matrixWorld);
+      rc.ray.direction.set(0, 0, -1).applyMatrix4(m4);
+      h = nearestSatToRay(rc);
+      if (h >= 0) break;
+    }
+  }
+  if (h >= 0 && !famousLabels.some((f) => f.i === h)) {
+    hoverLabel.setText(sats[h].name);
+    at(hoverLabel, h, 2.2);
+  } else {
+    hoverLabel.visible = false;
+  }
 }
 
 /* ヘッドセット無しで縮尺と配置を確かめるための簡易プレビュー (?vrpreview=1)。
@@ -596,13 +676,13 @@ function tick(now) {
   if (playing && satLib) {
     const dt = lastT ? (now - lastT) / 1000 : 0; lastT = now;
     let min = (curMs - baseMs) / 60000 + dt * Number(el("earth-speed").value);
-    min = Math.max(-720, Math.min(720, min));
-    if (min >= 720 || min <= -720) { playing = false; el("earth-play").textContent = "▶"; }
+    min = Math.max(-TIME_RANGE, Math.min(TIME_RANGE, min));
+    if (Math.abs(min) >= TIME_RANGE) { playing = false; el("earth-play").textContent = "▶"; }
     curMs = baseMs + min * 60000;
     el("earth-time").value = min;
     update();
   }
-  if (renderer.xr.isPresenting) vrInput(dt);   // VR中は頭が視点。スティックで時間送り
+  if (renderer.xr.isPresenting) { vrInput(dt); updateSatLabels(); }   // VR中は頭が視点
   else if (!VR_PREVIEW) controls.update();     // プレビュー中は視点を動かさない
   vrPanel.update();
   renderer.render(scene, camera);
