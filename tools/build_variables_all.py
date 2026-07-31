@@ -10,7 +10,12 @@
 海岸線などと同じく更新頻度が低いので cron ではなく手動再実行でよい。
 
 出力 src/variables_all.json = JSON 配列、1件 =
-  [name, ra(deg), dec(deg), type, magMax, magMin|null, period(日)|null, epoch(JD-2400000)|null]
+  [name, ra(deg), dec(deg), type, magMax, magMin|null, period(日)|null, epoch(JD-2400000)|null,
+   risePct|null]
+
+  risePct = GCVS の M-m/D。脈動星では「極小→極大にかかる時間が周期の何%か」。
+    ミラ型は上昇が速く下降が遅い (実測の中央値45%) ので、位相図を対称に描くと嘘になる。
+    食変光星では食の継続時間の割合という別の意味になるので、脈動星以外では使わないこと。
 
   ※ epoch の意味は型で違う: 脈動星 (M/SR/CEP/RR…) は**極大**、食変光星 (EA/EB/EW) は**極小**。
     GCVS の定義そのままなので、使う側でこの違いを踏まえること。
@@ -146,11 +151,15 @@ def main() -> int:
             period = num(p[10])
             if period is not None and period <= 0:
                 period = None
+            rise = num(p[11])
+            if rise is not None and not (0 < rise < 100):
+                rise = None
             out.append([name, round(c[0], 5), round(c[1], 5), typ,
                         round(mag_max, 2),
                         (round(num(p[5]), 2) if num(p[5]) is not None else None),
                         (round(period, 4) if period is not None else None),
-                        (round(num(p[8]), 3) if num(p[8]) is not None else None)])
+                        (round(num(p[8]), 3) if num(p[8]) is not None else None),
+                        (round(rise, 1) if rise is not None else None)])
 
     out.sort(key=lambda r: r[4])       # 明るい順
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
@@ -158,7 +167,8 @@ def main() -> int:
     withper = sum(1 for r in out if r[6] is not None)
     withep = sum(1 for r in out if r[7] is not None and r[6] is not None)
     print(f"src/variables_all.json: {len(out):,} 件 ({OUT.stat().st_size:,} bytes)")
-    print(f"  周期あり {withper:,} / 元期と周期の両方あり {withep:,}")
+    withrise = sum(1 for r in out if r[8] is not None)
+    print(f"  周期あり {withper:,} / 元期と周期の両方あり {withep:,} / 上昇時間あり {withrise:,}")
     print(f"  除外: V以外の測光系 {stats['notV']:,} / {MAG_LIMIT}等より暗い {stats['toofaint']:,} / "
           f"対象外の型 {stats['type']:,} / 座標なし {stats['nocoord']:,}")
     return 0

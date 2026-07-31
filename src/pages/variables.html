@@ -83,6 +83,8 @@ bodyclass: vars-page
     border: 1px solid #26406e; border-radius: 7px; padding: 6px 9px; }
   .vars .vpeak .err { color: var(--dim); }
   .vars .vtn { font-size: 12px; color: #8fd3ff; }
+  .vars .phsvg { display: block; width: 100%; height: auto; margin-top: 2px; }
+  .vars .phnote { font-size: 11px; line-height: 1.5; color: var(--dim); margin-top: -2px; }
   .vars .vlinks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
   .vars .vbtn { background: #23407a; border: 1px solid #35589c; color: #e6eeff;
     border-radius: 7px; padding: 7px 13px; font-size: 13px; text-decoration: none; }
@@ -249,10 +251,23 @@ Promise.all([
   for (const [name, ra, dec, type, mx, mn, per, note] of named) {
     seen.set(normKey(name), { name, ra, dec, type, mx, mn, per, note, epoch: null, star: true });
   }
-  for (const [name, ra, dec, type, mx, mn, per, epoch] of all) {
+  // 名前だけで突き合わせると、同じ星が二重に出る (著名版「Mira」と GCVS「omi Cet」、
+  // 「chi Cyg」と「khi Cyg」は同じ星)。**位置でも照合**して1件にまとめる。
+  const near = (a, ra, dec) => {
+    const cd = Math.cos(dec * Math.PI / 180) || 1e-3;
+    return Math.abs(a.dec - dec) < 0.02 &&
+           Math.abs(((a.ra - ra + 540) % 360) - 180) * cd < 0.02;   // 約1分角
+  };
+  const curated = [...seen.values()];
+  for (const [name, ra, dec, type, mx, mn, per, epoch, rise] of all) {
     const k = normKey(name);
-    if (seen.has(k)) { const o = seen.get(k); if (o.epoch == null) { o.epoch = epoch; if (!o.per) o.per = per; } continue; }
-    seen.set(k, { name, ra, dec, type, mx, mn, per, note: "", epoch, star: false });
+    const same = seen.get(k) || curated.find((c) => near(c, ra, dec));
+    if (same) {                       // 解説つきの著名版を残し、足りない値だけ GCVS から補う
+      if (same.epoch == null) { same.epoch = epoch; if (!same.per) same.per = per; }
+      if (same.rise == null) same.rise = rise;
+      continue;
+    }
+    seen.set(k, { name, ra, dec, type, mx, mn, per, note: "", epoch, rise, star: false });
   }
   ALL = [...seen.values()].sort((a, b) => (Number(b.star) - Number(a.star)) || (a.mx - b.mx));
   buildChips();
@@ -320,6 +335,57 @@ function filtered() {
   return out;
 }
 
+/* ---- 位相図 (模式的な光度曲線) ----
+   実測ではなく GCVS の 周期・元期・上昇時間(M-m) だけから描く「いま周期のどこか」の図。
+   ミラ型は上昇が速く下降が遅い(上昇は周期の中央値45%)ので、対称に描くと嘘になる。
+   高さ方向は GCVS の最大〜最小をそのまま使うが、**振幅は周期ごとに変わる**ので
+   「いま何等」とは読ませない。予報の不確かさ σ は横方向の帯で示す。 */
+const PH_W = 236, PH_H = 56;
+function phaseSvg(v) {
+  if (mainType(v.type) !== "M" || !v.per || !v.epoch || !v._peak) return "";
+  const rise = (v.rise != null ? v.rise : 45) / 100;      // 極小→極大の割合
+  const jd = jdFromDate(new Date());
+  // 位相 0 = 極大 (GCVS の脈動星の元期は極大)
+  let ph = (((jd - (v.epoch + 2400000)) / v.per) % 1 + 1) % 1;
+  // 曲線: 極大(0) から下降し、位相 (1-rise) で極小、そこから上昇して 1 で極大
+  const yOf = (t) => {
+    const down = 1 - rise;                                 // 下降にかかる割合
+    const f = t < down ? t / down : 1 - (t - down) / rise;  // 0=極大, 1=極小
+    return 4 + (1 - Math.cos(Math.PI * f)) / 2 * (PH_H - 18);  // なめらかに
+  };
+  let d = "";
+  for (let i = 0; i <= 60; i++) {
+    const t = i / 60, x = 6 + t * (PH_W - 12);
+    d += (i ? "L" : "M") + x.toFixed(1) + " " + yOf(t).toFixed(1);
+  }
+  const x = (t) => 6 + t * (PH_W - 12);
+  // 予報の不確かさを位相の帯で示す。位相は循環するので、端をはみ出した分は反対側へ回す
+  const sig = Math.min(0.5, v._peak.sigma / v.per);
+  const rect = (a, b) => `<rect x="${x(a).toFixed(1)}" y="2" `
+    + `width="${Math.max(0.5, x(b) - x(a)).toFixed(1)}" height="${PH_H - 12}" `
+    + `fill="#6ea8ff" opacity="0.16"/>`;
+  let band = "";
+  const lo = ph - sig, hi = ph + sig;
+  if (lo < 0) band = rect(0, hi) + rect(lo + 1, 1);
+  else if (hi > 1) band = rect(lo, 1) + rect(0, hi - 1);
+  else band = rect(lo, hi);
+  return `<svg class="phsvg" viewBox="0 0 ${PH_W} ${PH_H}" role="img"
+      aria-label="位相図（模式）。いま周期の${Math.round(ph * 100)}%の位置">
+    ${band}
+    <line x1="6" y1="${PH_H - 10}" x2="${PH_W - 6}" y2="${PH_H - 10}" stroke="#2a3450"/>
+    <path d="${d}" fill="none" stroke="#5f7fb5" stroke-width="1.6"/>
+    <line x1="${x(ph).toFixed(1)}" y1="2" x2="${x(ph).toFixed(1)}" y2="${PH_H - 10}"
+          stroke="#ffcf9a" stroke-width="1.4"/>
+    <circle cx="${x(ph).toFixed(1)}" cy="${yOf(ph).toFixed(1)}" r="3.4" fill="#ffcf9a"/>
+    <text x="6" y="${PH_H - 1}" fill="#7c88a3" font-size="9">極大</text>
+    <text x="${x(1 - rise).toFixed(1)}" y="${PH_H - 1}" fill="#7c88a3" font-size="9"
+          text-anchor="middle">極小</text>
+    <text x="${PH_W - 6}" y="${PH_H - 1}" fill="#7c88a3" font-size="9" text-anchor="end">極大</text>
+  </svg>
+  <div class="phnote">位相 ${Math.round(ph * 100)}%（模式図・帯は予報の誤差）。
+    実際の明るさは「最近の観測」で</div>`;
+}
+
 function card(v) {
   const per = v.per
     ? `周期 ${v.per >= 400 ? (v.per / 365).toFixed(1) + "年" : Math.round(v.per) + "日"}`
@@ -346,7 +412,7 @@ function card(v) {
     <div class="vname">${esc(displayName(v.name))}<span class="vtype">${
       esc(TYPE_JA[mainType(v.type)] || v.type)}</span></div>
     <div class="vmag">約 ${v.mx} 〜 ${mn} 等<span class="vper">${per}</span></div>
-    ${peak}${tn}
+    ${peak}${phaseSvg(v)}${tn}
     ${v.note ? `<div class="vnote">${esc(v.note)}</div>` : ""}
     <div class="vlinks">
       <a class="vbtn" href="${chart}">観測星図</a>
