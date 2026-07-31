@@ -130,7 +130,7 @@ def write_data_index() -> None:
                          "minimum for eclipsing binaries"),
          "format": "JSON array of arrays",
          "fields": ["name", "ra_deg", "dec_deg", "type", "mag_max", "mag_min", "period_days",
-                    "epoch_JD_minus_2400000"],
+                    "epoch_JD_minus_2400000", "rise_time_percent"],
          "source": "GCVS 5.1 (Samus+)", "license": "academic use with attribution",
          "cadence": "static"},
         {"name": "variables", "url": f"{origin}/variables.json",
