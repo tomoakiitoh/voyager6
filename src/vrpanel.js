@@ -214,7 +214,11 @@ export class VrPanel {
 
   setVisible(v) {
     this.board.mesh.visible = v;
-    if (v) { this.place(); this.hover = -1; this.draw(); }
+    if (v) {
+      this.place(); this.hover = -1; this.draw();
+      // 行き来の候補を先読み。VR に入っているときだけ (デスクトップでは無駄になる)
+      if (this.o.renderer.xr.isPresenting) prefetchTargets(this.rows);
+    }
   }
   toggle() { this.setVisible(!this.visible); }
 
@@ -321,6 +325,35 @@ export class VrPanel {
 
 /** 三部作の別ページへ行く URL。移動先で入り直しボタンを出すため vr=1 を付ける。 */
 export function vrLink(path) { return path + "?vr=1"; }
+
+/* 行き先で最初に要る大物。**VRパネルを開いた時点で先に落としておく**。
+   移動そのものは速くできない (読み込み直しは避けられない) が、待ち時間の中身は
+   ほぼ回線なので、見ている間に取っておけば体感が変わる。実測 (2026-07-31):
+   /planetarium/ の stars_deep.bin だけで 3.3MB、手元の回線でも読み込み完了まで1.3秒。
+   GitHub Pages のキャッシュは max-age=600 しか付かないので、10分空くと取り直しになる。
+   link rel=prefetch ではなく fetch を使うのは、ページ側と同じ要求の形で
+   HTTP キャッシュに載せるため (as=fetch の prefetch は形が違うと二度読みになる)。 */
+const PREFETCH = {
+  "/planetarium/": ["/stars_deep.bin", "/satellites.json"],
+  "/earth/": ["/coastlines.bin", "/satellites.json"],
+  "/solar/": ["/comets_all.json", "/comets_historic.json"],
+};
+let prefetched = false;
+function prefetchTargets(rows) {
+  if (prefetched) return;
+  prefetched = true;
+  for (const r of rows) {
+    if (!r.go) continue;
+    const path = new URL(r.go(), location.href).pathname;
+    const l = document.createElement("link");      // ページ本体は普通の先読みでよい
+    l.rel = "prefetch"; l.as = "document"; l.href = path;
+    document.head.appendChild(l);
+    for (const u of PREFETCH[path] || []) {
+      // 本体を読み切らないと転送が完了しない。読んだ中身は捨ててよい (要るのはキャッシュ)
+      fetch(u).then((res) => res.arrayBuffer()).catch(() => {});
+    }
+  }
+}
 
 /** ?vr=1 で着いたとき、画面いっぱいの「VRに戻る」を出す。
     Quest ではブラウザが2Dの板に戻るので、コントローラで狙いやすい大きさにしておく。 */
