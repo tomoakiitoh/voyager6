@@ -31,6 +31,7 @@ bodyclass: solar-page
     <label><input type="checkbox" id="earth-fixjp">日本を正面に固定</label>
     <label><input type="checkbox" id="earth-guides" checked>GEO軌道の輪・グリッド</label>
     <label><input type="checkbox" id="earth-orbit" checked>選択衛星の軌道</label>
+    <label><input type="checkbox" id="earth-geo">静止衛星</label>
     <label><input type="checkbox" id="earth-starlink">Starlink網</label>
   </div>
   <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
@@ -81,6 +82,20 @@ scene.add(world);
 const sunLight = new THREE.DirectionalLight(0xffffff, 1.8);
 world.add(sunLight);
 world.add(sunLight.target);
+
+/* 太陽。光の当たり方だけだと「どちらが昼か」が分かりにくいので、太陽そのものを置く。
+   ただし遠くに置くと画角に入らない (地球のすぐそばから見ているため) ので、
+   **地球から太陽へ伸びる線**も引く。線なら常に画面を横切るので、太陽が視界の外でも方向が分かる。
+   距離・大きさは実スケールではない (地球6.37単位に対し120単位先) が、方向は正しい。 */
+const SUN_DIST = 120;
+const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: dot(), color: 0xfff0c0, transparent: true, opacity: 0.95, depthWrite: false }));
+sunSprite.scale.set(14, 14, 1);
+world.add(sunSprite);
+const sunLine = new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({ color: 0xffcf80, transparent: true, opacity: 0.35 }));
+world.add(sunLine);
 
 // ---- 地球 (テクスチャ＋昼夜。自転は GMST で回す) ----
 const earthTex = new THREE.TextureLoader().load("../assets/earth.jpg");
@@ -246,6 +261,30 @@ async function loadStarlink() {
   } catch (e) { /* Starlink 無しでも動く */ }
 }
 
+/* 静止衛星 (約570機)。知名度は高いが、明るい衛星のグループには入っていない
+   (10〜13等で眼視では見えない)。ここでは「静止軌道の輪の上に並ぶ」姿を見せるために出す。
+   地球の自転と同じ速さで回るので、日本を正面に固定すると止まって見えるのが面白い。 */
+let geoRecs = [], geoPoints = null, geoTried = false;
+async function loadGeo() {
+  if (geoTried || !satLib) return;
+  geoTried = true;
+  try {
+    const data = await fetch("../satellites_geo.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+    for (const [name, norad, l1, l2] of data) {
+      const rec = satLib.twoline2satrec(l1, l2);
+      if (!rec.error) geoRecs.push(rec);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(geoRecs.length * 3), 3));
+    geoPoints = new THREE.Points(geo, new THREE.PointsMaterial({
+      size: 3.4, sizeAttenuation: false, color: 0xff9a6a, map: dot(),
+      transparent: true, opacity: 0.9, depthWrite: false }));
+    geoPoints.visible = el("earth-geo").checked;
+    world.add(geoPoints);
+    update();
+  } catch (e) { /* 静止衛星なしでも動く */ }
+}
+
 /** 丸い柔らかい点スプライト。 */
 function dot() {
   const s = 64, c = document.createElement("canvas"); c.width = c.height = s;
@@ -307,7 +346,11 @@ function update() {
   // 太陽方向 (ECI) → 平行光
   const s = sunPosition(jd);
   const sv = raDecToVec(s.ra, s.dec);
-  sunLight.position.copy(new THREE.Vector3(sv[0], sv[2], -sv[1]).multiplyScalar(200));
+  const sunDir = new THREE.Vector3(sv[0], sv[2], -sv[1]);
+  sunLight.position.copy(sunDir).multiplyScalar(200);
+  sunSprite.position.copy(sunDir).multiplyScalar(SUN_DIST);
+  sunLine.geometry.setFromPoints([
+    sunDir.clone().multiplyScalar(EARTH_R * 1.05), sunSprite.position.clone()]);
   // 同じ太陽方向を「地球ローカル系」に直して海岸線シェーダへ渡す (自転ぶんを外す)。
   // ECI(X,Y,Z) → 緯度φ=asin(Z)、経度λ=atan2(Y,X)−GMST → ローカル(cosλcosφ, sinφ, −sinλcosφ)
   {
@@ -330,6 +373,15 @@ function update() {
     }
     pos.needsUpdate = true;
     satPoints.geometry.getAttribute("color").needsUpdate = true;
+  }
+  if (geoPoints && geoPoints.visible) {
+    const pos = geoPoints.geometry.getAttribute("position");
+    for (let i = 0; i < geoRecs.length; i++) {
+      const p = eciOf(geoRecs[i], date);
+      if (!p) { pos.setXYZ(i, 0, 0, 0); continue; }
+      const v = toV(p); pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    pos.needsUpdate = true;
   }
   if (starPoints && starPoints.visible) {
     const pos = starPoints.geometry.getAttribute("position");
@@ -387,6 +439,12 @@ el("earth-fixjp").addEventListener("change", () => {
 });
 el("earth-guides").addEventListener("change", () => (guides.visible = el("earth-guides").checked));
 el("earth-orbit").addEventListener("change", () => { if (orbitLine) orbitLine.visible = el("earth-orbit").checked; });
+el("earth-geo").addEventListener("change", () => {
+  const on = el("earth-geo").checked;
+  if (on && !geoPoints) loadGeo();
+  if (geoPoints) geoPoints.visible = on;
+  update();
+});
 el("earth-starlink").addEventListener("change", () => {
   const on = el("earth-starlink").checked;
   if (on && !starPoints) loadStarlink();
@@ -510,9 +568,11 @@ const vrPanel = new VrPanel({
     { id: "earth-fixjp", label: "日本を正面に固定" },
     { id: "earth-guides", label: "GEO軌道の輪・グリッド" },
     { id: "earth-orbit", label: "選択衛星の軌道" },
+    { id: "earth-geo", label: "静止衛星" },
     { id: "earth-starlink", label: "Starlink網（重い）" },
     { act: "earth-play", label: "時間送り（再生／停止）" },
     { act: "earth-now", label: "「今」に戻す" },
+    { act: "earth-vr", label: "VRを終了する" },   // Home ボタンで抜けると設定が失われる
   ],
   status: () => {
     const off = (curMs - baseMs) / 60000;
@@ -565,7 +625,7 @@ function makeSatLabel(color) {
   const tex = new THREE.CanvasTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({
     map: tex, transparent: true, depthTest: false, depthWrite: false }));
-  sp.scale.set(5, 1.25, 1);         // world 単位 (地球半径6.37。大きすぎると盤面を覆う)
+  sp.scale.set(2.6, 0.65, 1);       // world 単位 (地球半径6.37)。小さく、衛星のすぐ脇に
   sp.renderOrder = 8000;
   let cur = null;
   sp.setText = (t) => {
@@ -598,7 +658,7 @@ function updateSatLabels() {
                        .filter(Boolean);
     hoverLabel = makeSatLabel("#9fe8ff");
   }
-  for (const f of famousLabels) { f.sp.setText(sats[f.i].name); at(f.sp, f.i, 2.2); }
+  for (const f of famousLabels) { f.sp.setText(sats[f.i].name); at(f.sp, f.i, 0.9); }
   // レイの先の衛星 (VR中のみ)
   let h = -1;
   if (renderer.xr.isPresenting && vrPanel.controllers.length) {
@@ -613,7 +673,7 @@ function updateSatLabels() {
   }
   if (h >= 0 && !famousLabels.some((f) => f.i === h)) {
     hoverLabel.setText(sats[h].name);
-    at(hoverLabel, h, 2.2);
+    at(hoverLabel, h, 0.9);
   } else {
     hoverLabel.visible = false;
   }

@@ -32,6 +32,9 @@ OUT = ROOT.parent / "src" / "satellites.json"
 # committed 済み (前回データ保持)。日次 cron が更新し、push デプロイは committed 版を配信する。
 # 同定モードの全カタログ検索と地球周回3Dの「コンステレーション網」表示にオンデマンドで使う。
 OUT_STARLINK = ROOT.parent / "src" / "satellites_starlink.json"
+# 静止衛星 (約570機)。知名度が高い割に、明るい衛星のグループには入っていない
+# (視等級10〜13等で眼視では見えないため)。地球周回3Dで「静止軌道の輪の上に並ぶ」姿を見せる用。
+OUT_GEO = ROOT.parent / "src" / "satellites_geo.json"
 GP = "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
 GROUPS = ["stations", "visual"]   # stations を先に (ISS/CSS を上位に置く)
 
@@ -132,6 +135,18 @@ def main() -> int:
             print(f"警告: starlink {len(sl)} 機は少なすぎる。生成をスキップ。", file=sys.stderr)
     except Exception as e:  # noqa: BLE001
         print(f"警告: starlink の取得に失敗 ({e})。スキップ。", file=sys.stderr)
+
+    # 静止衛星 (失敗しても本編は壊さない)
+    try:
+        geo = parse_tle(fetch_tle("geo"))
+        if len(geo) > 100:
+            arr = [[name, norad, l1, l2] for (name, norad, l1, l2) in geo]
+            OUT_GEO.write_text(json.dumps(arr, ensure_ascii=False), encoding="utf-8")
+            print(f"src/satellites_geo.json: {len(arr)} 機")
+        else:
+            print(f"警告: geo {len(geo)} 機は少なすぎる。生成をスキップ。", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"警告: geo の取得に失敗 ({e})。スキップ。", file=sys.stderr)
     return 0
 
 
