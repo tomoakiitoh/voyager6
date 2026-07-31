@@ -619,6 +619,20 @@ function pickSatWithRay(ray) {
    (1) 標準等級を持つ著名機 (ISS/CSS/HST/TERRA/AQUA) は常に名前を出す
    (2) コントローラのレイを向けた衛星の名前をその場に出す (掃くだけで分かる)
    ラベルは world の子にして、地球や衛星と一緒に縮む・回る。 */
+const LABEL_W = 0.13, LABEL_H = 0.0325;   // 画面に占める割合 (デスクトップで詰めた値)
+const satLabels = [];
+/** ラベルの大きさを毎フレーム入れ直す。
+    sizeAttenuation:false のスプライトは、頂点シェーダで
+      scale = length(modelMatrix[0]) ここに視線方向の深さを掛ける
+    という作りになっている。深さが打ち消し合って「見かけの角の大きさ = scale」になるのが
+    この指定の狙いだが、**modelMatrix には親 (world) の拡大率も入る**。VR では world を
+    0.03 に縮めるので、ラベルだけ 1/33 になって完全に消えていた (Quest で見えなかった原因)。
+    world の縮尺を割り戻して、見かけの大きさを縮尺やズームから独立させる。 */
+function fitLabels() {
+  const k = 1 / (world.scale.x || 1)
+    * (renderer.xr.isPresenting ? 1.5 : 1);   // VR は画角が広いぶん同じ角度でも小さく見える
+  for (const sp of satLabels) sp.scale.set(LABEL_W * k, LABEL_H * k, 1);
+}
 function makeSatLabel(color) {
   const c = document.createElement("canvas"); c.width = 256; c.height = 64;
   const g = c.getContext("2d");
@@ -628,8 +642,11 @@ function makeSatLabel(color) {
     sizeAttenuation: false }));     // 画面上で一定の大きさにする
   // sizeAttenuation:false のとき scale は「画面に占める割合」。距離で大きさが変わらないので、
   // カメラのすぐ近くに来る静止衛星 (VRでは目の前30cm) のラベルが巨大にならない。
-  sp.scale.set(0.13, 0.0325, 1);
+  // ただし three.js は「親も含めた行列」の拡大率を使うので、world を縮めると一緒に縮む。
+  // 実寸は fitLabels() で毎フレーム入れ直す (下のコメント参照)。
+  sp.scale.set(LABEL_W, LABEL_H, 1);
   sp.renderOrder = 8000;
+  satLabels.push(sp);
   let cur = null;
   sp.setText = (t) => {
     if (t === cur) return;
@@ -652,6 +669,7 @@ let geoLabels = null;
 let famousLabels = null, hoverLabel = null;
 function updateSatLabels() {
   if (!satPoints || !sats.length) return;
+  fitLabels();
   const pos = satPoints.geometry.getAttribute("position");
   // ラベルは衛星の「地球中心から外向き」にずらす。真上にずらすと地球や他のラベルに重なる。
   const tmp = new THREE.Vector3();
@@ -728,7 +746,15 @@ function setupVR() {
     let session = null;
     const saved = {};
     btn.addEventListener("click", async () => {
-      if (session) { session.end(); return; }
+      // 終了はパネルの行からも来る。パネルの行はコントローラの selectstart の中で
+      // click() を投げるので、**同じセッションのイベント配送中に end() を呼ぶ**ことになる。
+      // Quest ではこれで終了が握り潰されることがあるため、次のタスクに逃がしてから閉じる。
+      // session は requestSession の解決待ちで取りこぼす余地があるので xr 側も見る。
+      const cur = session || renderer.xr.getSession();
+      if (cur) {
+        setTimeout(() => { try { cur.end(); } catch (e) { /* 既に終了済み */ } }, 0);
+        return;
+      }
       try {
         session = await navigator.xr.requestSession("immersive-vr",
           { optionalFeatures: ["local-floor"] });
@@ -741,8 +767,10 @@ function setupVR() {
       vrPanel.setVisible(true);
       vrPanel.setStatusVisible(true);
       session.addEventListener("end", () => {
-        session = null; btn.textContent = "VRで見る"; exitVR(saved);
+        session = null; btn.textContent = "VRで見る";
         vrPanel.setVisible(false); vrPanel.setStatusVisible(false);
+        try { exitVR(saved); } catch (e) { console.error(e); }   // 復帰を途中で止めない
+        resize(); update();
       });
     });
   });
