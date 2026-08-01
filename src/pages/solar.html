@@ -686,9 +686,10 @@ function updateCraft(jd) {
       it.label.position.copy(it.marker.position).add(new THREE.Vector3(0, 0.45, 0));
       it.label.visible = (i === selCraft);
       // 任務を終えた機は半透明にして「もう動いていない」ことを見せる
-      const ended = c.end && jd > jdFromYMD(c.end);
+      // 半透明にするのは本当に終わった機だけ。通信途絶でも飛んでいる機は普通に描く
+      const stopped = c.end && jd > jdFromYMD(c.end) && !c.coasting;
       it.marker.material.transparent = true;
-      it.marker.material.opacity = dim ? 0.35 : (ended ? 0.45 : 1);
+      it.marker.material.opacity = dim ? 0.35 : (stopped ? 0.45 : 1);
       it.marker.scale.setScalar(i === selCraft ? 1.8 : 1);
     } else {
       it.marker.visible = false; it.label.visible = false;
@@ -747,7 +748,10 @@ function updateCraftPick(jd) {
   if (!h) where = "打ち上げ前";
   else {
     where = `日心 ${Math.sqrt(h.x * h.x + h.y * h.y + h.z * h.z).toFixed(2)} AU`;
-    if (ended) where += `（${c.end} 任務終了）`;
+    // 「通信が途絶えた」と「止まった」は違う。パイオニアは今も秒速12kmで飛んでいる
+    if (ended) where += c.coasting
+      ? `（${c.end} 通信途絶 / 以後は軌道計算による位置）`
+      : `（${c.end} 任務終了）`;
   }
   el("solar-pick").textContent =
     `★ ${c.name_ja} / ${c.name_en}　${where}　${c.launch}打上　${c.agency}${at ? " ・ " + at : ""}`;

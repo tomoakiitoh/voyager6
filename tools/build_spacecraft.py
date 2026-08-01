@@ -21,6 +21,7 @@ cron は不要 (comets と違い毎日は変わらない)。
       "status":  "cruise"|"orbiting"|"ended",
       "at":      null|"jupiter"|…        … 滞在中の惑星 (小文字)。軌跡は到着で打ち切ってあるので、
                                            以後のマーカーは惑星の位置に重ねる
+      "coasting":false,                  … true = 通信途絶後も飛び続けている (end で軌跡を切らない)
       "traj_end":null|"2004-07-01",      … 軌跡の打ち切り日 (= 到着日)。at と対
       "from":    "2009-01-27",           … 実際に取れた軌跡の開始日
       "partial": false,                  … true = 公開軌道が打ち上げに届いていない (要注記)
@@ -64,11 +65,18 @@ HORIZON_FUTURE = (TODAY + dt.timedelta(days=366)).isoformat()   # 現役機の�
 
 
 def C(key, name_ja, name_en, agency, country_ja, hid, launch, *,
-      end=None, status="cruise", at=None, traj_end=None, events=()):
-    """収録機 1 機の定義。end=None は現役。traj_end は軌跡の打ち切り日 (軌道船の到着日)。"""
+      end=None, status="cruise", at=None, traj_end=None, coasting=False, events=()):
+    """収録機 1 機の定義。end=None は現役。traj_end は軌跡の打ち切り日 (軌道船の到着日)。
+
+    coasting=True は「**通信は途絶えたが、まだ飛んでいる**」機
+    (パイオニア10/11・ユリシーズ・ドーン)。end で軌跡を切ってはいけない。
+    切ると最後の交信地点で止まって見え、「パイオニアはまだ近い」という誤った印象になる
+    (実際にはパイオニア10号は 2003年の82AU に対し、2026年には141AU まで来ている)。
+    これらは弾道飛行なので Horizons が今後の位置も持っている。"""
     return dict(key=key, name_ja=name_ja, name_en=name_en, agency=agency,
                 country_ja=country_ja, id=hid, launch=launch, end=end,
-                status=status, at=at, traj_end=traj_end, events=list(events))
+                status=status, at=at, traj_end=traj_end, coasting=coasting,
+                events=list(events))
 
 
 # 収録リスト (ID は 2026-08-01 に -31/-37/-5/-3/-156/-121/-28/-9901491 を実照会で確認。
@@ -83,9 +91,9 @@ CRAFT = [
               ["1986-01-24", "天王星最接近"], ["1989-08-25", "海王星最接近"],
               ["2018-11-05", "太陽圏界面を通過"]]),
     C("pioneer10", "パイオニア10号", "Pioneer 10", "NASA", "アメリカ", -23, "1972-03-03",
-      end="2003-01-23", status="ended", events=[["1973-12-04", "木星最接近 (史上初)"]]),
+      end="2003-01-23", status="ended", coasting=True, events=[["1973-12-04", "木星最接近 (史上初)"]]),
     C("pioneer11", "パイオニア11号", "Pioneer 11", "NASA", "アメリカ", -24, "1973-04-06",
-      end="1995-09-30", status="ended",
+      end="1995-09-30", status="ended", coasting=True,
       events=[["1974-12-03", "木星最接近"], ["1979-09-01", "土星最接近 (史上初)"]]),
     C("newhorizons", "ニューホライズンズ", "New Horizons", "NASA", "アメリカ", -98, "2006-01-19",
       events=[["2007-02-28", "木星スイングバイ"], ["2015-07-14", "冥王星最接近"],
@@ -104,7 +112,7 @@ CRAFT = [
       "2018-08-12", events=[["2021-04-29", "太陽コロナ内を初通過"],
                             ["2024-12-24", "太陽最接近 (約610万km)"]]),
     C("dawn", "ドーン", "Dawn", "NASA", "アメリカ", -203, "2007-09-27",
-      end="2018-11-01", status="ended", at=None,
+      end="2018-11-01", status="ended", at=None, coasting=True,
       events=[["2011-07-16", "ベスタ周回軌道"], ["2015-03-06", "ケレス周回軌道"]]),
     C("osirisrex", "オサイリス・レックス", "OSIRIS-REx", "NASA", "アメリカ", -64, "2016-09-08",
       events=[["2018-12-03", "小惑星ベンヌ到着"], ["2023-09-24", "サンプルカプセル地球帰還"]]),
@@ -133,7 +141,7 @@ CRAFT = [
     C("solarorbiter", "ソーラー・オービター", "Solar Orbiter", "ESA/NASA", "欧州", -144,
       "2020-02-10"),
     C("ulysses", "ユリシーズ", "Ulysses", "ESA/NASA", "欧州", -55, "1990-10-06",
-      end="2009-06-30", status="ended",
+      end="2009-06-30", status="ended", coasting=True,
       events=[["1992-02-08", "木星スイングバイで黄道面を離脱"]]),
     C("bepicolombo", "ベピコロンボ", "BepiColombo", "ESA/JAXA", "欧州/日本", -121, "2018-10-20",
       events=[["2020-04-10", "地球スイングバイ"], ["2025-01-08", "第6回水星スイングバイ"]]),
@@ -282,7 +290,8 @@ def step_for(start: str, stop: str) -> str:
 def build_one(c: dict) -> dict:
     # 打ち上げ当日は地球脱出前で中心天体が違うことがあるので 1 日ずらす
     start = (dt.date.fromisoformat(c["launch"]) + dt.timedelta(days=1)).isoformat()
-    stop = c["traj_end"] or c["end"] or HORIZON_FUTURE
+    # coasting (通信途絶だが飛行中) は end で切らない。切ると最後の交信地点で止まって見える
+    stop = c["traj_end"] or (None if c["coasting"] else c["end"]) or HORIZON_FUTURE
     # 範囲外を言われたら、言われた境界まで詰めて取り直す (最大2回。両端が外れることがある)
     for _ in range(2):
         text = fetch(c["id"], start, stop, step_for(start, stop))
@@ -302,6 +311,7 @@ def build_one(c: dict) -> dict:
                              "id", "launch", "status", "at", "events")}
     out["end"] = c["end"]
     out["traj_end"] = c["traj_end"]      # 周回機の到着日。以後のマーカーは惑星に重ねる
+    out["coasting"] = c["coasting"]      # true = 通信途絶後も飛行中 (以後の位置は軌道計算)
     # 公開軌道が打ち上げに届いていないときは、そう明記する (黙って一部だけ描かない)。
     # 例: はやぶさは Horizons に 2009-01 以降しか無く、往路もイトカワ到着も描けない。
     got = dt.date(1858, 11, 17) + dt.timedelta(days=jd[0] - 2400000.5)
