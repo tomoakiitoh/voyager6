@@ -15,7 +15,7 @@
 ## Pages
 
 - [星座早見 / Sky chart](https://voyager6.net/): 指定日時・地点の全天。恒星10等まで、星座線、天の川、惑星・月(水星〜冥王星の8惑星)、彗星、小惑星、メシエ天体。天体をタップすると等級・赤経赤緯・高度方位のカードが出る(彗星・小惑星はそのまま3D軌道へ)。ホイールで拡大すると望遠鏡ファインダーになる。
-- [太陽系3D / Solar system 3D](https://voyager6.net/solar/): 惑星・彗星(全既知)・小惑星の軌道を3Dで俯瞰。力学群フィルタ、時間再生、木星固定(回転座標系)でトロヤ群、WebXR(VR)対応。
+- [太陽系3D / Solar system 3D](https://voyager6.net/solar/): 惑星・彗星(全既知)・小惑星の軌道を3Dで俯瞰。力学群フィルタ、時間再生、木星固定(回転座標系)でトロヤ群、WebXR(VR)対応。**各国の惑星探査機25機の飛行経路**(ボイジャー・はやぶさ2・パーカー等)を重ねられ、現在日までが実線・その先が減光で描かれる。
 - [彗星カタログ / Comet catalog](https://voyager6.net/comets/): 収録彗星の一覧。符号・和名・英名で検索、近日点通過/周期で並べ替え、行から3D軌道へ。
 - [小惑星カタログ / Asteroid catalog](https://voyager6.net/asteroids/): 探査機が訪れた小惑星(イトカワ・リュウグウ等)を軸に、名前/番号で検索。
 - [変光星カタログ / Variable star catalog](https://voyager6.net/variables/): 眼視〜双眼鏡で追える変光星 約3,600個 (GCVS由来・V等級で最大10等以下)。「今夜見える」(観測地で高度20°以上)・「極大が近い」(ミラ型の予報)で絞り込め、カードから比較星の等級つき観測星図と AAVSO VSP を開ける。
@@ -106,6 +106,14 @@ URLを組み立てて返す**ことを想定している(=このサイトの狙�
 - 例: 2061年のハレー彗星 → `https://voyager6.net/solar/?date=2061-07-01&comet=1P`
 - 例(通称): 百武彗星の軌道 → `https://voyager6.net/solar/?date=1996-03-25&comet=Hyakutake`
 
+### 太陽系3D の探査機レイヤ — `https://voyager6.net/solar/?craft=<キー>`
+- `craft` = 探査機のキー → 軌跡を描いて選択・追尾。レイヤは自動でオンになる
+- **現在日までが実線、その先が減光**で描かれるので「いまどこまで来たか」が分かる
+- 出来事(最接近など)をクリックするとその日付へ飛ぶ
+- 収録25機のキー: `voyager1`=ボイジャー1号 / `voyager2`=ボイジャー2号 / `pioneer10`=パイオニア10号 / `pioneer11`=パイオニア11号 / `newhorizons`=ニューホライズンズ / `cassini`=カッシーニ / `galileo`=ガリレオ / `juno`=ジュノー / `parker`=パーカー・ソーラー・プローブ / `dawn`=ドーン / `osirisrex`=オサイリス・レックス / `lucy`=ルーシー / `psyche`=サイキ / `europaclipper`=エウロパ・クリッパー / `hayabusa`=はやぶさ / `hayabusa2`=はやぶさ2 / `akatsuki`=あかつき / `rosetta`=ロゼッタ / `juice`=ジュース / `solarorbiter`=ソーラー・オービター / `ulysses`=ユリシーズ / `bepicolombo`=ベピコロンボ / `mom`=マンガルヤーン / `adityal1`=アディティヤL1 / `tianwen1`=天問1号
+- 例: ボイジャー1号の現在位置 → `https://voyager6.net/solar/?craft=voyager1`
+- 例: 天王星最接近の日のボイジャー2号 → `https://voyager6.net/solar/?craft=voyager2&date=1986-01-24`
+
 ### 地球周回3D — `https://voyager6.net/earth/`
 - `sat` = NORAD番号 → その衛星を選択・軌道表示
 - 例: ISS → `https://voyager6.net/earth/?sat=25544`
@@ -115,7 +123,8 @@ URLを組み立てて返す**ことを想定している(=このサイトの狙�
 `1`=ON / `0`=OFF。既定と同じものは URL に出ない(既定のままなら書かなくてよい)。
 - `/earth/`: `line`(線画) `fixjp`(日本を正面) `guides`(GEO軌道の輪) `orbit`(選択衛星の軌道) `geo`(静止衛星) `starlink`
 - `/planetarium/`: `deep`(V≤10) `lines`(星座線) `names`(星座名) `planets`(惑星・月) `mw`(天の川) `comets` `sats`(人工衛星)
-- `/solar/`: `orbits`(惑星軌道) `comets` `comet-orbits` `asteroids` `asteroids2`(全量GPU) `corotate`(木星固定) `names`(惑星名)
+- `/solar/`: `orbits`(惑星軌道) `comets` `comet-orbits` `asteroids` `asteroids2`(全量GPU) `craftlayer`(探査機) `corotate`(木星固定) `names`(惑星名)
+  ※ 探査機レイヤの ON/OFF だけ `craftlayer`。`craft` は上の「どの探査機を選ぶか」に使う
 - 例: 静止衛星を出した地球周回3D → `https://voyager6.net/earth/?geo=1`
 - 例: 星座名つきのVRプラネタリウム → `https://voyager6.net/planetarium/?names=1`
 

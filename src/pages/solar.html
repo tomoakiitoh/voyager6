@@ -36,6 +36,7 @@ bodyclass: solar-page
       </select></label>
     <input type="text" id="comet-search" placeholder="彗星名で選択" maxlength="30">
     <button id="comet-search-btn">選択</button>
+    <select id="craft-select" title="探査機を選ぶ"><option value="">探査機…</option></select>
   </div>
   <div class="row toggles">
     <label><input type="checkbox" id="solar-orbits" checked>惑星軌道</label>
@@ -43,10 +44,12 @@ bodyclass: solar-page
     <label><input type="checkbox" id="solar-comet-orbits">全彗星の軌道線</label>
     <label><input type="checkbox" id="solar-asteroids">小惑星</label>
     <label><input type="checkbox" id="solar-asteroids2">全量 (GPU)</label>
+    <label><input type="checkbox" id="solar-craft">探査機</label>
     <label><input type="checkbox" id="solar-corotate">木星固定（回転座標系）</label>
     <label><input type="checkbox" id="solar-names" checked>惑星名</label>
   </div>
   <div class="row"><span id="solar-pick" class="info"></span></div>
+  <div class="row"><span id="craft-events" class="info"></span></div>
 </div>
 
 <script type="importmap">
@@ -461,6 +464,8 @@ function writeSolarUrl() {
   else p.delete("comet");
   if (selAst) { p.set("ael", selAst.el.map((x) => +(+x).toFixed(6)).join(",")); p.set("aname", selAst.name); }
   else { p.delete("ael"); p.delete("aname"); }
+  if (selCraft >= 0 && craftItems[selCraft]) p.set("craft", craftItems[selCraft].c.key);
+  else p.delete("craft");
   history.replaceState(null, "", location.pathname + "?" + p.toString());
 }
 
@@ -495,6 +500,7 @@ function update() {
   }
   if (selectedIndex >= 0) updateSelectedMarker(jd);
   if (selAst) updateAsteroidMarker(jd);
+  if (craftGroup && craftGroup.visible) { updateCraft(jd); updateCraftPick(jd); }
   if (tier2Mat) tier2Mat.uniforms.uT.value = jd - J0; // GPU全量: 時刻を渡す (位置はシェーダが計算)
   // 回転座標系: グループごと木星の黄経ぶん逆回転させて木星を固定 (トロヤ群/ヒルダ群が浮かぶ)
   orbitingGroup.rotation.y = coRotating
@@ -562,6 +568,216 @@ el("solar-play").addEventListener("click", () => {
 
 // 初期スライダー位置
 el("solar-time").value = Math.round(curJd - J0);
+
+/* ---- 惑星探査機 ----
+   Horizons の再構築軌道を事前計算した静的 JSON (tools/build_spacecraft.py)。
+   軌跡は「日付→位置」を線形補間できるよう、隣接点の間隔が45日以下になるよう間引いてある。
+
+   **現在日までを実線、その先を減光**にしてあるのがこの機能の要で、
+   「探査機がいまどこまで来たか」が一目で分かる。実線と減光線の2本を同じ頂点列で持ち、
+   drawRange で切り替えている (毎フレーム頂点を作り直さない)。
+
+   周回機 (カッシーニ・ジュノー等) の軌跡は惑星到着日で打ち切ってある。太陽中心で描き続けると
+   惑星の軌道をなぞるだけになって画面が濁るため。到着後のマーカーは惑星の位置に重ねる。 */
+const CRAFT_COLOR = {           // 機関別。彗星の群色と被らない系統にしてある
+  NASA: 0x9fc5ff, JAXA: 0xffd28a, ESA: 0xa8e6b0, ISRO: 0xffb3c8, CNSA: 0xe6a8ff,
+};
+const craftColorOf = (agency) => {
+  for (const k of Object.keys(CRAFT_COLOR)) if (agency.startsWith(k)) return CRAFT_COLOR[k];
+  return 0xcfd8e6;
+};
+let craftData = null;           // spacecraft.json の craft[]
+let craftGroup = null;          // 軌跡・マーカー・ラベルを載せる器
+let craftItems = [];            // { c, past, future, marker, label }
+let selCraft = -1;              // 選択中の添字 (-1 = 無選択)
+let wantCraftKey = null;        // ?craft= で来たキー (読み込み後に選ぶ)
+
+/** 探査機の日心位置 (AU)。範囲外は null。周回機は到着後は惑星の位置を返す。 */
+function craftHelio(c, jd) {
+  const t = c.jd;
+  if (jd < t[0]) return null;                       // 打ち上げ前
+  if (jd > t[t.length - 1]) {
+    // 軌跡の終わり。周回機なら以後は惑星に重ねる (at は小文字なので頭を大文字にして引く)
+    if (c.at) {
+      const name = c.at[0].toUpperCase() + c.at.slice(1);
+      return planetHelio(name, jd);
+    }
+    // 任務を終えた機は最終点に留める。消してしまうと「どこで終わったか」が見えない
+    const e = c.xyz[c.xyz.length - 1];
+    return { x: e[0], y: e[1], z: e[2] };
+  }
+  let lo = 0, hi = t.length - 1;                    // 二分探索 (点数は最大千程度)
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (t[m] <= jd) lo = m; else hi = m; }
+  const f = (jd - t[lo]) / (t[hi] - t[lo]);
+  const a = c.xyz[lo], b = c.xyz[hi];
+  return { x: a[0] + f * (b[0] - a[0]), y: a[1] + f * (b[1] - a[1]), z: a[2] + f * (b[2] - a[2]) };
+}
+
+function loadCraft() {
+  if (craftData) return Promise.resolve();
+  return fetch("../spacecraft.json").then((r) => r.json()).then((doc) => {
+    craftData = doc.craft;
+    craftGroup = new THREE.Group();
+    craftGroup.visible = el("solar-craft").checked;
+    orbitingGroup.add(craftGroup);
+
+    const sel = el("craft-select");
+    for (const c of craftData) {
+      const color = craftColorOf(c.agency);
+      const pts = c.xyz.map((v) => toV({ x: v[0], y: v[1], z: v[2] }));
+      // 「通ってきた道」と「これから」を同じ頂点列の別区間として描く。
+      // drawRange はジオメトリ側の属性なので、2本で共有すると塗り分けられない。
+      // 頂点は複製する (全25機で6千点ほど。複製しても150KB程度で、負担にならない)。
+      const past = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+      const future = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.2 }));
+      craftGroup.add(past); craftGroup.add(future);
+
+      const marker = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 10),
+        new THREE.MeshBasicMaterial({ color }));
+      craftGroup.add(marker);
+      const label = makeLabel(c.name_ja, color);
+      label.visible = false;                            // 25機ぶん常時出すと文字の壁になる
+      craftGroup.add(label);
+      craftItems.push({ c, past, future, marker, label });
+
+      const o = document.createElement("option");
+      o.value = c.key; o.textContent = `${c.name_ja} (${c.agency})`;
+      sel.appendChild(o);
+    }
+    updateCraft(curJd);
+    if (wantCraftKey) selectCraftByKey(wantCraftKey);
+  }).catch(() => { el("solar-pick").textContent = "探査機データを読み込めませんでした"; });
+}
+
+/** 毎フレーム: 軌跡の実線/減光の境目と、マーカー・ラベルの位置を更新する。 */
+function updateCraft(jd) {
+  if (!craftItems.length || !craftGroup || !craftGroup.visible) return;
+  for (let i = 0; i < craftItems.length; i++) {
+    const it = craftItems[i], c = it.c, t = c.jd;
+    // 現在日までに通過した点の数 (二分探索)
+    let n;
+    if (jd <= t[0]) n = 0;
+    else if (jd >= t[t.length - 1]) n = t.length;
+    else {
+      let lo = 0, hi = t.length - 1;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (t[m] <= jd) lo = m; else hi = m; }
+      n = lo + 1;
+    }
+    it.past.geometry.setDrawRange(0, n);            // 通ってきた道 = 実線
+    it.past.visible = n > 1;
+    // これから通る道 = 減光。1点ぶん重ねて始めないと継ぎ目に隙間ができる
+    const fs = Math.max(0, n - 1);
+    it.future.geometry.setDrawRange(fs, t.length - fs);
+    it.future.visible = n < t.length;
+    // 25機を同じ濃さで描くと線の壁になる。選んでいる機があるときは他を沈める
+    const dim = selCraft >= 0 && i !== selCraft;
+    it.past.material.opacity = dim ? 0.18 : 0.9;
+    it.future.material.opacity = dim ? 0.05 : 0.2;
+    const h = craftHelio(c, jd);
+    if (h) {
+      it.marker.visible = true;
+      it.marker.position.copy(toV(h));
+      // 惑星ラベルと同じ流儀 (世界座標で少し上)。マーカーが小さいぶん惑星より離す
+      it.label.position.copy(it.marker.position).add(new THREE.Vector3(0, 0.45, 0));
+      it.label.visible = (i === selCraft);
+      // 任務を終えた機は半透明にして「もう動いていない」ことを見せる
+      const ended = c.end && jd > jdFromYMD(c.end);
+      it.marker.material.transparent = true;
+      it.marker.material.opacity = dim ? 0.35 : (ended ? 0.45 : 1);
+      it.marker.scale.setScalar(i === selCraft ? 1.8 : 1);
+    } else {
+      it.marker.visible = false; it.label.visible = false;
+    }
+  }
+}
+
+const jdFromYMD = (s) => { const [y, m, d] = s.split("-").map(Number); return julianDay(y, m, d, 12); };
+
+function selectCraft(idx) {
+  selCraft = idx;
+  if (idx < 0) { el("solar-pick").textContent = ""; el("craft-events").textContent = ""; return; }
+  const c = craftItems[idx].c;
+  el("craft-select").value = c.key;
+  // 出来事は押すとその日付へ飛べる (URL鋳造と同じ経路 = 日付を動かすだけ)
+  const ev = el("craft-events");
+  ev.textContent = "";
+  for (const [date, what] of c.events) {
+    const a = document.createElement("a");
+    a.href = "#"; a.textContent = `${date} ${what}`;
+    a.style.marginRight = "12px";
+    // 軌跡が無い日の出来事は沈める。押しても機体は描かれないので、見た目で断っておく
+    // (はやぶさの往路のように、Horizons に公開軌道が無い区間がある)
+    if (jdFromYMD(date) < c.jd[0]) { a.style.opacity = "0.5"; a.title = "この日の軌道は公開されていません"; }
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      curJd = jdFromYMD(date);
+      el("solar-time").value = Math.round(curJd - J0);
+      update();
+    });
+    ev.appendChild(a);
+  }
+  if (c.partial) {                       // 公開軌道が打ち上げに届いていない機は黙って描かない
+    const note = document.createElement("span");
+    note.textContent = `※ 公開されている軌道は ${c.from} 以降のみ`;
+    ev.appendChild(note);
+  }
+  updateCraft(curJd);
+  updateCraftPick(curJd);
+}
+
+function selectCraftByKey(key) {
+  const i = craftItems.findIndex((it) => it.c.key === key);
+  if (i >= 0) selectCraft(i);
+}
+
+function updateCraftPick(jd) {
+  if (selCraft < 0) return;
+  const c = craftItems[selCraft].c;
+  const h = craftHelio(c, jd);
+  const ended = c.end && jd > jdFromYMD(c.end);
+  const planetJa = { mercury: "水星", venus: "金星", earth: "地球", mars: "火星",
+                     jupiter: "木星", saturn: "土星", uranus: "天王星", neptune: "海王星" };
+  const at = c.at ? `${planetJa[c.at] || c.at}を${ended ? "周回して終了" : "周回中"}` : "";
+  let where;
+  if (!h) where = "打ち上げ前";
+  else {
+    where = `日心 ${Math.sqrt(h.x * h.x + h.y * h.y + h.z * h.z).toFixed(2)} AU`;
+    if (ended) where += `（${c.end} 任務終了）`;
+  }
+  el("solar-pick").textContent =
+    `★ ${c.name_ja} / ${c.name_en}　${where}　${c.launch}打上　${c.agency}${at ? " ・ " + at : ""}`;
+}
+
+el("solar-craft").addEventListener("change", () => {
+  const on = el("solar-craft").checked;
+  if (on) loadCraft().then(() => { if (craftGroup) craftGroup.visible = true; update(); });
+  else {
+    if (craftGroup) craftGroup.visible = false;
+    // 選択も外す。?craft= はレイヤを自動で点けるので、残しておくと
+    // 「レイヤOFF なのに craft 指定つき」という読み直せない URL になる
+    if (selCraft >= 0) { el("craft-select").value = ""; selectCraft(-1); }
+    scheduleUrlWrite();
+  }
+});
+el("craft-select").addEventListener("change", () => {
+  const v = el("craft-select").value;
+  if (!v) { selectCraft(-1); return; }
+  if (!el("solar-craft").checked) {          // レイヤが消えていたら点ける
+    el("solar-craft").checked = true; el("solar-craft").dispatchEvent(new Event("change"));
+  }
+  loadCraft().then(() => selectCraftByKey(v));
+});
+
+{ // ?craft=<key> で来たらレイヤを点けて選択する
+  const q = new URLSearchParams(location.search).get("craft");
+  if (q) {
+    wantCraftKey = q;
+    el("solar-craft").checked = true;
+    loadCraft();
+  }
+}
 
 // ---- 彗星の選択 (軌道線＋強調マーカー＋追尾情報) ----
 let selectedIndex = -1;
@@ -677,8 +893,13 @@ renderer.setAnimationLoop(tick);   // WebXR では requestAnimationFrame でな�
 showAsteroidFromUrl();  // ?ael= で小惑星を軌道つき表示 (彗星は fetch 後に selectFromUrl)
 
 /* 表示レイヤの ON/OFF を URL に持たせる。更新しても消えず、三部作を行き来しても残る。 */
+/* レイヤの URL キーは既定で id の接頭辞を落としたもの (solar-craft → craft)。
+   探査機だけは選択用の ?craft=<キー> と名前がぶつかるので、明示的にずらす。
+   ぶつかったままだと ?craft=voyager1 が「チェックボックスの値」と解釈され、
+   レイヤが消えたうえ URL からパラメータごと消える。 */
 bindUrlState([{ id: "solar-orbits" }, { id: "solar-comets" }, { id: "solar-comet-orbits" },
                { id: "solar-asteroids" }, { id: "solar-asteroids2" },
+               { id: "solar-craft", key: "craftlayer" },
                { id: "solar-corotate" }, { id: "solar-names" }]);
 
 /* ---- VR内の操作パネル (VRプラネタリウム / 地球周回3D と共有部品) ----
@@ -693,6 +914,7 @@ const vrPanel = new VrPanel({
     { id: "solar-names", label: "惑星名" },
     { id: "solar-comets", label: "彗星（重い）" },
     { id: "solar-asteroids", label: "小惑星（重い）" },
+    { id: "solar-craft", label: "探査機" },
     { id: "solar-corotate", label: "木星固定（回転座標系）" },
     { act: "solar-play", label: "時間送り（再生／停止）" },
     { act: "solar-now", label: "「今」に戻す" },
@@ -786,6 +1008,7 @@ function cineRender(p) {
   setTog("solar-comet-orbits", p.cometOrbits);
   if (p.cometGroup != null && p.cometGroup !== "") { el("comet-group").value = p.cometGroup; el("comet-group").dispatchEvent(new Event("change")); }
   if (p.corot != null && p.corot !== "") { coRotating = (p.corot === "1" || p.corot === 1); el("solar-corotate").checked = coRotating; }
+  setTog("solar-craft", p.craft);
   if (p.caz != null && p.cel != null && p.cdist != null) {
     const az = Number(p.caz) * DEG, elev = Number(p.cel) * DEG, d = Number(p.cdist);
     camera.position.set(d * Math.cos(elev) * Math.sin(az), d * Math.sin(elev), d * Math.cos(elev) * Math.cos(az));

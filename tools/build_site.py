@@ -125,6 +125,16 @@ def write_data_index() -> None:
          "description": "Starlink 群の TLE (約1万機) / Starlink constellation (TLE)",
          "format": "JSON array of arrays", "fields": ["name", "norad_id", "tle_line1", "tle_line2"],
          "source": "CelesTrak (Dr. T.S. Kelso)", "license": "no restrictions (CelesTrak)", "cadence": "daily"},
+        {"name": "spacecraft", "url": f"{origin}/spacecraft.json",
+         "description": ("各国の惑星探査機の飛行経路 / interplanetary spacecraft trajectories "
+                         "(25 craft, NASA/JAXA/ESA/ISRO/CNSA). Positions are heliocentric "
+                         "ecliptic J2000 in AU; interpolate linearly between samples "
+                         "(adjacent samples are at most 45 days apart)."),
+         "format": "JSON object",
+         "fields": ["key", "name_ja", "name_en", "agency", "country_ja", "id", "launch",
+                    "end", "status", "at", "traj_end", "from", "partial", "events",
+                    "jd (TDB)", "xyz (AU, heliocentric ecliptic J2000)"],
+         "source": "JPL Horizons (reconstructed trajectories)", "cadence": "a few times a year"},
         {"name": "variables_all", "url": f"{origin}/variables_all.json",
          "description": ("変光星の拡張カタログ (GCVS 5.1、V等級で最大10等以下) / "
                          "extended variable star catalogue. epoch is maximum for pulsating, "
@@ -179,6 +189,7 @@ def main() -> int:
                  "asteroids.json", "asteroids_solar.json", "asteroids_tier2.bin",
                  "asteroids_catalog.json", "asteroids_neo.json", "asteroids_notable.json",
                  "satellites.json", "satellites_starlink.json", "satellites_geo.json",
+                 "spacecraft.json",
                  "variables.json", "variables_all.json",
                  "dso.json", "coastlines.bin", "voyager6-manual.pdf",
                  "llms.txt", "llms_preview.txt"]:

@@ -62,8 +62,16 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><code>comet</code></td><td>符号／通称</td><td>その彗星をハイライト・軌道表示。周期彗星は番号＋P、それ以外は仮符号。有名彗星は通称でも可（<code>Halley</code>／<code>百武</code>／<code>紫金山・アトラス</code>）。</td><td><code>1P</code>／<code>Hyakutake</code></td></tr>
     <tr><td><code>ael</code></td><td>7値・カンマ区切り</td><td>小惑星の軌道要素 <code>a,e,i,Ω,ω,M0,epoch(JD)</code> を渡すと軌道を描く。</td><td><code>0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5</code></td></tr>
     <tr><td><code>aname</code></td><td>文字列</td><td><code>ael</code>で描いた天体の表示名</td><td><code>アポフィス</code></td></tr>
+    <tr><td><code>craft</code></td><td>キー</td><td>惑星探査機の飛行経路を描いて選択。レイヤは自動でオンになる。<b>現在日までが実線、その先は減光</b>。</td><td><code>voyager1</code></td></tr>
   </tbody>
 </table>
+<p>
+  探査機のキー（25機）：<code>voyager1</code>／<code>voyager2</code>／<code>pioneer10</code>／<code>pioneer11</code>／<code>newhorizons</code>／<code>cassini</code>／<code>galileo</code>／<code>juno</code>／<code>parker</code>／<code>dawn</code>／<code>osirisrex</code>／<code>lucy</code>／<code>psyche</code>／<code>europaclipper</code>／<code>hayabusa</code>／<code>hayabusa2</code>／<code>akatsuki</code>／<code>rosetta</code>／<code>juice</code>／<code>solarorbiter</code>／<code>ulysses</code>／<code>bepicolombo</code>／<code>mom</code>／<code>adityal1</code>／<code>tianwen1</code>
+</p>
+<p>
+  軌跡は JPL Horizons の再構築軌道です。公開されている軌道が打ち上げまで遡れない機体
+  （はやぶさは2009年1月以降のみ）は、その旨をページに明記しています。
+</p>
 
 <h2>データ（安定JSON・CORS対応）</h2>
 <p>
@@ -78,6 +86,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><a href="/comets_historic.json"><code>/comets_historic.json</code></a></td><td>歴史的な肉眼彗星の出現時元期（ハレーは1910/1986/2061）</td><td>上記＋<code>[描画開始JD, 描画終了JD, 和名]</code></td></tr>
     <tr><td><a href="/asteroids_catalog.json"><code>/asteroids_catalog.json</code></a></td><td>命名済み小惑星</td><td><code>[番号, 英名, 主仮符号, 分類, a, e, i, Ω, ω, M0, epoch, H, 直径km]</code></td></tr>
     <tr><td><a href="/asteroids_neo.json"><code>/asteroids_neo.json</code></a></td><td>地球近傍小惑星（同スキーマ）</td><td>同上</td></tr>
+    <tr><td><a href="/spacecraft.json"><code>/spacecraft.json</code></a></td><td>各国の惑星探査機の飛行経路25機（JPL Horizons 再構築軌道）</td><td><code>{craft:[{key, name_ja, agency, launch, status, at, events, jd[](TDB), xyz[][](AU・日心黄道J2000)}]}</code>　隣接点は最大45日なので線形補間でよい</td></tr>
     <tr><td><a href="/dso.json"><code>/dso.json</code></a></td><td>星雲・星団・銀河（OpenNGC由来）</td><td>—</td></tr>
   </tbody>
 </table>
