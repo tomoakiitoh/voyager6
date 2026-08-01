@@ -51,7 +51,9 @@ bodyclass: solar-page
   <div class="row"><span class="info"><b>探査機</b>をONにすると、各国の惑星探査機25機が飛んだ道すじが出ます（<b>今日までが実線・その先は薄い線</b>なので、いまどこまで来たかが分かります）。まずはこの3つ:
     <a href="?craft=voyager1">ボイジャー1号</a>・<a href="?craft=hayabusa2">はやぶさ2</a>・<a href="?craft=voyager2&amp;date=1986-01-24">ボイジャー2号が天王星に着いた日</a>。
     選ぶと下に出来事が並び、押すとその日付に飛びます。
-    天体（惑星・探査機・彗星）を<b>ダブルクリック</b>すると、その天体に乗り移って一緒に動きます（何もない所をダブルクリック、または Esc で戻ります）。</span></div>
+</span></div>
+  <div class="row"><span class="info">天体（惑星・探査機・彗星）を<b>ダブルクリック</b>すると乗り移って一緒に動き、<b>寄ると惑星の模様・自転・自転軸の傾き・土星の環</b>が出ます（何もない所をダブルクリック、または Esc で戻ります）。試すなら:
+    <a href="?focus=saturn">土星の環</a>・<a href="?focus=jupiter">木星の縞</a>・<a href="?focus=uranus">横倒しの天王星</a>・<a href="?focus=earth">地球</a>。</span></div>
   <div class="row"><span id="solar-pick" class="info"></span>
     <span id="follow-note" class="info"></span></div>
   <div class="row"><span id="craft-events" class="info"></span></div>
@@ -157,8 +159,23 @@ const PLANET_LOOK = {
   Neptune: { tex: "neptune.jpg",  rot: 0.67125,  tilt: 28.32 },
   Pluto:   { tex: null,           rot: -6.3872,  tilt: 122.53 },   // 実写テクスチャは持たない
 };
-const TEX_DIST = 6;          // カメラがこの距離 [AU] より寄ったらテクスチャを読む
+/* テクスチャを読む条件は「カメラからの距離」ではなく **画面上での見かけの大きさ**にする。
+   距離で切ると、太陽を見ている距離と惑星までの距離が別物なので効き方が直感に合わない
+   (既定の俯瞰から少し寄っただけでは何も変わらず「変わっていない」ように見えた)。
+   半径 r の球が距離 d にあるとき、画面上の半径 [px] は
+       r / d × (画面高さ/2) / tan(画角/2)
+   これが数ピクセルを超えたら、テクスチャに意味が出る。惑星ごとに判定する。 */
+const TEX_MIN_PX = 3;        // この画素数を超えたらテクスチャを読む
+                             // (既定の俯瞰では木星が約1.8px。少し寄ると貼られる)
 let texLoader = null;
+
+/** その惑星が画面上で何ピクセルの半径に見えるか。 */
+function apparentPx(mesh, radius) {
+  const d = camera.position.distanceTo(mesh.getWorldPosition(new THREE.Vector3()));
+  if (!(d > 0)) return Infinity;
+  const h = renderer.domElement.clientHeight || 800;
+  return radius / d * (h / 2) / Math.tan(camera.fov * Math.PI / 360);
+}
 
 /** その惑星のテクスチャを一度だけ読み込んで貼る。 */
 function ensurePlanetTexture(pm) {
@@ -187,12 +204,11 @@ function ensurePlanetTexture(pm) {
 /* 自転と、寄ったときのテクスチャ読み込み。update() は時刻が動いたときだけ呼ばれるので
    自転もここ (毎フレームではなく毎更新) でよい。位置計算には影響しない見た目だけの処理。 */
 function updatePlanetLook(jd) {
-  const camDist = camera.position.distanceTo(controls.target);
-  const near = camDist < TEX_DIST;
-  for (const pm of planetMeshes) {
+  for (let i = 0; i < planetMeshes.length; i++) {
+    const pm = planetMeshes[i];
     const look = PLANET_LOOK[pm.name];
     if (!look) continue;
-    if (near) ensurePlanetTexture(pm);
+    if (!pm.texTried && apparentPx(pm.mesh, PLANETS[i][3]) > TEX_MIN_PX) ensurePlanetTexture(pm);
     // 恒星日で回す。日付を動かすと地球の昼半球が回るのが見える
     if (look.rot) pm.mesh.rotation.y = ((jd / look.rot) % 1) * Math.PI * 2;
   }
@@ -554,6 +570,7 @@ function writeSolarUrl() {
   else { p.delete("ael"); p.delete("aname"); }
   if (selCraft >= 0 && craftItems[selCraft]) p.set("craft", craftItems[selCraft].c.key);
   else p.delete("craft");
+  if (follow && follow.urlKey) p.set("focus", follow.urlKey); else p.delete("focus");
   history.replaceState(null, "", location.pathname + "?" + p.toString());
 }
 
@@ -589,7 +606,6 @@ function update() {
   if (selectedIndex >= 0) updateSelectedMarker(jd);
   if (selAst) updateAsteroidMarker(jd);
   if (craftGroup && craftGroup.visible) { updateCraft(jd); updateCraftPick(jd); }
-  updatePlanetLook(jd);
   if (tier2Mat) tier2Mat.uniforms.uT.value = jd - J0; // GPU全量: 時刻を渡す (位置はシェーダが計算)
   // 回転座標系: グループごと木星の黄経ぶん逆回転させて木星を固定 (トロヤ群/ヒルダ群が浮かぶ)
   orbitingGroup.rotation.y = coRotating
@@ -955,6 +971,7 @@ function stopFollow() {
   flyToC.copy(HOME_CAM);
   flyT = FLY_SEC;
   el("follow-note").textContent = "";
+  scheduleUrlWrite();
 }
 
 /** 毎フレーム: 寄っていく途中のイージングと、追尾中の貼り付き。 */
@@ -978,7 +995,6 @@ function updateFollow(dt) {
   } else return;
   // めり込み防止と、近づいたときの Z ファイト対策 (仕様 B のとおり)
   const dist = camera.position.distanceTo(controls.target);
-  if (dist < TEX_DIST) updatePlanetLook(curJd);   // 時間を止めたまま寄っても貼られるように
   controls.minDistance = follow ? Math.max(follow.radius * 3, 0.02) : 0;
   const near = Math.max(0.0005, dist * 0.001);
   if (Math.abs(camera.near - near) > near * 0.2) { camera.near = near; camera.updateProjectionMatrix(); }
@@ -999,7 +1015,8 @@ function pickAndFollow(mx, my, rect) {
   for (let i = 0; i < PLANETS.length; i++) {
     const [name, , ja, size] = PLANETS[i];
     test(planetMeshes[i].mesh.getWorldPosition(new THREE.Vector3()),
-         () => ({ label: ja, radius: size, at: (jd) => toV(planetHelio(name, jd)) }));
+         () => ({ label: ja, radius: size, urlKey: name.toLowerCase(),
+                  at: (jd) => toV(planetHelio(name, jd)) }));
   }
   // 探査機 (レイヤが出ているときだけ)
   if (craftGroup && craftGroup.visible) {
@@ -1009,7 +1026,7 @@ function pickAndFollow(mx, my, rect) {
       const idx = i, c = it.c;
       test(it.marker.getWorldPosition(new THREE.Vector3()), () => {
         selectCraft(idx);
-        return { label: c.name_ja, radius: 0.06,
+        return { label: c.name_ja, radius: 0.06, urlKey: c.key,
                  at: (jd) => { const h = craftHelio(c, jd); return h ? toV(h) : new THREE.Vector3(); } };
       });
     }
@@ -1031,6 +1048,38 @@ function pickAndFollow(mx, my, rect) {
   if (!best) return false;
   startFollow(best());
   return true;
+}
+
+/* ?focus=<惑星の英名 or 探査機のキー> で、開いた瞬間にその天体へ寄る。
+   ダブルクリックだけだと気づかれないうえ、「土星の環を見せる」ようなリンクを人に渡せない。
+   URL にしておけば説明文からも AI からも直接指せる。 */
+function focusByName(key) {
+  const k = String(key).toLowerCase();
+  const pi = PLANETS.findIndex((p) => p[0].toLowerCase() === k);
+  if (pi >= 0) {
+    const [name, , ja, size] = PLANETS[pi];
+    startFollow({ label: ja, radius: size, urlKey: name.toLowerCase(),
+                  at: (jd) => toV(planetHelio(name, jd)) });
+    return true;
+  }
+  const ci = craftItems.findIndex((it) => it.c.key === k);
+  if (ci >= 0) {
+    selectCraft(ci);
+    const c = craftItems[ci].c;
+    startFollow({ label: c.name_ja, radius: 0.06, urlKey: c.key,
+      at: (jd) => { const h = craftHelio(c, jd); return h ? toV(h) : new THREE.Vector3(); } });
+    return true;
+  }
+  return false;
+}
+{
+  const q = new URLSearchParams(location.search).get("focus");
+  if (q) {
+    if (!focusByName(q)) {           // 探査機なら読み込みを待ってから
+      el("solar-craft").checked = true;
+      loadCraft().then(() => { if (craftGroup) craftGroup.visible = true; focusByName(q); update(); });
+    }
+  }
 }
 
 canvas.addEventListener("dblclick", (ev) => {
@@ -1118,6 +1167,7 @@ function tick(now) {
     followPrevNow = now;
     updateFollow(dt2);                               // 追尾は controls.update より前に効かせる
     controls.update();
+    updatePlanetLook(curJd);                         // 見かけの大きさ判定は毎フレーム
   }
   vrPanel.update();
   renderer.render(scene, camera);
