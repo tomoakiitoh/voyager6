@@ -50,8 +50,10 @@ bodyclass: solar-page
   </div>
   <div class="row"><span class="info"><b>探査機</b>をONにすると、各国の惑星探査機25機が飛んだ道すじが出ます（<b>今日までが実線・その先は薄い線</b>なので、いまどこまで来たかが分かります）。まずはこの3つ:
     <a href="?craft=voyager1">ボイジャー1号</a>・<a href="?craft=hayabusa2">はやぶさ2</a>・<a href="?craft=voyager2&amp;date=1986-01-24">ボイジャー2号が天王星に着いた日</a>。
-    選ぶと下に出来事が並び、押すとその日付に飛びます。</span></div>
-  <div class="row"><span id="solar-pick" class="info"></span></div>
+    選ぶと下に出来事が並び、押すとその日付に飛びます。
+    天体（惑星・探査機・彗星）を<b>ダブルクリック</b>すると、その天体に乗り移って一緒に動きます（何もない所をダブルクリック、または Esc で戻ります）。</span></div>
+  <div class="row"><span id="solar-pick" class="info"></span>
+    <span id="follow-note" class="info"></span></div>
   <div class="row"><span id="craft-events" class="info"></span></div>
 </div>
 
@@ -821,6 +823,140 @@ function updateSelectedMarker(jd) {
     `★ ${c[0]}　日心 ${g.r.toFixed(2)} AU / 地心 ${g.delta.toFixed(2)} AU / 約${mag.toFixed(1)}等`;
 }
 
+/* ---- クリックで乗り移る (追尾カメラ) ----
+   これまで視点は太陽中心の OrbitControls 一択で、惑星や探査機に寄る手段が無かった。
+   ?craft=parker のように内側を回る機は、既定の俯瞰 (40AU幅) では点にもならない。
+
+   考え方: **既定の操作は何も変えない**。回転・ズームはそのまま OrbitControls に任せ、
+   追尾中は「対象がフレーム間で動いたぶんを controls.target と camera の両方に足す」だけにする。
+   こうすると相対的な見え方 (向き・距離) が保たれたまま対象に貼り付き、
+   ユーザーはいつもどおり回して眺められる。
+
+   位置は orbitingGroup のローカル座標で持つ (既存の計算がすべてこの系)。木星固定の
+   回転座標系でも正しく追えるよう、毎フレーム localToWorld でワールドへ移す。 */
+let follow = null;                 // { label, at: (jd) => Vector3(ローカル), radius }
+let followPrevNow = 0;             // 追尾のイージング用に前フレームの時刻を持つ
+const followPrev = new THREE.Vector3();
+let flyT = 0;                      // >0 のあいだは寄っていく途中 [秒]
+const FLY_SEC = 0.7;
+const flyFromT = new THREE.Vector3(), flyFromC = new THREE.Vector3();
+const flyToC = new THREE.Vector3();
+const HOME_CAM = new THREE.Vector3(0, 22, 42);   // 既定の俯瞰 (camera.position の初期値と同じ)
+
+const localToWorldPos = (v) => orbitingGroup.localToWorld(v.clone());
+
+/** 追尾を始める。今の見え方 (対象からの向き) を保ったまま、適切な距離まで寄る。 */
+function startFollow(f) {
+  if (renderer.xr.isPresenting || cineMode) return;
+  follow = f;
+  const p = localToWorldPos(f.at(curJd));
+  // 対象の大きさに応じた距離。小さいものほど近づかないと見えない
+  const dist = Math.max(f.radius * 8, 0.6);
+  // 今のカメラの向き (target→camera の方向) を保つ。真上から入ると平面的で分かりにくい
+  const dir = camera.position.clone().sub(controls.target);
+  if (dir.lengthSq() < 1e-9) dir.set(0.4, 0.5, 1);
+  dir.normalize();
+  flyFromT.copy(controls.target); flyFromC.copy(camera.position);
+  flyToC.copy(p).addScaledVector(dir, dist);
+  flyT = FLY_SEC;
+  followPrev.copy(p);
+  el("follow-note").textContent = `🎥 ${f.label} を追尾中（何もない所をダブルクリック / Esc で戻る）`;
+}
+
+/** 追尾をやめて太陽中心の俯瞰へ戻す。 */
+function stopFollow() {
+  if (!follow) return;
+  follow = null;
+  flyFromT.copy(controls.target); flyFromC.copy(camera.position);
+  flyToC.copy(HOME_CAM);
+  flyT = FLY_SEC;
+  el("follow-note").textContent = "";
+}
+
+/** 毎フレーム: 寄っていく途中のイージングと、追尾中の貼り付き。 */
+function updateFollow(dt) {
+  if (renderer.xr.isPresenting || cineMode) return;
+  if (flyT > 0) {
+    flyT = Math.max(0, flyT - dt);
+    const u = 1 - flyT / FLY_SEC;
+    const e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);   // ease-in-out
+    const to = follow ? localToWorldPos(follow.at(curJd)) : new THREE.Vector3();
+    controls.target.lerpVectors(flyFromT, to, e);
+    camera.position.lerpVectors(flyFromC, flyToC, e);
+    if (follow) followPrev.copy(to);
+  } else if (follow) {
+    // 対象が動いたぶんだけ視点ごと平行移動する = 相対的な見え方はそのまま
+    const p = localToWorldPos(follow.at(curJd));
+    const d = p.clone().sub(followPrev);
+    controls.target.add(d);
+    camera.position.add(d);
+    followPrev.copy(p);
+  } else return;
+  // めり込み防止と、近づいたときの Z ファイト対策 (仕様 B のとおり)
+  const dist = camera.position.distanceTo(controls.target);
+  controls.minDistance = follow ? Math.max(follow.radius * 3, 0.02) : 0;
+  const near = Math.max(0.0005, dist * 0.001);
+  if (Math.abs(camera.near - near) > near * 0.2) { camera.near = near; camera.updateProjectionMatrix(); }
+}
+
+/** 画面上のクリック位置に一番近い天体を探して追尾する。見つからなければ false。 */
+function pickAndFollow(mx, my, rect) {
+  const v = new THREE.Vector3();
+  let best = null, bestD = 18 * 18;      // 18px 以内で最近傍
+  const test = (worldPos, make) => {
+    v.copy(worldPos).project(camera);
+    if (v.z > 1) return;
+    const sx = (v.x * 0.5 + 0.5) * rect.width, sy = (-v.y * 0.5 + 0.5) * rect.height;
+    const d = (sx - mx) ** 2 + (sy - my) ** 2;
+    if (d < bestD) { bestD = d; best = make; }
+  };
+  // 惑星
+  for (let i = 0; i < PLANETS.length; i++) {
+    const [name, , ja, size] = PLANETS[i];
+    test(planetMeshes[i].mesh.getWorldPosition(new THREE.Vector3()),
+         () => ({ label: ja, radius: size, at: (jd) => toV(planetHelio(name, jd)) }));
+  }
+  // 探査機 (レイヤが出ているときだけ)
+  if (craftGroup && craftGroup.visible) {
+    for (let i = 0; i < craftItems.length; i++) {
+      const it = craftItems[i];
+      if (!it.marker.visible) continue;
+      const idx = i, c = it.c;
+      test(it.marker.getWorldPosition(new THREE.Vector3()), () => {
+        selectCraft(idx);
+        return { label: c.name_ja, radius: 0.06,
+                 at: (jd) => { const h = craftHelio(c, jd); return h ? toV(h) : new THREE.Vector3(); } };
+      });
+    }
+  }
+  // 彗星 (既存の選択と同じ当たり判定を流用)
+  if (cometPoints && comets && cometPoints.visible) {
+    const pos = cometPoints.geometry.getAttribute("position");
+    for (let i = 0; i < comets.length; i++) {
+      if (activeGroup !== "all" && cometGroup[i] !== activeGroup) continue;
+      const idx = i, c = comets[i];
+      test(localToWorldPos(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i))), () => {
+        selectComet(idx);
+        const e2 = { e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] };
+        return { label: c[0], radius: 0.05,
+                 at: (jd) => { const h = orbitPosition(e2, jd); return new THREE.Vector3(h.x, h.z, -h.y); } };
+      });
+    }
+  }
+  if (!best) return false;
+  startFollow(best());
+  return true;
+}
+
+canvas.addEventListener("dblclick", (ev) => {
+  const rect = canvas.getBoundingClientRect();
+  // 何もない所のダブルクリックで帰還 (天体の上なら乗り移りのままにする)
+  if (!pickAndFollow(ev.clientX - rect.left, ev.clientY - rect.top, rect)) stopFollow();
+});
+window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") stopFollow();
+});
+
 // ---- 彗星クリックで選択 ----
 canvas.addEventListener("click", (ev) => {
   if (!cometPoints || !comets || !cometPoints.visible) return;
@@ -892,7 +1028,12 @@ function tick(now) {
     update();
   }
   if (renderer.xr.isPresenting) vrInput(now);
-  else if (!cineMode) controls.update();             // VR中は頭・シネマ中はスクリプトが視点
+  else if (!cineMode) {
+    const dt2 = followPrevNow ? Math.min(0.1, (now - followPrevNow) / 1000) : 0;
+    followPrevNow = now;
+    updateFollow(dt2);                               // 追尾は controls.update より前に効かせる
+    controls.update();
+  }
   vrPanel.update();
   renderer.render(scene, camera);
 }
@@ -976,6 +1117,7 @@ function setupVR() {
   });
 }
 function enterVR(saved, heavy) {
+  stopFollow(); flyT = 0;              // VR中は頭が視点。追尾は持ち込まない
   // 太陽系ぜんぶを縮小して、立っている人の目の前(約1m先・胸〜目の高さ)に浮かべる
   saved.scale = world.scale.x; saved.pos = world.position.clone();
   world.scale.setScalar(0.03);            // 30AU ≈ 0.9m。系全体を"手のひら〜抱えるサイズ"に
