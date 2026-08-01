@@ -36,7 +36,7 @@ bodyclass: solar-page
       </select></label>
     <input type="text" id="comet-search" placeholder="彗星名で選択" maxlength="30">
     <button id="comet-search-btn">選択</button>
-    <select id="craft-select" title="探査機を選ぶ"><option value="">探査機…</option></select>
+    <select id="craft-select" title="探査機を選ぶ"><option value="">探査機を選ぶ</option></select>
   </div>
   <div class="row toggles">
     <label><input type="checkbox" id="solar-orbits" checked>惑星軌道</label>
@@ -48,6 +48,9 @@ bodyclass: solar-page
     <label><input type="checkbox" id="solar-corotate">木星固定（回転座標系）</label>
     <label><input type="checkbox" id="solar-names" checked>惑星名</label>
   </div>
+  <div class="row"><span class="info"><b>探査機</b>をONにすると、各国の惑星探査機25機が飛んだ道すじが出ます（<b>今日までが実線・その先は薄い線</b>なので、いまどこまで来たかが分かります）。まずはこの3つ:
+    <a href="?craft=voyager1">ボイジャー1号</a>・<a href="?craft=hayabusa2">はやぶさ2</a>・<a href="?craft=voyager2&amp;date=1986-01-24">ボイジャー2号が天王星に着いた日</a>。
+    選ぶと下に出来事が並び、押すとその日付に飛びます。</span></div>
   <div class="row"><span id="solar-pick" class="info"></span></div>
   <div class="row"><span id="craft-events" class="info"></span></div>
 </div>

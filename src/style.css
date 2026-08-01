@@ -126,6 +126,9 @@ body { display: flex; flex-direction: column; min-height: 100%; }
 .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .row:last-child { margin-bottom: 0; }
 .info { color: var(--dim); font-variant-numeric: tabular-nums; }
+/* 操作パネル内のリンク。地の色を指定していないとブラウザ既定の紺になり、
+   暗い背景ではほぼ読めない (太陽系3Dの探査機の出来事リンクで表面化した)。 */
+.info a { color: var(--accent); }
 .grow { flex: 1 1 auto; }
 
 button, select, input[type="date"], input[type="number"] {
