@@ -127,6 +127,7 @@ const PLANETS = [
   ["Pluto", 0xc9b8a8, "冥王星", 0.04],
 ];
 const planetMeshes = [], planetLabels = [], orbitLines = [];
+let saturnRing = null;
 
 /** 惑星の日心位置 (地球は太陽の地心位置の逆)。 */
 function planetHelio(name, jd) {
@@ -137,10 +138,92 @@ function planetHelio(name, jd) {
   return heliocentric(PLANET_ELEMENTS[name](schlyterDay(jd)));
 }
 
+/* 惑星の見た目 (仕様 A-1)。
+   遠景では単色のまま、寄ったときだけ実写テクスチャに差し替える。
+   理由は2つ: (1) 俯瞰では 0.05〜0.16 単位の球が数ピクセルにしかならずテクスチャの意味が無い、
+   (2) 全惑星ぶん(約1.5MB)を最初から読ませると、太陽系3Dを開くだけの人に無駄な通信をさせる。
+   → 一度だけ fetch して以後は使い回す (レイヤ切りでも捨てない。捨てると寄るたびに読み直す)。
+
+   自転周期は恒星日 [日]。負値 = 逆行 (金星・天王星)。傾きは公転面に対する赤道傾斜角 [度]。
+   出典は IAU/NASA の標準値。位置計算には一切関与しない**見た目だけ**の値。 */
+const PLANET_LOOK = {
+  Mercury: { tex: "mercury.jpg",  rot: 58.646,  tilt: 0.03 },
+  Venus:   { tex: "venus.jpg",    rot: -243.025, tilt: 177.36 },   // 逆行・ほぼ倒立
+  Earth:   { tex: "earth.jpg",    rot: 0.99727,  tilt: 23.44 },    // /earth/ と同じ NASA Blue Marble
+  Mars:    { tex: "mars.jpg",     rot: 1.02596,  tilt: 25.19 },
+  Jupiter: { tex: "jupiter.jpg",  rot: 0.41354,  tilt: 3.13 },
+  Saturn:  { tex: "saturn.jpg",   rot: 0.44401,  tilt: 26.73 },
+  Uranus:  { tex: "uranus.jpg",   rot: -0.71833, tilt: 97.77 },    // 横倒し
+  Neptune: { tex: "neptune.jpg",  rot: 0.67125,  tilt: 28.32 },
+  Pluto:   { tex: null,           rot: -6.3872,  tilt: 122.53 },   // 実写テクスチャは持たない
+};
+const TEX_DIST = 6;          // カメラがこの距離 [AU] より寄ったらテクスチャを読む
+let texLoader = null;
+
+/** その惑星のテクスチャを一度だけ読み込んで貼る。 */
+function ensurePlanetTexture(pm) {
+  const look = PLANET_LOOK[pm.name];
+  if (!look || !look.tex || pm.texTried) return;
+  pm.texTried = true;
+  texLoader = texLoader || new THREE.TextureLoader();
+  texLoader.load("../assets/" + look.tex, (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    pm.mesh.material.map = t;
+    // テクスチャを貼ったら自前の発光は落とす (二重に明るくなって白飛びする)
+    pm.mesh.material.color.set(0xffffff);
+    pm.mesh.material.emissiveIntensity = 0.06;
+    pm.mesh.material.needsUpdate = true;
+  }, undefined, () => { /* 取れなくても単色のまま動く */ });
+  if (pm.name === "Saturn" && saturnRing) {
+    texLoader.load("../assets/saturn_ring.png", (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      saturnRing.material.map = t;
+      saturnRing.material.needsUpdate = true;
+      saturnRing.visible = true;
+    }, undefined, () => {});
+  }
+}
+
+/* 自転と、寄ったときのテクスチャ読み込み。update() は時刻が動いたときだけ呼ばれるので
+   自転もここ (毎フレームではなく毎更新) でよい。位置計算には影響しない見た目だけの処理。 */
+function updatePlanetLook(jd) {
+  const camDist = camera.position.distanceTo(controls.target);
+  const near = camDist < TEX_DIST;
+  for (const pm of planetMeshes) {
+    const look = PLANET_LOOK[pm.name];
+    if (!look) continue;
+    if (near) ensurePlanetTexture(pm);
+    // 恒星日で回す。日付を動かすと地球の昼半球が回るのが見える
+    if (look.rot) pm.mesh.rotation.y = ((jd / look.rot) % 1) * Math.PI * 2;
+  }
+}
+
 for (const [name, color, ja, size] of PLANETS) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(size, 16, 16),
+  const look = PLANET_LOOK[name] || {};
+  // 分割数は寄ったときの輪郭のため 16→48 (仕様 A-1)。9個ぶんでも三角形は数千で軽い
+  const m = new THREE.Mesh(new THREE.SphereGeometry(size, 48, 32),
     new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25 }));
+  // 自転軸の傾き。地球の 23.4° や天王星の横倒しが見えるようにする
+  m.rotation.z = (look.tilt || 0) * Math.PI / 180;
   orbitingGroup.add(m); planetMeshes.push({ name, mesh: m });
+
+  // 土星の環 (仕様 A-1「ついで」)。テクスチャは内→外の帯なので UV を半径方向に張り替える
+  if (name === "Saturn") {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(size * 1.24, size * 2.27, 96),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9,
+                                    side: THREE.DoubleSide, depthWrite: false }));
+    const pos = ring.geometry.attributes.position, uv = ring.geometry.attributes.uv;
+    const v3 = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v3.fromBufferAttribute(pos, i);
+      const t = (v3.length() - size * 1.24) / (size * 2.27 - size * 1.24);
+      uv.setXY(i, t, 0.5);                 // 半径方向 = 画像の横方向
+    }
+    ring.rotation.x = Math.PI / 2;         // 環は赤道面に寝かせる
+    m.add(ring);                           // 惑星の子にすると自転軸の傾きに乗る
+    ring.visible = false;                  // テクスチャが来るまで出さない (無地の板が見えるため)
+    saturnRing = ring;
+  }
 
   // 軌道線 (M を一周させてサンプル)
   const pts = [];
@@ -506,6 +589,7 @@ function update() {
   if (selectedIndex >= 0) updateSelectedMarker(jd);
   if (selAst) updateAsteroidMarker(jd);
   if (craftGroup && craftGroup.visible) { updateCraft(jd); updateCraftPick(jd); }
+  updatePlanetLook(jd);
   if (tier2Mat) tier2Mat.uniforms.uT.value = jd - J0; // GPU全量: 時刻を渡す (位置はシェーダが計算)
   // 回転座標系: グループごと木星の黄経ぶん逆回転させて木星を固定 (トロヤ群/ヒルダ群が浮かぶ)
   orbitingGroup.rotation.y = coRotating
@@ -894,6 +978,7 @@ function updateFollow(dt) {
   } else return;
   // めり込み防止と、近づいたときの Z ファイト対策 (仕様 B のとおり)
   const dist = camera.position.distanceTo(controls.target);
+  if (dist < TEX_DIST) updatePlanetLook(curJd);   // 時間を止めたまま寄っても貼られるように
   controls.minDistance = follow ? Math.max(follow.radius * 3, 0.02) : 0;
   const near = Math.max(0.0005, dist * 0.001);
   if (Math.abs(camera.near - near) > near * 0.2) { camera.near = near; camera.updateProjectionMatrix(); }

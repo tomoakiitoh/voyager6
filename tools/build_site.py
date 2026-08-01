@@ -70,7 +70,11 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "satellite.es.js",   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
           "vrpanel.js",        # VR内の操作パネル (三部作の3Dページで共有)
           "urlstate.js",       # 表示レイヤの ON/OFF を URL に載せる (同上)
-          "earth.jpg"]         # 地球周回3D (PLAN6 F4) の地球テクスチャ (NASA Blue Marble, PD)
+          "earth.jpg",         # 地球周回3D (PLAN6 F4) の地球テクスチャ (NASA Blue Marble, PD)
+          # 太陽系3Dの惑星テクスチャ (Solar System Scope, CC BY 4.0)。1024x512 に落として計約0.4MB。
+          # 寄ったときだけ遅延ロードするので、開くだけの人には転送されない。
+          "mercury.jpg", "venus.jpg", "mars.jpg", "jupiter.jpg",
+          "saturn.jpg", "uranus.jpg", "neptune.jpg", "saturn_ring.png"]
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
 
