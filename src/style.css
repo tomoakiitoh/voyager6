@@ -237,6 +237,11 @@ body.embed-white #embed-badge {
 }
 /* 望遠鏡モード専用の行。中身が全部 hidden のときは行ごと畳む (空の行が余白を作らないように) */
 #scope-row:not(:has(> *:not([hidden]))) { display: none; }
+/* 段階ズームのボタン列。数字が並ぶだけなので小さめ・等幅に */
+#fov-steps button {
+  min-height: 30px; padding: 4px 10px; font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 @media (max-width: 560px) {
   #site-header { gap: 10px; padding: 0 10px; }
