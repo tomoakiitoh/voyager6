@@ -331,6 +331,29 @@ body.embed-white #embed-badge {
   .sky-page #panel .row { flex-wrap: wrap; }
 }
 
+/* ---- 縦長〜正方形の広い画面 (タブレット縦持ち) では操作系を畳む ----
+   ここは横に並べても円は大きくならない (幅のほうが先に足りなくなる) ので、
+   代わりに**下のパネルを畳んで高さを空へ渡す**。実測 (iPad Pro 13 縦持ち 1032x1376):
+   パネル355px ぶんで円は幅の90%止まり。畳めば幅いっぱい=98%まで使える。
+   スマホ (≤560px) で既に使っている「盤面の上に重ねて開くシート」をそのまま広げる。
+   開閉しても #panel 自体の高さは変わらないので、星図はリサイズされない
+   (開くたびに星が飛び跳ねない)。 */
+/* 上限は 1.199。横置き側が min-aspect-ratio:6/5(=1.2) なので、
+   ちょうど1.2 のとき両方が当たらないよう半端な値で切る。 */
+@media (min-width: 561px) and (max-aspect-ratio: 1199/1000) {
+  .sky-page #sheet-toggle { display: inline-block; }
+  .sky-page #panel { position: relative; }
+  .sky-page #panel-body {
+    display: none;
+    position: absolute; left: 0; right: 0; bottom: 100%;
+    max-height: 68vh; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 12px;
+    box-shadow: 0 -14px 28px rgba(0, 0, 0, 0.55);
+  }
+  .sky-page.sheet-open #panel-body { display: block; }
+}
+
 /* ---- 今夜の空 ---- */
 
 .tonight .controls {
