@@ -124,6 +124,10 @@ body { display: flex; flex-direction: column; min-height: 100%; }
   font-size: 13px;
 }
 .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+/* `.row` の display:flex は UA の `[hidden]{display:none}` より強いので、
+   行そのものを hidden で隠すときは明示的に打ち消す必要がある。
+   (観測星図の「視野」段階ボタンの行が、モード外でも出てしまっていた) */
+.row[hidden] { display: none; }
 .row:last-child { margin-bottom: 0; }
 .info { color: var(--dim); font-variant-numeric: tabular-nums; }
 /* 操作パネル内のリンク。地の色を指定していないとブラウザ既定の紺になり、
@@ -295,6 +299,36 @@ body.embed-white #embed-badge {
     color: var(--dim); font-size: 10px; line-height: 1.7;
   }
   #sheet-credits a { color: var(--dim); }
+}
+
+/* ---- 横長の画面では操作パネルを右の列に置く (タブレット横持ち・ノートPC) ----
+   全天円の直径は min(枠の幅, 枠の高さ)。パネルを下に置くと**高さのほうが先に足りなくなり**、
+   円は「残った高さ」で決まって左右に大きな余白ができる。実測 (iPad Pro 13 横持ち
+   1376x1032): パネル357px ぶんで枠の高さが584pxになり、円は画面幅のわずか42%。
+   パネルを横に出せば円は高さいっぱいまで使えて、余白も操作系で埋まる。
+
+   body は既定で縦の flex。ここだけグリッドに組み替える (HTML は触らない)。
+   <script>・#print-area・#embed-badge はいずれも箱を作らないのでグリッド項目にならない。 */
+/* 発火は「はっきり横長」だけ。ほぼ正方形の画面では横に出しても円は大きくならず、
+   背の高い空列だけができてしまう。6/5=1.2 は iPad Pro 13 横持ち(1.33)・
+   ノートPC(1.6) を含み、正方形付近(1.0)は含まない。 */
+@media (min-width: 820px) and (min-aspect-ratio: 6/5) {
+  body.sky-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 380px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "header header" "sky panel" "footer footer";
+  }
+  .sky-page #site-header { grid-area: header; }
+  .sky-page #sky-wrap { grid-area: sky; min-width: 0; min-height: 0; }
+  .sky-page #panel {
+    grid-area: panel; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    border-top: 0; border-left: 1px solid var(--line);
+  }
+  .sky-page #site-footer { grid-area: footer; }
+  /* 縦一列に積むので、時計とボタンは折り返してよい */
+  .sky-page #toolbar { flex-wrap: wrap; }
+  .sky-page #panel .row { flex-wrap: wrap; }
 }
 
 /* ---- 今夜の空 ---- */
