@@ -352,6 +352,15 @@ body.embed-white #embed-badge {
     box-shadow: 0 -14px 28px rgba(0, 0, 0, 0.55);
   }
   .sky-page.sheet-open #panel-body { display: block; }
+
+  /* 共通フッタは畳み、帰属表示はシートの中に置く (スマホと同じ扱い)。
+     ここは円が高さで頭打ちになる形なので、35〜50px でも空に回すと効く。 */
+  .sky-page #site-footer { display: none; }
+  .sky-page #sheet-credits {
+    display: block; margin: 12px 0 0;
+    color: var(--dim); font-size: 11px; line-height: 1.7;
+  }
+  .sky-page #sheet-credits a { color: var(--dim); }
 }
 
 /* ---- 今夜の空 ---- */
