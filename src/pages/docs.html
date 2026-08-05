@@ -89,6 +89,21 @@ AIアシスタントは、これらのパラメータでシミュレーション
   テクスチャは寄ったときだけ読み込むので、開くだけなら転送されません。
 </p>
 
+<h2>地球周回3D <code>https://voyager6.net/earth/</code></h2>
+<table>
+  <thead><tr><th>パラメータ</th><th>型</th><th>説明</th><th>例</th></tr></thead>
+  <tbody>
+    <tr><td><code>sat</code></td><td>NORAD番号</td><td>その衛星を選択して軌道を描く。</td><td><code>25544</code>（ISS）</td></tr>
+    <tr><td><code>view</code></td><td><code>moon</code>／<code>system</code></td><td><code>moon</code>=月を正面から見る（満ち欠けが見える）。<code>system</code>=地球と月の距離が分かる引き。</td><td><code>moon</code></td></tr>
+  </tbody>
+</table>
+<p>
+  月は実際の距離と大きさで置いてあります（384,400km 先の半径1,737km ＝ 地球の約60倍の距離）。
+  <b>満ち欠けは計算していません</b>。太陽・地球・月を正しい位置に置くと、光の当たり方でそのまま現れます。
+  月の位置は ELP2000-82B の主要項で、JPL Horizons と 3秒角以内で一致します。
+  ページの時刻は今日から前後7日までです（人工衛星のTLEが古くなると位置が嘘になるため）。
+</p>
+
 <h2>データ（安定JSON・CORS対応）</h2>
 <p>
 以下は外部オリジンから直接fetchできます（<code>Access-Control-Allow-Origin: *</code>）。

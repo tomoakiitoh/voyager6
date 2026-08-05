@@ -32,8 +32,10 @@ bodyclass: solar-page
     <label><input type="checkbox" id="earth-guides" checked>GEO軌道の輪・グリッド</label>
     <label><input type="checkbox" id="earth-orbit" checked>選択衛星の軌道</label>
     <label><input type="checkbox" id="earth-geo">静止衛星</label>
+    <label><input type="checkbox" id="earth-moon" checked>月</label>
     <label><input type="checkbox" id="earth-starlink">Starlink網</label>
   </div>
+  <div class="row"><span class="info"><b>月</b>は実際の距離・大きさで置いてあります（384,400km 先＝地球の約60倍の距離）。既定の視野では画面の外なので、<a href="?view=moon">月を正面から見る</a>／<a href="?view=system">地球と月の距離を見る</a>で出てきます。<b>満ち欠けは計算していません</b>— 太陽・地球・月を正しい位置に置くと、光の当たり方でそのまま現れます。</span></div>
   <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
   <div class="row"><span class="info">VR中もコントローラで操作できます（<b>B / Y</b>で設定パネル開閉、レイで衛星を指してトリガーで選択。右スティック横＝時間送り、左スティック横＝回転・縦＝拡大縮小、A / X でリセット）。視界の下に日時と選択中の衛星がいつも出ます。<b>静止衛星</b>をONにすると静止軌道の輪の上に570機が並びます（みちびき・ひまわりには名前が出ます。みちびきは準天頂軌道なので、「日本を正面に固定」して時間を進めると日本の上空で8の字を描きます）。</span></div>
 </div>
@@ -88,10 +90,13 @@ world.add(sunLight.target);
    ただし遠くに置くと画角に入らない (地球のすぐそばから見ているため) ので、
    **地球から太陽へ伸びる線**も引く。線なら常に画面を横切るので、太陽が視界の外でも方向が分かる。
    距離・大きさは実スケールではない (地球6.37単位に対し120単位先) が、方向は正しい。 */
-const SUN_DIST = 120;
+/* 太陽までの距離は実スケールではない (実際は月までの約390倍) が、**月より外側**には置く。
+   120単位のままだと月 (384単位) より内側になり、順序が逆に見えてしまうため。
+   見かけの大きさが変わらないよう、スプライトの大きさも同じ比で広げる。 */
+const SUN_DIST = 900;
 const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
   map: dot(), color: 0xfff0c0, transparent: true, opacity: 0.95, depthWrite: false }));
-sunSprite.scale.set(14, 14, 1);
+sunSprite.scale.set(105, 105, 1);   // 14 × (900/120) = 見かけは従来どおり
 world.add(sunSprite);
 const sunLine = new THREE.Line(
   new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
@@ -113,6 +118,116 @@ for (let d = 0; d <= 360; d += 2) geoPts.push(new THREE.Vector3(GEO_R * Math.cos
 guides.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(geoPts),
   new THREE.LineBasicMaterial({ color: 0x884444, transparent: true, opacity: 0.5 })));
 guides.add(new THREE.PolarGridHelper(GEO_R, 8, 6, 64, 0x223, 0x18213a));
+
+/* ---- 月 ----
+   ECI (赤道・日付の分点) で扱う。太陽と同じ枠なので、**満ち欠けは光の当たり方から自動で出る**
+   (位相を計算しているコードはどこにも無い)。位置は astro.js の moonPositionELP (ELP2000 主要項)。
+   早見盤が使う moonPosition (Schlyter) は 1′ 級の誤差があり、地表に投影すると約110km =
+   本影の幅と同じ桁になるので、こちらでは使わない。
+
+   距離も半径も実スケール: 384,400km 先の半径 1,737km。地球 (6,371km) の約60倍の距離で、
+   既定の視野 (静止軌道42単位まで) では画面の外にある。引いて初めて出てくる。
+   **その「遠さ」自体が教材**なので縮尺は誇張しない。 */
+const MOON_R = 1737.4 * K;
+const lastSunDir = new THREE.Vector3(1, 0, 0);   // update() が入れる (月のシェーダが使う)
+/* 月を見ているあいだはカメラを月に追従させる。月は約27日で一周するので、追従しないと
+   時間を送った瞬間に画面から出てしまい、**満ち欠けが変わっていく様子を見る**という
+   この機能の肝が使えない (実際そうなった)。太陽系3Dの追尾と同じで、
+   月が動いたぶんを target と camera の両方に足すだけ = 見ている向きと距離は保たれる。 */
+let moonFollow = false;
+const moonPrev = new THREE.Vector3();
+const MOON_DIST_UNITS = 384.4;        // 目安 (カメラを引く距離の計算に使う)
+/* 月の材質は自前のシェーダにする。シーンには「地球の夜側も形が分かる程度に」という
+   アンビエント光が入っていて、そのままだと**月の欠け際が潰れて満月に見えてしまう**
+   (実際そうなった)。月は太陽光だけで陰影を作りたいので、ライティングを自分で持つ。
+   月食 (実装順4) の減光もここに一項足すだけで入る。 */
+const moonMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uMap: { value: null },
+    uHasMap: { value: 0 },
+    uSun: { value: new THREE.Vector3(1, 0, 0) },   // ワールド系の太陽方向
+    uBase: { value: new THREE.Color(0x9a958e) },
+  },
+  vertexShader: `
+    varying vec3 vN;
+    varying vec2 vUv;
+    void main() {
+      vN = normalize(mat3(modelMatrix) * normal);
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    uniform sampler2D uMap;
+    uniform float uHasMap;
+    uniform vec3 uSun;
+    uniform vec3 uBase;
+    varying vec3 vN;
+    varying vec2 vUv;
+    void main() {
+      vec3 albedo = uHasMap > 0.5 ? texture2D(uMap, vUv).rgb : uBase;
+      // 太陽は月までの距離の約390倍なので平行光でよい。欠け際は1画素で切らずに少しぼかす
+      float d = smoothstep(-0.02, 0.06, dot(vN, uSun));
+      // 地球照ぶんのわずかな持ち上げ。真っ黒だと縁が消えて球に見えない
+      gl_FragColor = vec4(albedo * (0.035 + 0.965 * d), 1.0);
+    }`,
+});
+const moon = new THREE.Mesh(new THREE.SphereGeometry(MOON_R, 64, 48), moonMat);
+world.add(moon);
+let moonLabel = null, moonTexTried = false;
+
+// 黄道北極 (three.js 座標)。月の自転軸は黄道面に対し 1.5° しか傾いていないので、
+// 姿勢の「上」はこれで足りる (秤動は v2 送り)。
+const OBLIQ = 23.4393 * Math.PI / 180;
+const ECL_NORTH = new THREE.Vector3(0, Math.cos(OBLIQ), Math.sin(OBLIQ));
+
+/** 月が画面上で数ピクセルを超えたらテクスチャを読む (太陽系3Dの惑星と同じ流儀)。 */
+function ensureMoonTexture() {
+  if (moonTexTried) return;
+  const d = camera.position.distanceTo(moon.getWorldPosition(new THREE.Vector3()));
+  const h = renderer.domElement.clientHeight || 800;
+  const px = (MOON_R * world.scale.x) / d * (h / 2) / Math.tan(camera.fov * Math.PI / 360);
+  if (!(px > 3)) return;
+  moonTexTried = true;
+  new THREE.TextureLoader().load("../assets/moon.jpg", (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    moonMat.uniforms.uMap.value = t;
+    moonMat.uniforms.uHasMap.value = 1;
+  }, undefined, () => { /* 取れなくても無地の球で動く */ });
+}
+
+/** 月の位置と姿勢。同期回転なので常に同じ面を地球へ向ける。 */
+function updateMoon(jd) {
+  if (!moon.visible) return;
+  const m = moonPositionELP(jd);
+  const eq = eclipticToEquatorial(m.lon, m.lat, schlyterDay(jd));
+  const v = raDecToVec(eq.ra, eq.dec);
+  const pos = new THREE.Vector3(v[0], v[2], -v[1]).multiplyScalar(m.dist * K);
+  moon.position.copy(pos);
+  // 姿勢: 局所+X (テクスチャの経度0) を地球へ、局所+Y を黄道北極へ。
+  // 地球のテクスチャと同じ規約 (λ=0 が +x) なので、これで表側が地球を向く。
+  const xA = pos.clone().negate().normalize();
+  const yA = ECL_NORTH.clone().addScaledVector(xA, -ECL_NORTH.dot(xA)).normalize();
+  const zA = new THREE.Vector3().crossVectors(xA, yA);
+  moon.setRotationFromMatrix(new THREE.Matrix4().makeBasis(xA, yA, zA));
+  moonMat.uniforms.uSun.value.copy(lastSunDir);
+  // ラベルは初回だけ作る (makeSatLabel が使う satLabels がまだ初期化前のため、ここで遅らせる)
+  if (!moonLabel) { moonLabel = makeSatLabel("#e6ded0"); moonLabel.setText("月"); }
+  moonLabel.position.copy(pos).add(new THREE.Vector3(0, MOON_R * 2.2, 0));  // 球に重ねない
+  moonLabel.visible = true;
+  if (moonFollow && !renderer.xr.isPresenting && moonPrev.lengthSq() > 0) {
+    /* 平行移動だけだと、月が公転して7日で約90°動いたとき「横から見た月」になってしまう。
+       見たいのは**地球から見える満ち欠け**なので、地球-月の方向が回ったぶんだけ
+       視点も同じように回す。こうすると地球側から見ていれば地球側のまま、
+       横へ回り込んで見ていればその相対位置のまま追従する。 */
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      moonPrev.clone().normalize(), pos.clone().normalize());
+    const off = camera.position.clone().sub(moonPrev).applyQuaternion(q);
+    camera.position.copy(pos).add(off);
+    controls.target.copy(pos);
+  }
+  moonPrev.copy(pos);
+  ensureMoonTexture();
+}
 
 /* ---- 線画モード ----
    写真テクスチャは 1024x512 しかなく、拡大すると眠い。海岸線を線で描いたほうが
@@ -348,8 +463,10 @@ function update() {
   const s = sunPosition(jd);
   const sv = raDecToVec(s.ra, s.dec);
   const sunDir = new THREE.Vector3(sv[0], sv[2], -sv[1]);
+  lastSunDir.copy(sunDir);
   sunLight.position.copy(sunDir).multiplyScalar(200);
   sunSprite.position.copy(sunDir).multiplyScalar(SUN_DIST);
+  updateMoon(jd);
   sunLine.geometry.setFromPoints([
     sunDir.clone().multiplyScalar(EARTH_R * 1.05), sunSprite.position.clone()]);
   // 同じ太陽方向を「地球ローカル系」に直して海岸線シェーダへ渡す (自転ぶんを外す)。
@@ -446,6 +563,46 @@ el("earth-geo").addEventListener("change", () => {
   if (geoPoints) geoPoints.visible = on;
   update();
 });
+el("earth-moon").addEventListener("change", () => {
+  moon.visible = el("earth-moon").checked;
+  if (!moon.visible) moonFollow = false;
+  if (moonLabel) moonLabel.visible = moon.visible;
+  update();
+});
+
+/* ?view=moon = 月が入る位置までカメラを引く。
+   ダブルクリックや「引く」操作に気づかなくても、URL ひとつで月まで行ける。
+   月は 384単位先なので、既定の 58単位からでは画面の外にある。 */
+function viewMoon() {
+  el("earth-moon").checked = true;
+  moon.visible = true;
+  update();
+  const p = moon.position.clone();
+  // 月を正面に。**地球の側から**見るので、地上から見えている満ち欠けと同じ向きになる
+  // (視点を横に回すと三日月が半月に見える = 満ち欠けが視線の問題であることが分かる)
+  camera.position.copy(p).addScaledVector(p.clone().normalize(), -MOON_R * 26);
+  controls.target.copy(p);
+  controls.update();
+  moonPrev.copy(p);
+  moonFollow = true;      // 時間を送っても月を見続ける
+}
+
+/** 地球と月の両方が入る引き。「60倍も離れている」ことが見える。 */
+function viewSystem() {
+  moonFollow = false;
+  el("earth-moon").checked = true;
+  moon.visible = true;
+  update();
+  const p = moon.position.clone();
+  const d = MOON_DIST_UNITS * 1.5;
+  const up = new THREE.Vector3(0, 1, 0);
+  const side = new THREE.Vector3().crossVectors(p.clone().normalize(), up).normalize();
+  camera.position.copy(p).multiplyScalar(0.5).addScaledVector(side, d * 0.55)
+        .addScaledVector(up, d * 0.28);
+  controls.target.copy(p).multiplyScalar(0.5);
+  controls.update();
+}
+
 el("earth-starlink").addEventListener("change", () => {
   const on = el("earth-starlink").checked;
   if (on && !starPoints) loadStarlink();
@@ -813,4 +970,9 @@ function tick(now) {
 renderer.setAnimationLoop(tick);
 applyEarthStyle();
 loadSats();
+{ // ?view=moon で月まで引いた状態で開く
+  const v = new URLSearchParams(location.search).get("view");
+  if (v === "moon") { update(); viewMoon(); }
+  else if (v === "system") { update(); viewSystem(); }
+}
 </script>

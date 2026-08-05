@@ -74,7 +74,8 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           # 太陽系3Dの惑星テクスチャ (Solar System Scope, CC BY 4.0)。1024x512 に落として計約0.4MB。
           # 寄ったときだけ遅延ロードするので、開くだけの人には転送されない。
           "mercury.jpg", "venus.jpg", "mars.jpg", "jupiter.jpg",
-          "saturn.jpg", "uranus.jpg", "neptune.jpg", "saturn_ring.png"]
+          "saturn.jpg", "uranus.jpg", "neptune.jpg", "saturn_ring.png",
+          "moon.jpg"]      # 地球周回3D の月 (同じく Solar System Scope, CC BY 4.0)
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
 
