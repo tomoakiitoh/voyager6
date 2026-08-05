@@ -93,3 +93,49 @@ test("既存の Schlyter 系列では食の幾何に足りないこと自体を�
   }
   assert.ok(worst > 10, `Schlyter の最大誤差が ${worst.toFixed(0)}″ しかない`);
 });
+
+/* ---- 月食 (地球の影に入る幾何) ----
+   本影食分 = 月の直径のうち本影に入っている割合。>1 なら皆既。
+   earth.html は月面の各点で「太陽が地球にどれだけ隠れるか」を出しているだけだが、
+   その幾何が正しいかは、地心から見た本影食分を NASA の公表値と比べれば分かる。 */
+const A2 = new Function(
+  `${astro}\nreturn { moonPositionELP, sunPosition, eclipticToEquatorial, raDecToVec,
+   schlyterDay, julianDay, jdTT };`
+)();
+
+/** 本影食分。k = 地球の影の拡大率 (大気ぶん)。 */
+function umbralMagnitude(jdUT, k = 1 + 1 / 85) {
+  const AU = 149597870.7, Rs = 696000, Re = 6371 * k;
+  const jd = A2.jdTT(jdUT);
+  const m = A2.moonPositionELP(jd);
+  const eqm = A2.eclipticToEquatorial(m.lon, m.lat, A2.schlyterDay(jd));
+  const M = A2.raDecToVec(eqm.ra, eqm.dec).map((x) => x * m.dist);
+  const s = A2.sunPosition(jd), ds = s.r * AU;
+  const S = A2.raDecToVec(s.ra, s.dec).map((x) => x * ds);
+  const dm = m.dist;
+  const mh = M.map((x) => x / dm), ah = S.map((x) => -x / ds);
+  const gam = Math.acos(mh[0] * ah[0] + mh[1] * ah[1] + mh[2] * ah[2]);
+  const ru = Re - dm * (Rs - Re) / ds;          // 月の距離での本影の半径 (影は収束する)
+  const rmA = Math.asin(1737.4 / dm);
+  return (Math.atan(ru / dm) + rmA - gam) / (2 * rmA);
+}
+
+test("月食の本影食分が NASA の公表値と 0.005 以内で一致する", () => {
+  const cases = [
+    ["2025-09-07", 2025, 9, 7, 18 + 11 / 60, 1.3620],
+    ["2026-03-03", 2026, 3, 3, 11 + 34 / 60, 1.1516],
+    ["2026-08-28", 2026, 8, 28, 4 + 13 / 60, 0.9302],   // 部分 (>1 にならないこと)
+    ["2028-12-31", 2028, 12, 31, 16 + 53 / 60, 1.2464],
+  ];
+  for (const [name, y, mo, d, h, ref] of cases) {
+    const got = umbralMagnitude(A2.julianDay(y, mo, d, h));
+    assert.ok(Math.abs(got - ref) < 0.005, `${name}: ${got.toFixed(4)} vs ${ref}`);
+  }
+});
+
+test("影の拡大は Danjon (1/85)。Chauvenet (1/50) だと一律にずれる", () => {
+  // どちらの慣習を採ったかを記録に残す。1/50 にすると +0.015 ほど大きく出る
+  const jd = A2.julianDay(2025, 9, 7, 18 + 11 / 60);
+  assert.ok(Math.abs(umbralMagnitude(jd, 1 + 1 / 85) - 1.3620) < 0.005);
+  assert.ok(umbralMagnitude(jd, 1 + 1 / 50) - 1.3620 > 0.01);
+});

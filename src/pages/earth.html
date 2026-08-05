@@ -145,23 +145,30 @@ uniform float uMoonR;
 uniform vec3 uSunDirW;
 uniform float uSunAngR;
 uniform float uEclipseOn;
+/* ある点 P で、太陽 (視半径 as) が球 (中心 occPos・半径 occR) にどれだけ隠されるか。
+   返り値は「見えている太陽面の割合」= 1 なら食なし、0 なら皆既。
+   日食 (遮るのは月) も月食 (遮るのは地球) も同じ式で、渡す球が違うだけ。 */
+float sunLitBy(vec3 P, vec3 occPos, float occR) {
+  vec3 t = occPos - P;
+  float dd = length(t);
+  if (dd < 1e-6) return 1.0;
+  float ao = asin(clamp(occR / dd, 0.0, 1.0));
+  float th = acos(clamp(dot(t / dd, uSunDirW), -1.0, 1.0));
+  float as = uSunAngR;
+  if (th >= as + ao) return 1.0;                       // 重なりなし
+  if (th <= ao - as) return 0.0;                       // 皆既 (太陽が完全に隠れる)
+  if (th <= as - ao) return 1.0 - (ao * ao) / (as * as); // 金環 (遮る球が太陽の中に収まる)
+  float d = th;                                        // 部分食: 2円の重なり (レンズ形) の面積
+  float a1 = acos(clamp((d * d + as * as - ao * ao) / (2.0 * d * as), -1.0, 1.0));
+  float a2 = acos(clamp((d * d + ao * ao - as * as) / (2.0 * d * ao), -1.0, 1.0));
+  float tri = 0.5 * sqrt(max(0.0, (-d + as + ao) * (d + as - ao) * (d - as + ao) * (d + as + ao)));
+  float area = as * as * a1 + ao * ao * a2 - tri;
+  return clamp(1.0 - area / (3.14159265 * as * as), 0.0, 1.0);
+}
+/** 地表の点が月にどれだけ隠されているか (日食)。 */
 float sunlitFraction(vec3 P) {
   if (uEclipseOn < 0.5) return 1.0;
-  vec3 tm = uMoonPos - P;
-  float dm = length(tm);
-  if (dm < 1e-6) return 1.0;
-  float am = asin(clamp(uMoonR / dm, 0.0, 1.0));
-  float th = acos(clamp(dot(tm / dm, uSunDirW), -1.0, 1.0));
-  float as = uSunAngR;
-  if (th >= as + am) return 1.0;                       // 重なりなし
-  if (th <= am - as) return 0.0;                       // 皆既 (太陽が完全に隠れる)
-  if (th <= as - am) return 1.0 - (am * am) / (as * as); // 金環 (月が太陽の中に収まる)
-  float d = th;                                        // 部分食: 2円の重なり (レンズ形) の面積
-  float a1 = acos(clamp((d * d + as * as - am * am) / (2.0 * d * as), -1.0, 1.0));
-  float a2 = acos(clamp((d * d + am * am - as * as) / (2.0 * d * am), -1.0, 1.0));
-  float tri = 0.5 * sqrt(max(0.0, (-d + as + am) * (d + as - am) * (d - as + am) * (d + as + am)));
-  float area = as * as * a1 + am * am * a2 - tri;
-  return clamp(1.0 - area / (3.14159265 * as * as), 0.0, 1.0);
+  return sunLitBy(P, uMoonPos, uMoonR);
 }
 `;
 // 3つの材質 (写真の地球・線画の地球・海岸線) で同じ値を共有する
@@ -213,28 +220,49 @@ const moonMat = new THREE.ShaderMaterial({
     uHasMap: { value: 0 },
     uSun: { value: new THREE.Vector3(1, 0, 0) },   // ワールド系の太陽方向
     uBase: { value: new THREE.Color(0x9a958e) },
+    uEarthPos: { value: new THREE.Vector3() },
+    /* 地球の影の半径は幾何値より少し大きい。大気が光をさえぎるぶんの補正で、
+       **Danjon の規約 (半径を 1/85 = 1.18% 増し)** を使う。
+       もう一つの慣習である Chauvenet (1/50 = 2%) だと、本影食分が NASA の公表値より
+       一律 +0.015 大きく出た。1/85 にすると平均差 0.0000・最大 0.0021 で合う。 */
+    uEarthR: { value: EARTH_R * (1 + 1 / 85) },
+    uUmbraColor: { value: new THREE.Color(0xc4593a) },   // 様式化した赤銅色
+    ...eclU,
   },
   vertexShader: `
     varying vec3 vN;
     varying vec2 vUv;
+    varying vec3 vWorldP;
     void main() {
       vN = normalize(mat3(modelMatrix) * normal);
       vUv = uv;
+      vWorldP = (modelMatrix * vec4(position, 1.0)).xyz;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }`,
-  fragmentShader: `
+  fragmentShader: ECLIPSE_GLSL + `
     uniform sampler2D uMap;
     uniform float uHasMap;
     uniform vec3 uSun;
     uniform vec3 uBase;
+    uniform vec3 uEarthPos;
+    uniform float uEarthR;
+    uniform vec3 uUmbraColor;
     varying vec3 vN;
     varying vec2 vUv;
+    varying vec3 vWorldP;
     void main() {
       vec3 albedo = uHasMap > 0.5 ? texture2D(uMap, vUv).rgb : uBase;
       // 太陽は月までの距離の約390倍なので平行光でよい。欠け際は1画素で切らずに少しぼかす
       float d = smoothstep(-0.02, 0.06, dot(vN, uSun));
-      // 地球照ぶんのわずかな持ち上げ。真っ黒だと縁が消えて球に見えない
-      gl_FragColor = vec4(albedo * (0.035 + 0.965 * d), 1.0);
+      /* 月食: 月面の各点から見て、太陽が地球にどれだけ隠されるか。日食と同じ式に
+         「遮る球」として地球を渡すだけ。半影の淡い陰りも、本影も、そこから出る。 */
+      float f = uEclipseOn > 0.5 ? sunLitBy(vWorldP, uEarthPos, uEarthR) : 1.0;
+      /* 本影の中が赤いのは**地球の大気で屈折した光**が回り込むためで、幾何からは出ない。
+         ここは様式化した赤で塗っている (docs に明記)。実際の色や明るさはその時の
+         大気の状態 (火山灰など) で毎回変わり、予報できるものではない。 */
+      vec3 umbral = albedo * uUmbraColor * 0.22;
+      vec3 lit = albedo * (0.035 + 0.965 * d);
+      gl_FragColor = vec4(mix(umbral * d + albedo * 0.035, lit, f), 1.0);
     }`,
 });
 const moon = new THREE.Mesh(new THREE.SphereGeometry(MOON_R, 64, 48), moonMat);
@@ -297,6 +325,8 @@ function updateMoon(jd) {
   eclU.uMoonPos.value.copy(moon.getWorldPosition(new THREE.Vector3()));
   eclU.uMoonR.value = MOON_R * world.scale.x;
   eclU.uSunDirW.value.copy(lastSunDir).transformDirection(world.matrixWorld);
+  moonMat.uniforms.uEarthPos.value.copy(world.getWorldPosition(new THREE.Vector3()));
+  moonMat.uniforms.uEarthR.value = EARTH_R * (1 + 1 / 85) * world.scale.x;
   ensureMoonTexture();
 }
 

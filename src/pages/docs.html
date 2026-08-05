@@ -94,9 +94,23 @@ AIアシスタントは、これらのパラメータでシミュレーション
   <thead><tr><th>パラメータ</th><th>型</th><th>説明</th><th>例</th></tr></thead>
   <tbody>
     <tr><td><code>sat</code></td><td>NORAD番号</td><td>その衛星を選択して軌道を描く。</td><td><code>25544</code>（ISS）</td></tr>
-    <tr><td><code>view</code></td><td><code>moon</code>／<code>system</code></td><td><code>moon</code>=月を正面から見る（満ち欠けが見える）。<code>system</code>=地球と月の距離が分かる引き。</td><td><code>moon</code></td></tr>
+    <tr><td><code>view</code></td><td><code>moon</code>／<code>system</code>／<code>eclipse</code></td><td><code>moon</code>=月を正面から（満ち欠け・月食）。<code>system</code>=地球と月の距離。<code>eclipse</code>=影のある側から地球を見る（日食）。</td><td><code>eclipse</code></td></tr>
+    <tr><td><code>date</code></td><td><code>YYYY-MM-DD</code>／<code>YYYY-MM-DDTHH:MM</code></td><td>表示日時（JST）。<b>何年先／前でも指定できます。</b></td><td><code>2035-09-02T10:10</code></td></tr>
   </tbody>
 </table>
+<p>
+  <b>日食・月食は計算していません。</b>太陽・地球・月を正しい位置に置いて影を描くと、然るべき日に現れます。
+  地表の各点で「太陽が月にどれだけ隠されるか」を円板の重なりで出しているだけで、食の予報も判定も入っていません。
+  検証: 本影の中心が NASA の「食の最大」と数十km（本影の幅は100〜300km）、
+  月食の本影食分が NASA の公表値と0.005以内。
+  <b>時刻・地域ごとの詳細は</b>
+  <a href="https://eco.mtk.nao.ac.jp/koyomi/" target="_blank" rel="noopener">国立天文台 暦計算室</a><b>へ。</b>
+</p>
+<p>
+  月食のときの<b>赤銅色は様式化した色</b>です。本影の中が赤いのは地球の大気で屈折した光が回り込むためで、
+  幾何からは出ません。実際の色や明るさはその時の大気の状態（火山灰など）で毎回変わります。
+  表示日時が今日から7日以上離れると人工衛星は自動的に消えます（TLE は元期から離れると位置が嘘になるため）。
+</p>
 <p>
   月は実際の距離と大きさで置いてあります（384,400km 先の半径1,737km ＝ 地球の約60倍の距離）。
   <b>満ち欠けは計算していません</b>。太陽・地球・月を正しい位置に置くと、光の当たり方でそのまま現れます。
