@@ -36,6 +36,8 @@ bodyclass: solar-page
     <label><input type="checkbox" id="earth-starlink">Starlink網</label>
   </div>
   <div class="row"><span class="info"><b>月</b>は実際の距離・大きさで置いてあります（384,400km 先＝地球の約60倍の距離）。既定の視野では画面の外なので、<a href="?view=moon">月を正面から見る</a>／<a href="?view=system">地球と月の距離を見る</a>で出てきます。<b>満ち欠けは計算していません</b>— 太陽・地球・月を正しい位置に置くと、光の当たり方でそのまま現れます。</span></div>
+  <div class="row"><span class="info">日食・月食は<b>計算していません</b>。太陽・地球・月を正しい位置に置いて影を描くと、然るべき日に現れます（<a href="?date=2026-08-13T02:46&amp;view=eclipse">2026-08-12 アイスランド〜スペイン</a>／<a href="?date=2035-09-02T10:10&amp;view=eclipse">2035-09-02 北関東</a>）。<b>時刻・地域ごとの詳細は</b> <a href="https://eco.mtk.nao.ac.jp/koyomi/" target="_blank" rel="noopener">国立天文台 暦計算室</a> <b>へ</b>。</span></div>
+  <div class="row"><span id="earth-tle-note" class="info" hidden>⚠ 表示中の日時が「今」から7日以上離れているため、<b>人工衛星は出していません</b>（TLE は元期から離れると位置が嘘になるため）。太陽・地球・月は何年先でも計算できます。</span></div>
   <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
   <div class="row"><span class="info">VR中もコントローラで操作できます（<b>B / Y</b>で設定パネル開閉、レイで衛星を指してトリガーで選択。右スティック横＝時間送り、左スティック横＝回転・縦＝拡大縮小、A / X でリセット）。視界の下に日時と選択中の衛星がいつも出ます。<b>静止衛星</b>をONにすると静止軌道の輪の上に570機が並びます（みちびき・ひまわりには名前が出ます。みちびきは準天頂軌道なので、「日本を正面に固定」して時間を進めると日本の上空で8の字を描きます）。</span></div>
 </div>
@@ -129,6 +131,70 @@ guides.add(new THREE.PolarGridHelper(GEO_R, 8, 6, 64, 0x223, 0x18213a));
    既定の視野 (静止軌道42単位まで) では画面の外にある。引いて初めて出てくる。
    **その「遠さ」自体が教材**なので縮尺は誇張しない。 */
 const MOON_R = 1737.4 * K;
+/* ---- 日食: 地表の各点から見た「太陽が月にどれだけ隠されているか」 ----
+   食の知識は一行も入っていない。各点 P について
+     ・月の視半径 am = asin(月の半径 / P から月までの距離)
+     ・太陽の視半径 as (地球-太陽距離から毎フレーム計算)
+     ・両者の角距離 th
+   を出し、**2つの円板の重なり面積**で減光するだけ。すると然るべき日に
+   半影のグラデーションと本影の黒点が勝手に現れる。
+   金環 (月が小さくて太陽に収まりきる) も、月までの距離から自動で出る。 */
+const ECLIPSE_GLSL = `
+uniform vec3 uMoonPos;
+uniform float uMoonR;
+uniform vec3 uSunDirW;
+uniform float uSunAngR;
+uniform float uEclipseOn;
+float sunlitFraction(vec3 P) {
+  if (uEclipseOn < 0.5) return 1.0;
+  vec3 tm = uMoonPos - P;
+  float dm = length(tm);
+  if (dm < 1e-6) return 1.0;
+  float am = asin(clamp(uMoonR / dm, 0.0, 1.0));
+  float th = acos(clamp(dot(tm / dm, uSunDirW), -1.0, 1.0));
+  float as = uSunAngR;
+  if (th >= as + am) return 1.0;                       // 重なりなし
+  if (th <= am - as) return 0.0;                       // 皆既 (太陽が完全に隠れる)
+  if (th <= as - am) return 1.0 - (am * am) / (as * as); // 金環 (月が太陽の中に収まる)
+  float d = th;                                        // 部分食: 2円の重なり (レンズ形) の面積
+  float a1 = acos(clamp((d * d + as * as - am * am) / (2.0 * d * as), -1.0, 1.0));
+  float a2 = acos(clamp((d * d + am * am - as * as) / (2.0 * d * am), -1.0, 1.0));
+  float tri = 0.5 * sqrt(max(0.0, (-d + as + am) * (d + as - am) * (d - as + am) * (d + as + am)));
+  float area = as * as * a1 + am * am * a2 - tri;
+  return clamp(1.0 - area / (3.14159265 * as * as), 0.0, 1.0);
+}
+`;
+// 3つの材質 (写真の地球・線画の地球・海岸線) で同じ値を共有する
+const eclU = {
+  uMoonPos: { value: new THREE.Vector3() },
+  uMoonR: { value: MOON_R },
+  uSunDirW: { value: new THREE.Vector3(1, 0, 0) },
+  uSunAngR: { value: 0.004654 },      // 太陽の視半径 [rad]。距離で毎フレーム更新
+  uEclipseOn: { value: 1 },
+};
+
+/** MeshPhongMaterial に食の減光を差し込む (three.js の組み込みシェーダを一箇所だけ書き換える)。 */
+function patchEclipse(mat) {
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, eclU);
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vWorldP;")
+      .replace("#include <begin_vertex>",
+               "#include <begin_vertex>\n  vWorldP = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vWorldP;\n" + ECLIPSE_GLSL)
+      .replace("#include <lights_fragment_end>",
+               "#include <lights_fragment_end>\n  { float f = sunlitFraction(vWorldP);\n"
+               + "    reflectedLight.directDiffuse *= f; reflectedLight.directSpecular *= f;\n"
+               // このシーンには「夜側も形が分かる程度に」という強い環境光があり、直射だけ
+               // 落としても本影が埋もれて見えない (実際そうなった)。食のあいだは実際に
+               // 空も暗くなるので、環境光も一緒に落とす。皆既で3割まで
+               + "    reflectedLight.indirectDiffuse *= mix(0.12, 1.0, f); }");
+  };
+  mat.customProgramCacheKey = () => "eclipse";
+  mat.needsUpdate = true;
+}
+
 const lastSunDir = new THREE.Vector3(1, 0, 0);   // update() が入れる (月のシェーダが使う)
 /* 月を見ているあいだはカメラを月に追従させる。月は約27日で一周するので、追従しないと
    時間を送った瞬間に画面から出てしまい、**満ち欠けが変わっていく様子を見る**という
@@ -226,6 +292,11 @@ function updateMoon(jd) {
     controls.target.copy(pos);
   }
   moonPrev.copy(pos);
+  // 食の判定に使う値をワールド座標で渡す。world グループは VR で 0.03 倍になり、
+  // 「日本を正面に固定」で回りもするので、月の位置も太陽方向も同じ変換を通す
+  eclU.uMoonPos.value.copy(moon.getWorldPosition(new THREE.Vector3()));
+  eclU.uMoonR.value = MOON_R * world.scale.x;
+  eclU.uSunDirW.value.copy(lastSunDir).transformDirection(world.matrixWorld);
   ensureMoonTexture();
 }
 
@@ -237,6 +308,7 @@ function updateMoon(jd) {
    (three.js の SphereGeometry の UV と一致する向き。λ=0 が +x、λ=+90° が −z) */
 const earthPhotoMat = earth.material;
 const earthDarkMat = new THREE.MeshPhongMaterial({ color: 0x0b1a2e, shininess: 0 });
+patchEclipse(earthPhotoMat); patchEclipse(earthDarkMat);   // 写真・線画のどちらでも影が出る
 let coastLines = null, coastTried = false;
 
 /* 海岸線の色で昼夜を表す。頂点の位置ベクトルは「地球中心から見たその地点の向き」
@@ -250,21 +322,29 @@ const coastMat = new THREE.ShaderMaterial({
     uDay: { value: new THREE.Color(0xdff0ff) },     // 昼側: 明るい白青
     uNight: { value: new THREE.Color(0x2b5a8f) },   // 夜側: 沈んだ青
     uOpacity: { value: 0.95 },
+    ...eclU,
   },
   vertexShader: `
     uniform vec3 uSun;
     uniform vec3 uDay;
     uniform vec3 uNight;
     varying vec3 vCol;
+    varying vec3 vWorldP;
     void main() {
       float t = smoothstep(-0.12, 0.12, dot(normalize(position), uSun));  // 境目をやわらかく
       vCol = mix(uNight, uDay, t);
+      vWorldP = (modelMatrix * vec4(position, 1.0)).xyz;   // 食の判定はワールド座標で
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }`,
-  fragmentShader: `
+  fragmentShader: ECLIPSE_GLSL + `
     uniform float uOpacity;
     varying vec3 vCol;
-    void main() { gl_FragColor = vec4(vCol, uOpacity); }`,
+    varying vec3 vWorldP;
+    void main() {
+      // 食のぶんは線の色を落とす。線画モードでも影の位置が分かる
+      float f = mix(0.25, 1.0, sunlitFraction(vWorldP));
+      gl_FragColor = vec4(vCol * f, uOpacity);
+    }`,
 });
 
 async function loadCoastlines() {
@@ -296,6 +376,25 @@ async function loadCoastlines() {
     earth.add(coastLines);                 // 地球の子 = 自転に乗る
     applyEarthStyle();
   } catch (e) { /* 線画データが無ければ写真のまま */ }
+}
+
+/* TLE の有効範囲を外れたら衛星系を下ろす。チェックボックスの状態は変えない
+   (戻ってきたら元どおり出る)。「消えた」ではなく「出さない理由」を画面に書く。 */
+let tleWasValid = true;
+function applyTleValidity() {
+  const ok = tleValid();
+  if (satPoints) satPoints.visible = ok;
+  if (geoPoints) geoPoints.visible = ok && el("earth-geo").checked;
+  if (starPoints) starPoints.visible = ok && el("earth-starlink").checked;
+  if (orbitLine) orbitLine.visible = ok && el("earth-orbit").checked;
+  if (ok !== tleWasValid) {
+    tleWasValid = ok;
+    for (const l of [...(famousLabels || []).map((f) => f.sp), ...(geoLabels || []).map((g) => g.sp)]) {
+      if (l) l.visible = false;
+    }
+  }
+  const n = el("earth-tle-note");
+  if (n) n.hidden = ok;
 }
 
 function applyEarthStyle() {
@@ -413,8 +512,24 @@ function dot() {
 }
 
 // ---- 時間 ----
-const baseMs = Date.now();
+/* 時刻の基準。既定は「今」だが、?date= で任意の日にも飛べる。
+   スライダーの ±7日 は**基準日のまわり**を動く。
+
+   なぜ制限があるか: 人工衛星の位置は TLE (元期つきの軌道要素) から出しており、
+   元期から離れるほど誤差が増える (数日で数十km)。だから衛星は ±7日までしか出さない。
+   いっぽう**太陽・地球・月は何年先でも計算できる**ので、月や食を見るときまで
+   ±7日に縛る理由はない。→ 基準日が「今」から離れたら**衛星を自動で下ろし、
+   そう明記する**。嘘の衛星位置を出さないまま、2035年の日食まで飛べる。 */
+function parseDateParam(v) {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if (!m) return null;
+  const [, y, mo, d, hh, mi] = m;
+  return Date.UTC(+y, +mo - 1, +d, (+hh || 0) - 9, +mi || 0);   // JST 指定として読む
+}
+const baseMs = parseDateParam(new URLSearchParams(location.search).get("date")) ?? Date.now();
 let curMs = baseMs;
+/** 表示中の時刻が TLE の有効範囲 (今から±7日) の中か。外なら衛星は出さない。 */
+function tleValid(ms = curMs) { return Math.abs(ms - Date.now()) <= TIME_RANGE * 60000; }
 let playing = false, lastT = 0;
 
 function eciOf(satrec, date) {
@@ -455,18 +570,26 @@ function selectFromUrl() {
 
 function update() {
   const date = new Date(curMs);
-  const jd = jdFromDate(date);
+  const jd = jdFromDate(date);          // 世界時。地球の自転 (GMST) はこちらで決まる
+  /* 天体の位置は地球時 (TT) で計算する。ΔT は2026年で約75秒あり、日食の影は
+     地表を秒速1km前後で走るので **70km ほどの差になる** (実測: 入れないと NASA の
+     本影位置から89km、入れると38km)。星図では 0.3′ の話なので早見盤側は従来どおり。 */
+  const jdt = jdTT(jd);
   lastGmst = satLib ? satLib.gstime(date) : 0;
   earth.rotation.y = lastGmst;                           // 自転
   applyWorldSpin();
   // 太陽方向 (ECI) → 平行光
-  const s = sunPosition(jd);
+  const s = sunPosition(jdt);
+  // 太陽の視半径 [rad]。地球-太陽距離で年に±1.7%変わり、月の視半径との大小が
+  // 皆既と金環を分ける。ここを固定値にすると金環日食が皆既になってしまう
+  eclU.uSunAngR.value = Math.asin(696000 / (s.r * 149597870.7));
   const sv = raDecToVec(s.ra, s.dec);
   const sunDir = new THREE.Vector3(sv[0], sv[2], -sv[1]);
   lastSunDir.copy(sunDir);
   sunLight.position.copy(sunDir).multiplyScalar(200);
   sunSprite.position.copy(sunDir).multiplyScalar(SUN_DIST);
-  updateMoon(jd);
+  updateMoon(jdt);
+  applyTleValidity();
   sunLine.geometry.setFromPoints([
     sunDir.clone().multiplyScalar(EARTH_R * 1.05), sunSprite.position.clone()]);
   // 同じ太陽方向を「地球ローカル系」に直して海岸線シェーダへ渡す (自転ぶんを外す)。
@@ -566,6 +689,7 @@ el("earth-geo").addEventListener("change", () => {
 el("earth-moon").addEventListener("change", () => {
   moon.visible = el("earth-moon").checked;
   if (!moon.visible) moonFollow = false;
+  eclU.uEclipseOn.value = moon.visible ? 1 : 0;   // 月を消したら影も消す (辻褄を合わせる)
   if (moonLabel) moonLabel.visible = moon.visible;
   update();
 });
@@ -585,6 +709,31 @@ function viewMoon() {
   controls.update();
   moonPrev.copy(p);
   moonFollow = true;      // 時間を送っても月を見続ける
+}
+
+/* 太陽の側から地球を見る = DSCOVR の視点。日食の日ならここに月の影が落ちている。
+   食の予報 (時刻・地域・食分) は出さない。幾何を正しく描いた結果を見せるだけで、
+   数値が要る人は暦計算室へ送る (説明行のリンク)。 */
+function viewEclipse() {
+  el("earth-moon").checked = true;
+  moon.visible = true;
+  eclU.uEclipseOn.value = 1;
+  moonFollow = false;
+  update();
+  /* 影のある側を正面にする。太陽の方向から素直に見ると、影は多くの場合**円盤の縁の近く**に
+     落ちていて (2026-08-12 では中心から90%の位置)、正面から見ても分からない。
+     月から太陽と反対向きに伸ばした「影の軸」が地表に当たる点を求め、そこを正面に据える。 */
+  const M = moon.getWorldPosition(new THREE.Vector3());
+  const d = lastSunDir.clone().transformDirection(world.matrixWorld).negate();
+  const R = EARTH_R * world.scale.x;
+  const b = M.dot(d), c = M.lengthSq() - R * R;
+  const disc = b * b - c;
+  const aim = disc > 0
+    ? M.clone().addScaledVector(d, -b - Math.sqrt(disc)).normalize()   // 手前側の交点
+    : M.clone().addScaledVector(d, -b).normalize();                    // 当たらないときは最接近点
+  camera.position.copy(aim).multiplyScalar(R * 3.2);
+  controls.target.set(0, 0, 0);
+  controls.update();
 }
 
 /** 地球と月の両方が入る引き。「60倍も離れている」ことが見える。 */
@@ -743,7 +892,7 @@ const vrPanel = new VrPanel({
     const days = (off / 1440);
     let t = el("earth-date").textContent;
     if (Math.abs(off) >= TIME_RANGE - 1) {
-      t += "  ← ここまで（TLEの限界±7日）";            // VRではスライダーが見えないので文字で
+      t += "  ← スライダーの端（基準日±7日）";        // VRではスライダーが見えないので文字で
     } else if (Math.abs(days) >= 0.5) {
       t += `  (${days > 0 ? "+" : ""}${days.toFixed(1)}日)`;
     }
@@ -833,6 +982,11 @@ let geoLabels = null;
 let famousLabels = null, hoverLabel = null;
 function updateSatLabels() {
   if (!satPoints || !sats.length) return;
+  if (!tleValid()) {          // TLE の範囲外では衛星を出していないので、名前も出さない
+    for (const l of satLabels) l.visible = false;
+    if (moonLabel) moonLabel.visible = moon.visible;   // 月のラベルだけは残す
+    return;
+  }
   fitLabels();
   const pos = satPoints.geometry.getAttribute("position");
   // ラベルは衛星の「地球中心から外向き」にずらす。真上にずらすと地球や他のラベルに重なる。
@@ -974,5 +1128,6 @@ loadSats();
   const v = new URLSearchParams(location.search).get("view");
   if (v === "moon") { update(); viewMoon(); }
   else if (v === "system") { update(); viewSystem(); }
+  else if (v === "eclipse") { update(); viewEclipse(); }
 }
 </script>
