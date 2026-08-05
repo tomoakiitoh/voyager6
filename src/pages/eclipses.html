@@ -1,0 +1,119 @@
+<!--
+title: 日食・月食カタログ
+description: 2021年から2040年までの日食・月食の一覧。日付・種類・見られる地域から、その食を宇宙から見た3Dビューへ飛べる。予報の数値は国立天文台 暦計算室へ。
+scripts: events.js
+bodyclass: comets-page
+-->
+<main class="doc comets">
+
+<h1>日食・月食カタログ</h1>
+<p>
+  2021年から2040年までの日食・月食の一覧です。行の
+  <b>「宇宙から見る」</b>を押すと、その日時の太陽・地球・月を正しい位置に置いた3Dビューが開きます。
+  日食なら地球に落ちた月の影が、月食なら地球の影に入った月が見えます。
+</p>
+<p class="note">
+  <b>このサイトは食の予報をしていません。</b>3Dビューは幾何を描いているだけで、食の判定も予報も入っていません
+  （それでも然るべき日に影が現れます）。
+  下の日付・最大食の時刻・見られる地域は
+  <a href="https://eclipse.gsfc.nasa.gov/">NASA Eclipse Web Site</a>（Fred Espenak、パブリックドメイン）の
+  カタログによります。<b>食分・接触時刻・中心線などの詳細は</b>
+  <a href="https://eco.mtk.nao.ac.jp/koyomi/">国立天文台 暦計算室</a><b>をご覧ください。</b>
+</p>
+
+<div class="controls">
+  <select id="kind" title="種別">
+    <option value="all">日食・月食すべて</option>
+    <option value="solar">日食だけ</option>
+    <option value="lunar">月食だけ</option>
+  </select>
+  <select id="type" title="種類">
+    <option value="all">種類すべて</option>
+    <option value="皆既">皆既</option>
+    <option value="金環">金環</option>
+    <option value="部分">部分</option>
+    <option value="半影">半影（月食）</option>
+  </select>
+  <label class="chk"><input type="checkbox" id="future-only" checked>これから起きるものだけ</label>
+  <span id="count" class="info"></span>
+</div>
+
+<div class="tbl-wrap">
+  <table id="tbl">
+    <thead>
+      <tr><th>日付（日本時間）</th><th>種別</th><th>種類</th><th>見られる地域</th><th></th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+</main>
+
+<script>
+/* 食のテーブルは events.js が持っている (tools/build_events.py が NASA のカタログから生成)。
+   ここは並べ替えて出すだけで、食の計算は一切しない。
+   「宇宙から見る」の行き先 /earth/ 側も、食の知識を持たずに幾何だけを描いている。 */
+const el = (id) => document.getElementById(id);
+const z2 = (n) => String(n).padStart(2, "0");
+
+/** UT の日付+時刻 → 日本時間の {ms, 表示文字列, URL用文字列}。 */
+function toJst(dateUt, timeUt) {
+  const [y, mo, d] = dateUt.split("-").map(Number);
+  const [hh, mi] = timeUt.split(":").map(Number);
+  const ms = Date.UTC(y, mo - 1, d, hh, mi) + 9 * 3600e3;
+  const t = new Date(ms);
+  const label = `${t.getUTCFullYear()}-${z2(t.getUTCMonth() + 1)}-${z2(t.getUTCDate())}`
+    + ` ${z2(t.getUTCHours())}:${z2(t.getUTCMinutes())}`;
+  const url = `${t.getUTCFullYear()}-${z2(t.getUTCMonth() + 1)}-${z2(t.getUTCDate())}`
+    + `T${z2(t.getUTCHours())}:${z2(t.getUTCMinutes())}`;
+  return { ms, label, url };
+}
+
+// [種別, 日付, 最大食(UT), 種類, 地域]
+const ALL = [
+  ...ECLIPSES_SOLAR.map((e) => ({ kind: "solar", date: e[0], ut: e[1], type: e[2], where: e[3] })),
+  ...ECLIPSES_LUNAR.map((e) => ({ kind: "lunar", date: e[0], ut: e[1], type: e[2], where: e[5] })),
+].map((e) => ({ ...e, jst: toJst(e.date, e.ut) }))
+ .sort((a, b) => a.jst.ms - b.jst.ms);
+
+function render() {
+  const kind = el("kind").value, type = el("type").value;
+  const future = el("future-only").checked;
+  const now = Date.now();
+  const rows = ALL.filter((e) =>
+    (kind === "all" || e.kind === kind)
+    && (type === "all" || e.type.includes(type))
+    && (!future || e.jst.ms > now));
+  el("count").textContent = `${rows.length} 件`;
+  const tb = el("rows");
+  tb.textContent = "";
+  for (const e of rows) {
+    const tr = document.createElement("tr");
+    tr.className = "crow";                       // .row は既存CSSのflexと衝突するので使わない
+    const kindJa = e.kind === "solar" ? "日食" : "月食";
+    // 月食は月を正面から、日食は影のある側から地球を見る
+    const view = e.kind === "solar" ? "eclipse" : "moon";
+    const href = `../earth/?date=${e.jst.url}&view=${view}`;
+    tr.innerHTML = `<td class="nowrap">${e.jst.label}</td>`
+      + `<td>${kindJa}</td><td>${e.type}</td><td class="where">${e.where}</td>`
+      + `<td class="nowrap"><a href="${href}">宇宙から見る →</a></td>`;
+    tb.appendChild(tr);
+  }
+}
+for (const id of ["kind", "type", "future-only"]) el(id).addEventListener("change", render);
+render();
+</script>
+
+<style>
+  .comets .note { font-size: 13px; color: var(--dim); line-height: 1.8; }
+  .comets .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 10px; }
+  .comets .chk { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--dim); }
+  .comets .tbl-wrap { overflow-x: auto; }
+  .comets table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .comets th, .comets td { border-top: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  .comets th { color: var(--dim); font-weight: 600; white-space: nowrap; }
+  .comets td.nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .comets td.where { color: var(--dim); }
+  .comets tbody tr:hover { background: rgba(120, 180, 255, 0.08); }
+  .comets a { color: var(--accent); }
+</style>

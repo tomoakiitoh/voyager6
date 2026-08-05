@@ -21,6 +21,7 @@
 - [変光星カタログ / Variable star catalog](https://voyager6.net/variables/): 眼視〜双眼鏡で追える変光星 約3,600個 (GCVS由来・V等級で最大10等以下)。「今夜見える」(観測地で高度20°以上)・「極大が近い」(ミラ型の予報)で絞り込め、カードから比較星の等級つき観測星図と AAVSO VSP を開ける。
 - [今夜の空 / Tonight](https://voyager6.net/tonight/): 日の入り・薄明・月・見ごろの惑星。
 - [天文現象カレンダー / Events](https://voyager6.net/calendar/): 月ごとの月相・惑星・流星群・日月食(月明かり条件つき)。
+- [日食・月食カタログ / Eclipse catalog](https://voyager6.net/eclipses/): 2021〜2040年の日食・月食の一覧(NASA Eclipse Web Site 由来)。種別・種類で絞れ、行から「宇宙から見る」3Dビューへ飛べる。**予報の数値は扱わず**、詳細は国立天文台 暦計算室へ案内している。
 - [流星群 / Meteor shower](https://voyager6.net/perseids/): ペルセウス座流星群2026の出現数目安。
 - [VRプラネタリウム / VR planetarium](https://voyager6.net/planetarium/): 天球の内側に星空を描く没入ビュー(WebXR)。恒星10等・星座線・惑星・月に加え、彗星(現行＋歴史的な肉眼彗星)と人工衛星(SGP4)のレイヤを重ねられる。日付を変えれば1996年の百武彗星の空も見上げられる。
 - [AIに聞いてみる / Ask an AI](https://voyager6.net/ask/): URL を覚えなくても、AIにこう頼めば観測星図や星空のリンクが返る、コピペ用の文例集。

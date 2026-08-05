@@ -51,6 +51,7 @@ MENU = [
         ("variables", "変光星カタログ"),
         ("tonight", "今夜の空"),
         ("calendar", "天文現象カレンダー"),
+        ("eclipses", "日食・月食カタログ"),
         ("perseids", "流星群"),
     ]),
     ("使う", [

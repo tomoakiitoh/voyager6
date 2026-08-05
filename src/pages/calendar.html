@@ -125,6 +125,7 @@ function render() {
         : `最大食 ${timeJa(ms)} — このとき ${site.name} では月が地平線の下（見えません）`
           + `<br>見られる地域: ${e[5]}`,
       link: local.visible ? skyLink(ms, "そのときの空を見る") : null,
+      link2: eclipse3dLink(ms, "lunar"),
     });
   }
   for (const e of ECLIPSES_SOLAR) {
@@ -134,6 +135,7 @@ function render() {
       ms, kind: "eclipse",
       title: `${e[2]}日食`,
       body: `最大食 ${timeJa(ms)}（日本時間）<br>見られる地域: ${e[3]}`,
+      link2: eclipse3dLink(ms, "solar"),
     });
   }
 
@@ -147,9 +149,22 @@ function render() {
           <div class="title">${it.title}</div>
           <div class="body">${it.body || ""}</div>
           ${it.link ? `<div class="link">${it.link}</div>` : ""}
+          ${it.link2 ? `<div class="link">${it.link2}</div>` : ""}
         </div>
       </div>`).join("")
     : `<p class="note">この月に目立った現象はありません。</p>`;
+}
+
+/** その食を「宇宙から見る」3Dビューへの導線 (地球周回3D)。
+    日食は影のある側から地球を、月食は月を正面から見る。
+    食の予報はこのサイトでは扱わないが、**幾何を見せる**ぶんには自前でできる。 */
+function eclipse3dLink(ms, kind) {
+  const t = new Date(ms + 9 * 3600e3);           // /earth/ の ?date= は JST 規約
+  const z = (n) => String(n).padStart(2, "0");
+  const d = `${t.getUTCFullYear()}-${z(t.getUTCMonth() + 1)}-${z(t.getUTCDate())}`
+    + `T${z(t.getUTCHours())}:${z(t.getUTCMinutes())}`;
+  return `<a href="../earth/?date=${d}&view=${kind === "solar" ? "eclipse" : "moon"}">`
+    + `宇宙から見る（月の影・地球の影）</a>`;
 }
 
 /** 食の最大の瞬間 (絶対時刻)。 */
