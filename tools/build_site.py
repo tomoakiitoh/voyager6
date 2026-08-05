@@ -96,7 +96,12 @@ def parse_page(path: pathlib.Path):
 
 def write_data_index() -> None:
     """AI/機械可読なデータ索引 dist/data/index.json を書く (F9 AI可用性)。
-    既存の配列JSONは触らず、各データの URL・出典・ライセンス・更新頻度・スキーマをまとめる。"""
+    既存の配列JSONは触らず、各データの URL・出典・ライセンス・更新頻度・スキーマをまとめる。
+
+    **ここは「機械が fetch できるデータセット」の目録**であって、機能の目録ではない。
+    月の満ち欠け・日食・月食 (2026-08 実装) は配信するファイルを持たず、ブラウザ内の
+    計算だけで出るので**載せない**。載せると「fetch できる URL」の一覧という索引の
+    意味が濁る。URL の使い方は llms.txt と url_parameters_doc (/docs/) が受け持つ。"""
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     origin = f"https://{DOMAIN}"
     datasets = [

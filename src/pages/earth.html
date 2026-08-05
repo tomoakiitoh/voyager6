@@ -36,7 +36,7 @@ bodyclass: solar-page
     <label><input type="checkbox" id="earth-starlink">Starlink網</label>
   </div>
   <div class="row"><span class="info"><b>月</b>は実際の距離・大きさで置いてあります（384,400km 先＝地球の約60倍の距離）。既定の視野では画面の外なので、<a href="?view=moon">月を正面から見る</a>／<a href="?view=system">地球と月の距離を見る</a>で出てきます。<b>満ち欠けは計算していません</b>— 太陽・地球・月を正しい位置に置くと、光の当たり方でそのまま現れます。</span></div>
-  <div class="row"><span class="info">日食・月食は<b>計算していません</b>。太陽・地球・月を正しい位置に置いて影を描くと、然るべき日に現れます（<a href="?date=2026-08-13T02:46&amp;view=eclipse">2026-08-12 アイスランド〜スペイン</a>／<a href="?date=2035-09-02T10:10&amp;view=eclipse">2035-09-02 北関東</a>）。<b>時刻・地域ごとの詳細は</b> <a href="https://eco.mtk.nao.ac.jp/koyomi/" target="_blank" rel="noopener">国立天文台 暦計算室</a> <b>へ</b>。</span></div>
+  <div class="row"><span class="info">日食・月食は<b>計算していません</b>。太陽・地球・月を正しい位置に置いて影を描くと、然るべき日に現れます<br>日食: <a href="?date=2026-08-13T02:46&amp;view=eclipse">2026-08-12 アイスランド〜スペイン</a>・<a href="?date=2027-08-02T19:07&amp;view=eclipse">2027-08-02 エジプト（今世紀最長）</a>・<a href="?date=2035-09-02T10:10&amp;view=eclipse">2035-09-02 北関東</a>・<a href="?date=2030-06-01T15:30&amp;view=eclipse">2030-06-01 北海道（金環）</a>／月食: <a href="?date=2026-03-03T20:34&amp;view=moon">2026-03-03 皆既</a>・<a href="?date=2032-04-26T00:00&amp;view=moon">2032-04-25 皆既</a>。<b>時刻・地域ごとの詳細は</b> <a href="https://eco.mtk.nao.ac.jp/koyomi/" target="_blank" rel="noopener">国立天文台 暦計算室</a> <b>へ</b>。</span></div>
   <div class="row"><span id="earth-tle-note" class="info" hidden>⚠ 表示中の日時が「今」から7日以上離れているため、<b>人工衛星は出していません</b>（TLE は元期から離れると位置が嘘になるため）。太陽・地球・月は何年先でも計算できます。</span></div>
   <div class="row"><span id="earth-pick" class="info">読み込み中…</span></div>
   <div class="row"><span class="info">VR中もコントローラで操作できます（<b>B / Y</b>で設定パネル開閉、レイで衛星を指してトリガーで選択。右スティック横＝時間送り、左スティック横＝回転・縦＝拡大縮小、A / X でリセット）。視界の下に日時と選択中の衛星がいつも出ます。<b>静止衛星</b>をONにすると静止軌道の輪の上に570機が並びます（みちびき・ひまわりには名前が出ます。みちびきは準天頂軌道なので、「日本を正面に固定」して時間を進めると日本の上空で8の字を描きます）。</span></div>
@@ -560,6 +560,25 @@ const baseMs = parseDateParam(new URLSearchParams(location.search).get("date")) 
 let curMs = baseMs;
 /** 表示中の時刻が TLE の有効範囲 (今から±7日) の中か。外なら衛星は出さない。 */
 function tleValid(ms = curMs) { return Math.abs(ms - Date.now()) <= TIME_RANGE * 60000; }
+
+/* ---- 見ているものを URL に書き戻す ----
+   このサイトは「見えているものには必ず住所がある」という約束で作ってある。
+   食は「この日時のこの眺め」を人に渡すための機能なので、URL が固定できないと
+   使い道が半分になる (時間を動かした先をコピーできない)。
+   早見盤・太陽系3D と同じく、変化が落ち着いてから replaceState する。
+   表示レイヤは urlstate.js が別途書くので、こちらは触らない (土台を今の URL にする)。 */
+let curView = null;            // "moon" | "system" | "eclipse" — 使った視点の指定を残す
+let urlTimer = null;
+function scheduleEarthUrl() { clearTimeout(urlTimer); urlTimer = setTimeout(writeEarthUrl, 500); }
+function writeEarthUrl() {
+  const p = new URLSearchParams(location.search);
+  const d = new Date(curMs + 9 * 3600e3);      // JST で書く (parseDateParam と同じ規約)
+  const z = (n) => String(n).padStart(2, "0");
+  p.set("date", `${d.getUTCFullYear()}-${z(d.getUTCMonth() + 1)}-${z(d.getUTCDate())}`
+                + `T${z(d.getUTCHours())}:${z(d.getUTCMinutes())}`);
+  if (curView) p.set("view", curView); else p.delete("view");
+  history.replaceState(null, "", location.pathname + "?" + p.toString());
+}
 let playing = false, lastT = 0;
 
 function eciOf(satrec, date) {
@@ -620,6 +639,7 @@ function update() {
   sunSprite.position.copy(sunDir).multiplyScalar(SUN_DIST);
   updateMoon(jdt);
   applyTleValidity();
+  scheduleEarthUrl();
   sunLine.geometry.setFromPoints([
     sunDir.clone().multiplyScalar(EARTH_R * 1.05), sunSprite.position.clone()]);
   // 同じ太陽方向を「地球ローカル系」に直して海岸線シェーダへ渡す (自転ぶんを外す)。
@@ -728,6 +748,7 @@ el("earth-moon").addEventListener("change", () => {
    ダブルクリックや「引く」操作に気づかなくても、URL ひとつで月まで行ける。
    月は 384単位先なので、既定の 58単位からでは画面の外にある。 */
 function viewMoon() {
+  curView = "moon";
   el("earth-moon").checked = true;
   moon.visible = true;
   update();
@@ -745,6 +766,7 @@ function viewMoon() {
    食の予報 (時刻・地域・食分) は出さない。幾何を正しく描いた結果を見せるだけで、
    数値が要る人は暦計算室へ送る (説明行のリンク)。 */
 function viewEclipse() {
+  curView = "eclipse";
   el("earth-moon").checked = true;
   moon.visible = true;
   eclU.uEclipseOn.value = 1;
@@ -768,6 +790,7 @@ function viewEclipse() {
 
 /** 地球と月の両方が入る引き。「60倍も離れている」ことが見える。 */
 function viewSystem() {
+  curView = "system";
   moonFollow = false;
   el("earth-moon").checked = true;
   moon.visible = true;
