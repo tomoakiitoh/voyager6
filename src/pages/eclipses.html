@@ -18,7 +18,9 @@ bodyclass: comets-page
   下の日付・最大食の時刻・見られる地域は
   <a href="https://eclipse.gsfc.nasa.gov/">NASA Eclipse Web Site</a>（Fred Espenak、パブリックドメイン）の
   カタログによります。<b>食分・接触時刻・中心線などの詳細は</b>
-  <a href="https://eco.mtk.nao.ac.jp/koyomi/">国立天文台 暦計算室</a><b>をご覧ください。</b>
+  <a href="https://eco.mtk.nao.ac.jp/cgi-bin/koyomi/eclipsex_s.cgi">暦計算室「日食各地予報」</a>・
+  <a href="https://eco.mtk.nao.ac.jp/cgi-bin/koyomi/eclipsex_l.cgi">「月食各地予報」</a><b>をご覧ください</b>
+  （どちらも開いた画面で日付と観測地を選ぶ形です）。
 </p>
 
 <div class="controls">
@@ -59,6 +61,11 @@ bodyclass: comets-page
 /* 食のテーブルは events.js が持っている (tools/build_events.py が NASA のカタログから生成)。
    ここは並べ替えて出すだけで、食の計算は一切しない。
    「宇宙から見る」の行き先 /earth/ 側も、食の知識を持たずに幾何だけを描いている。 */
+/* 暦計算室の各地予報は **POST フォーム**なので、日付を URL で渡して直接開くことはできない。
+   せめてトップではなく該当フォームに着地させ、そこで何を選べばよいかを一言添える。
+   (トップから辿らせると分かりにくい、という指摘への対応) */
+const NAOJ_S = "https://eco.mtk.nao.ac.jp/cgi-bin/koyomi/eclipsex_s.cgi";
+const NAOJ_L = "https://eco.mtk.nao.ac.jp/cgi-bin/koyomi/eclipsex_l.cgi";
 const el = (id) => document.getElementById(id);
 const z2 = (n) => String(n).padStart(2, "0");
 
@@ -151,11 +158,13 @@ async function showMap(e) {
       + `この食で欠ける最大は <b>約${Math.round(data.maxObs * 100)}%</b>（面積比）。`
       + "<br><b>これは概略図です。</b>影の位置は本影の幅より小さい誤差（数十km）を含むので、"
       + "「どこに立てば皆既か」の判断には使えません。"
-      + '観測の計画には <a href="https://eco.mtk.nao.ac.jp/koyomi/">国立天文台 暦計算室</a> をお使いください。'
+      + '観測の計画には <a href="' + NAOJ_S + '">国立天文台 暦計算室「日食各地予報」</a>'
+      + `（開いたら <b>${e.jst.label.slice(0, 10).replace(/-/g, "/")}</b> と観測地を選びます）をお使いください。`
     : "青い範囲は<b>最大食のときに月が地平線より上にある地域</b>＝月食が見えるところです。"
       + "月食は月が見えていればどこからでも同じように見えます。"
       + "オレンジの十字は月が真上に来る場所。"
-      + '<br>時刻ごとの詳しい経過は <a href="https://eco.mtk.nao.ac.jp/koyomi/">国立天文台 暦計算室</a> へ。';
+      + '<br>時刻ごとの詳しい経過は <a href="' + NAOJ_L + '">国立天文台 暦計算室「月食各地予報」</a>'
+      + `（開いたら <b>${e.jst.label.slice(0, 10).replace(/-/g, "/")}</b> と観測地を選びます）へ。`;
 }
 </script>
 
