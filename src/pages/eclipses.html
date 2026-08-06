@@ -1,7 +1,7 @@
 <!--
 title: 日食・月食カタログ
 description: 2021年から2040年までの日食・月食の一覧。日付・種類・見られる地域から、その食を宇宙から見た3Dビューへ飛べる。予報の数値は国立天文台 暦計算室へ。
-scripts: events.js
+scripts: astro.js events.js eclipsemap.js
 bodyclass: comets-page
 -->
 <main class="doc comets">
@@ -36,6 +36,12 @@ bodyclass: comets-page
   </select>
   <label class="chk"><input type="checkbox" id="future-only" checked>これから起きるものだけ</label>
   <span id="count" class="info"></span>
+</div>
+
+<div id="map-box" hidden>
+  <div class="maphead"><b id="map-title"></b> <span id="map-note" class="info"></span></div>
+  <canvas id="map" width="920" height="460"></canvas>
+  <p class="note" id="map-legend"></p>
 </div>
 
 <div class="tbl-wrap">
@@ -96,12 +102,61 @@ function render() {
     const href = `../earth/?date=${e.jst.url}&view=${view}`;
     tr.innerHTML = `<td class="nowrap">${e.jst.label}</td>`
       + `<td>${kindJa}</td><td>${e.type}</td><td class="where">${e.where}</td>`
-      + `<td class="nowrap"><a href="${href}">宇宙から見る →</a></td>`;
+      + `<td class="nowrap"><a href="#" class="mapbtn">地図</a>`
+      + ` / <a href="${href}">宇宙から見る →</a></td>`;
+    tr.querySelector(".mapbtn").addEventListener("click", (ev) => {
+      ev.preventDefault(); showMap(e);
+    });
     tb.appendChild(tr);
   }
 }
 for (const id of ["kind", "type", "future-only"]) el(id).addEventListener("change", render);
 render();
+
+/* ---- 地図 ----
+   海岸線は地球周回3Dと同じ coastlines.bin (Natural Earth 50m)。押されたときだけ読む。 */
+let coast = null, coastTried = false;
+async function ensureCoast() {
+  if (coastTried) return coast;
+  coastTried = true;
+  try {
+    const buf = await fetch("../coastlines.bin").then((r) => r.arrayBuffer());
+    coast = decodeCoastlines(buf);
+  } catch (e) { coast = null; }
+  return coast;
+}
+
+/** UT の日付+時刻 → ユリウス日 (UT)。 */
+function jdOfUt(dateUt, timeUt) {
+  const [y, mo, d] = dateUt.split("-").map(Number);
+  const [hh, mi, se] = timeUt.split(":").map(Number);
+  return julianDay(y, mo, d, hh + mi / 60 + (se || 0) / 3600);
+}
+
+async function showMap(e) {
+  const box = el("map-box");
+  box.hidden = false;
+  el("map-title").textContent = `${e.jst.label}　${e.kind === "solar" ? "日食" : "月食"}（${e.type}）`;
+  el("map-note").textContent = "計算中…";
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  await ensureCoast();
+  await new Promise((r) => setTimeout(r, 0));   // 「計算中…」を先に描かせてから重い処理へ
+  const data = drawEclipseMap(el("map"), {
+    kind: e.kind, jdMaxUT: jdOfUt(e.date, e.ut), coast,
+  });
+  el("map-note").textContent = "";
+  el("map-legend").innerHTML = e.kind === "solar"
+    ? "青が濃いほど大きく欠けます（<b>20% / 40% / 60% / 80% / 95%以上</b>の5段階）。"
+      + "オレンジの線は皆既・金環が見える帯の中心です。"
+      + `この食で欠ける最大は <b>約${Math.round(data.maxObs * 100)}%</b>（面積比）。`
+      + "<br><b>これは概略図です。</b>影の位置は本影の幅より小さい誤差（数十km）を含むので、"
+      + "「どこに立てば皆既か」の判断には使えません。"
+      + '観測の計画には <a href="https://eco.mtk.nao.ac.jp/koyomi/">国立天文台 暦計算室</a> をお使いください。'
+    : "青い範囲は<b>最大食のときに月が地平線より上にある地域</b>＝月食が見えるところです。"
+      + "月食は月が見えていればどこからでも同じように見えます。"
+      + "オレンジの十字は月が真上に来る場所。"
+      + '<br>時刻ごとの詳しい経過は <a href="https://eco.mtk.nao.ac.jp/koyomi/">国立天文台 暦計算室</a> へ。';
+}
 </script>
 
 <style>
@@ -116,4 +171,8 @@ render();
   .comets td.where { color: var(--dim); }
   .comets tbody tr:hover { background: rgba(120, 180, 255, 0.08); }
   .comets a { color: var(--accent); }
+  #map-box { margin: 14px 0 18px; }
+  #map-box .maphead { margin-bottom: 6px; font-size: 14px; }
+  #map { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; display: block; }
+  #map-legend { margin-top: 8px; }
 </style>
