@@ -79,6 +79,55 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "saturn.jpg", "uranus.jpg", "neptune.jpg", "saturn_ring.png",
           "moon.jpg"]      # 地球周回3D の月 (同じく Solar System Scope, CC BY 4.0)
 
+# ハガキ裏面の QR に載せた番号ショートパス /1 〜 /8。
+# **印刷物は刷り直せないので、番号と行き先の対応表をここ一箇所に置く。**
+# 行き先を変えたくなったらこの表だけを直せばよく、配ったハガキはそのまま使える。
+# noindex + sitemap 非掲載 (同じ画面が二つの URL で検索に出るのを避ける)。
+# llms.txt にも載せない — AI には短縮でなく意味のある長い URL を渡したい。
+SHORTPATHS = {
+    "1": "https://voyager6.net/",
+    "2": "https://voyager6.net/solar/?craft=voyager1&craftlayer=1",
+    "3": "https://voyager6.net/?t=1996-03-25T03:00&lat=35.68&lon=139.77&comet=C/1996%20B2",
+    # 指示書は focus=jupiter 付きだったが外した。寄ると木星の周りしか映らず、
+    # 太陽・内惑星のラベルが重なり、肝心のトロヤ群 (L4/L5の二つの塊) が画面外に出る。
+    # 既定の俯瞰のままなら、木星を止めたときに小惑星が木星の前後60°へ溜まる様子が
+    # 一目で分かる。※ 印刷物は変えられないので、こうした調整は飛び先側で吸収する。
+    "4": "https://voyager6.net/solar/?corotate=1&asteroids=1",
+    "5": "https://voyager6.net/?target=T%20CrB&labels=mag&names=on&fov=6",
+    "6": "https://voyager6.net/solar/?group=kreutz&comet-orbits=1&comets=1",
+    "7": "https://voyager6.net/variables/",
+    "8": "https://voyager6.net/planetarium/",
+}
+
+SHORTPATH_HTML = """<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url={esc}">
+<meta name="robots" content="noindex,nofollow">
+<link rel="canonical" href="{esc}">
+<script>location.replace({js});</script>
+<title>voyager6.net</title></head>
+<body style="background:#05070d;color:#c8d2e8;font-family:system-ui">
+<p style="padding:2em">移動しています… <a href="{esc}" style="color:#6ea8ff">開かない場合はこちら</a></p>
+</body></html>
+"""
+
+
+def write_shortpaths() -> None:
+    """/1 〜 /8 の静的リダイレクトを出す。
+
+    GitHub Pages はサーバ側のリダイレクトを書けないので、HTML で二段に受ける:
+    meta refresh (JS が無効でも動く) と location.replace (履歴に残らないので
+    「戻る」でリダイレクタに捕まらない)。"""
+    for num, target in SHORTPATHS.items():
+        out = DIST / num / "index.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # 属性値では & を実体参照にする。<script> の中は HTML の実体参照が
+        # 効かないので、そちらには生の URL を JSON 文字列として埋める。
+        out.write_text(
+            SHORTPATH_HTML.format(esc=target.replace("&", "&amp;"), js=json.dumps(target)),
+            encoding="utf-8")
+    print(f"  /1 〜 /{len(SHORTPATHS)} のショートパス ({len(SHORTPATHS)} 本, noindex)")
+
+
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
 
 
@@ -209,7 +258,8 @@ def main() -> int:
         if f.exists():
             shutil.copy2(f, DIST / name)
 
-    write_data_index()   # AI/機械可読なデータ索引 (/data/index.json)
+    write_data_index()    # AI/機械可読なデータ索引 (/data/index.json)
+    write_shortpaths()    # ハガキQRの番号ショートパス (/1 〜 /8)
 
     layout = (SRC / "layout.html").read_text(encoding="utf-8")
     origin = f"https://{DOMAIN}"
