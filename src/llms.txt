@@ -108,6 +108,10 @@ URLを組み立てて返す**ことを想定している(=このサイトの狙�
 - `comet` = 彗星の符号(例 `1P`, `C/1996 B2`) → その彗星をハイライト・追尾。
   有名彗星は通称でも指定できる(例 `Halley`, `Hyakutake`/`百武`, `Hale-Bopp`, `紫金山・アトラス`, `NEOWISE`)。
 - `ael` = 小惑星の軌道要素 `a,e,i,Ω,ω,M0,epoch`(カンマ区切り), `aname` = 表示名
+- `group` = 彗星の力学群で絞る。`all`(既定) / `kreutz`(クロイツ群) / `sungrazer`(太陽をかすめる群) /
+  `jfc`(木星族) / `halley`(ハレー型) / `lp`(長周期) / `hyp`(双曲線・恒星間)。
+  非該当の彗星は太陽の中に畳まれて消える。`comet-orbits=1` と併せると群の軌道線だけが残る
+- 例: クロイツ群だけを軌道線つきで → `https://voyager6.net/solar/?group=kreutz&comet-orbits=1`
 - 例: 2061年のハレー彗星 → `https://voyager6.net/solar/?date=2061-07-01&comet=1P`
 - 例(通称): 百武彗星の軌道 → `https://voyager6.net/solar/?date=1996-03-25&comet=Hyakutake`
 

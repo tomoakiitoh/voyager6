@@ -347,6 +347,11 @@ Promise.all([
   cometPoints.visible = el("solar-comets").checked;   // 読み込み前に URL/VR で切られている場合がある
   orbitingGroup.add(cometPoints);
   buildCometOrbits();
+  /* 作った直後に表示状態を当て直す。軌道線は visible=false で作られ、
+     更新は「トグルか群フィルタが変わったとき」しか走らない。ところが URL 由来の
+     指定 (?comet-orbits=1 や ?group=) は**彗星が読み込まれる前**に反映されるので、
+     ここで一度呼ばないと URL で来た人には線が出ない。 */
+  updateOrbitVis();
   update();
   selectFromUrl();   // 彗星カタログから ?comet=符号 で来たら選択・追尾
 }).catch(() => {});
@@ -1183,7 +1188,11 @@ showAsteroidFromUrl();  // ?ael= で小惑星を軌道つき表示 (彗星は fe
 bindUrlState([{ id: "solar-orbits" }, { id: "solar-comets" }, { id: "solar-comet-orbits" },
                { id: "solar-asteroids" }, { id: "solar-asteroids2" },
                { id: "solar-craft", key: "craftlayer" },
-               { id: "solar-corotate" }, { id: "solar-names" }]);
+               { id: "solar-corotate" }, { id: "solar-names" },
+               // 彗星の力学群フィルタ。チェックボックスでなく select だが、
+               // urlstate.js は value をそのまま読み書きするので同じ扱いでよい。
+               // key は明示する (id から自動で導くと "group" になるが、意図を残す)
+               { id: "comet-group", key: "group" }]);
 
 /* ---- VR内の操作パネル (VRプラネタリウム / 地球周回3D と共有部品) ----
    状態はパネルが持たず、画面下の入力を click() するだけ。?vrpanel=1 で
