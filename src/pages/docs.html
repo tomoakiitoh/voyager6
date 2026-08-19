@@ -70,7 +70,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><code>comet</code></td><td>符号／通称</td><td>その彗星をハイライト・軌道表示。周期彗星は番号＋P、それ以外は仮符号。有名彗星は通称でも可（<code>Halley</code>／<code>百武</code>／<code>紫金山・アトラス</code>）。</td><td><code>1P</code>／<code>Hyakutake</code></td></tr>
     <tr><td><code>ael</code></td><td>7値・カンマ区切り</td><td>小惑星の軌道要素 <code>a,e,i,Ω,ω,M0,epoch(JD)</code> を渡すと軌道を描く。</td><td><code>0.9224,0.1911,3.34,203.89,126.68,175.33,2461200.5</code></td></tr>
     <tr><td><code>aname</code></td><td>文字列</td><td><code>ael</code>で描いた天体の表示名</td><td><code>アポフィス</code></td></tr>
-    <tr><td><code>group</code></td><td>力学群</td><td>彗星をその群だけに絞る。<code>all</code>（既定）／<code>kreutz</code>（クロイツ群）／<code>sungrazer</code>（太陽をかすめる群）／<code>jfc</code>（木星族）／<code>halley</code>（ハレー型）／<code>lp</code>（長周期）／<code>hyp</code>（双曲線・恒星間）。<code>comet-orbits=1</code> と併せるとその群の軌道線だけが残ります。</td><td><code>kreutz</code></td></tr>
+    <tr><td><code>group</code></td><td>力学群</td><td>彗星をその群だけに絞る。<code>all</code>（既定）／<code>kreutz</code>（クロイツ群）／<code>sungrazer</code>（太陽をかすめる群）／<code>jfc</code>（木星族）／<code>halley</code>（ハレー型）／<code>lp</code>（長周期）／<code>hyp</code>（双曲線・恒星間）。<code>comet-orbits=1</code> と併せるとその群の軌道線だけが残ります。<code>kreutz</code>／<code>sungrazer</code> は近日点が太陽のすぐ際なので、カメラが自動で内惑星系まで寄ります。</td><td><code>kreutz</code></td></tr>
     <tr><td><code>focus</code></td><td>惑星の英名／探査機のキー</td><td>開いた瞬間その天体まで寄って追尾する。惑星に寄ると模様・自転・自転軸の傾き・土星の環が出る。</td><td><code>saturn</code>／<code>hayabusa2</code></td></tr>
     <tr><td><code>craft</code></td><td>キー</td><td>惑星探査機の飛行経路を描いて選択。レイヤは自動でオンになる。<b>現在日までが実線、その先は減光</b>。</td><td><code>voyager1</code></td></tr>
   </tbody>

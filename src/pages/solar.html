@@ -378,17 +378,37 @@ function selectFromUrl() {
 }
 
 /** 近日点が内惑星系に届く彗星の軌道線 (数が多いので q<8AU に絞る)。 */
+/* 放物線・双曲線の軌道線をどこまで伸ばすか [AU]。
+   基本は近日点距離に比例させる (小さい軌道は小さく描く) が、両端で頭打ちにする。
+   下限 = 描かれた太陽球 (半径0.28AU = 実物の約60倍) から抜けて見えるだけの長さ。
+   上限 = 海王星軌道の少し外。ここを超えると画面外なうえ線が増えて空が白く濁る。 */
+const ORBIT_R_MIN = 2, ORBIT_R_MAX = 35;
+const orbitReach = (q) => Math.min(ORBIT_R_MAX, Math.max(ORBIT_R_MIN, 33.2 * q));
 function buildCometOrbits() {
   for (const c of comets) {
     const q = c[2];
     if (q > 8) continue;
     const el = { e: c[1], q, i: c[3], node: c[4], peri: c[5], tp: c[6] };
     const pts = [];
-    // 楕円は一周、放物線/双曲線は近日点前後だけ描く
-    const span = el.e < 0.98 ? [0, 360] : [-160, 160];
-    for (let f = span[0]; f <= span[1]; f += 4) {
-      const h = orbitAtTrueAnomaly(el, f);
-      if (h) pts.push(toV(h));
+    if (el.e < 0.98) {                       // 楕円は一周描く
+      for (let f = 0; f <= 360; f += 4) {
+        const h = orbitAtTrueAnomaly(el, f);
+        if (h) pts.push(toV(h));
+      }
+    } else {
+      /* 放物線・双曲線は一周しないので、日心距離 orbitReach(q) まで描いて打ち切る。
+         以前は真近点角で ±160° と決め打ちしていたが、これは軌道の大きさに対して
+         盲目だった。同じ ±160° でも q=0.006AU のクロイツ群では線が 0.2AU までしか
+         伸びず **描かれた太陽球の中に完全に埋まって一本も見えず**、
+         逆に q=5AU の長周期彗星では 166AU まで伸びて画面外へ突き抜けていた。
+         放物線では r = q(1 + tan²(f/2)) なので、tan(f/2) を等間隔に刻むと
+         点が距離方向におおむね均等に並ぶ (近日点付近に固まらない)。 */
+      const U = Math.min(Math.sqrt(Math.max(0, orbitReach(q) / q - 1)), 200);
+      const N = 60;
+      for (let k = -N; k <= N; k++) {
+        const h = orbitAtTrueAnomaly(el, 2 * Math.atan(U * k / N) / DEG);
+        if (h) pts.push(toV(h));
+      }
     }
     if (pts.length < 2) continue;
     const g = classifyComet(c[1], c[2], c[3], c[5]);
@@ -655,8 +675,11 @@ el("solar-corotate").addEventListener("change", () => {
   update();
 });
 
-// 群フィルタ
-el("comet-group").addEventListener("change", () => { activeGroup = el("comet-group").value; updateOrbitVis(); update(); });
+// 群フィルタ。太陽際の群 (クロイツ等) は寄らないと何も見えないのでカメラも動かす
+el("comet-group").addEventListener("change", () => {
+  activeGroup = el("comet-group").value;
+  updateOrbitVis(); update(); zoomForGroup(activeGroup);
+});
 
 // 彗星名で検索して選択
 function searchComet() {
@@ -977,6 +1000,24 @@ function stopFollow() {
   flyT = FLY_SEC;
   el("follow-note").textContent = "";
   scheduleUrlWrite();
+}
+
+/* 太陽のすぐ際にしかいない群。値は「寄せたときの太陽からの距離 [AU]」。
+   クロイツ群は近日点が 0.004〜0.015 AU しかなく、軌道線も ORBIT_R_MIN (2AU) までしか
+   伸びない。既定の 40AU 俯瞰では画面の 1/20 に収まってしまい、
+   「選んだのに何も出ない」ように見える。視野50°で 2AU の扇が画面いっぱいになる距離。 */
+const NEAR_SUN_ZOOM = { kreutz: 5, sungrazer: 5 };
+
+/** 太陽際の群を選んだとき、遠すぎるカメラだけ内惑星系まで寄せる。 */
+function zoomForGroup(g) {
+  const want = NEAR_SUN_ZOOM[g];
+  if (!want || follow || renderer.xr.isPresenting || cineMode) return;
+  const dir = camera.position.clone().sub(controls.target);
+  // すでに十分近ければ触らない。自分で作った視点を奪わないため
+  if (dir.length() <= want * 2.5) return;
+  flyFromT.copy(controls.target); flyFromC.copy(camera.position);
+  flyToC.copy(dir.normalize().multiplyScalar(want));   // 向きは保ったまま太陽(原点)へ
+  flyT = FLY_SEC;
 }
 
 /** 毎フレーム: 寄っていく途中のイージングと、追尾中の貼り付き。 */
