@@ -10,6 +10,7 @@ bodyclass: solar-page
   <div class="row">
     <span id="solar-date" class="info"></span>
     <span class="grow"></span>
+    <button id="solar-more-btn" aria-expanded="true" aria-controls="solar-more">設定</button>
     <button id="solar-vr" hidden>VRで見る</button>
     <button id="solar-now" class="primary">今</button>
   </div>
@@ -24,6 +25,14 @@ bodyclass: solar-page
       <option value="120">120日/秒</option>
       <option value="600">600日/秒</option>
     </select>
+  </div>
+
+  <!-- ここから下は「設定」で畳める。狭い画面では既定で閉じている:
+       393px 幅ではパネルだけで 509px あり、iPhone だと肝心の3Dが80pxしか
+       残らなかった。日付・時間送りだけを残せば3Dに450px以上を返せる。
+       畳んでも中身は DOM にあるので、URL パラメータも VR パネルもそのまま効く。 -->
+  <div id="solar-more">
+  <div class="row">
     <label class="info">彗星群
       <select id="comet-group">
         <option value="all">すべて</option>
@@ -54,6 +63,10 @@ bodyclass: solar-page
 </span></div>
   <div class="row"><span class="info">天体（惑星・探査機・彗星）を<b>ダブルクリック</b>すると乗り移って一緒に動き、<b>寄ると惑星の模様・自転・自転軸の傾き・土星の環</b>が出ます（何もない所をダブルクリック、または Esc で戻ります）。試すなら:
     <a href="?focus=saturn">土星の環</a>・<a href="?focus=jupiter">木星の縞</a>・<a href="?focus=uranus">横倒しの天王星</a>・<a href="?focus=earth">地球</a>。</span></div>
+  </div><!-- /#solar-more -->
+
+  <!-- 押した天体の情報と探査機の出来事は畳まない。畳んだ中の操作の「返事」なので、
+       返事が見えないと何が起きたか分からなくなる。空のときは高さ0。 -->
   <div class="row"><span id="solar-pick" class="info"></span>
     <span id="follow-note" class="info"></span></div>
   <div class="row"><span id="craft-events" class="info"></span></div>
@@ -674,6 +687,22 @@ el("solar-corotate").addEventListener("change", () => {
   coRotating = el("solar-corotate").checked;
   update();
 });
+
+/* 操作パネルの折りたたみ。
+   開閉は「空の状態」ではなく手元の見え方なので、URL には載せない (urlstate.js の方針)。
+   初期状態は CSS のメディアクエリが決める。ここでは**それを読み取って記録するだけ**なので、
+   読み込み直後に一瞬開いてから閉じる、というちらつきが出ない。
+   3Dの描画サイズは tick() の resize() が毎フレーム canvas の実寸を見て追随するので、
+   ここで明示的に呼ぶ必要はない。 */
+{
+  const panel = el("solar-panel"), more = el("solar-more"), btn = el("solar-more-btn");
+  const sync = (open) => {
+    panel.dataset.open = open ? "1" : "0";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  sync(getComputedStyle(more).display !== "none");
+  btn.addEventListener("click", () => sync(panel.dataset.open !== "1"));
+}
 
 // 群フィルタ。太陽際の群 (クロイツ等) は寄らないと何も見えないのでカメラも動かす
 el("comet-group").addEventListener("change", () => {

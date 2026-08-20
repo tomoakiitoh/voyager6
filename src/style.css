@@ -116,6 +116,21 @@ body { display: flex; flex-direction: column; min-height: 100%; }
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   font-size: 13px;
 }
+/* 太陽系3D の操作パネルの折りたたみ。
+   既定は開いている (デスクトップは今までどおり)。**画面が狭い／低いときだけ**
+   閉じた状態で始める — 393px 幅ではパネルだけで 509px あり、iPhone では
+   3D が 80px しか残らなかった。閉じれば 450px 以上を3Dに返せる。
+
+   既定値をメディアクエリで決め、ユーザーが「設定」を押したときだけ
+   JS が data-open を立てて上書きする。こうすると読み込み直後に
+   一瞬開いてから閉じる、というちらつきが出ない。 */
+@media (max-width: 700px), (max-height: 620px) {
+  #solar-panel:not([data-open]) #solar-more { display: none; }
+}
+#solar-panel[data-open="0"] #solar-more { display: none; }
+#solar-more-btn::after { content: " ▾"; }
+#solar-panel[data-open="1"] #solar-more-btn::after { content: " ▴"; }
+
 #panel {
   flex: 0 0 auto;
   background: var(--panel);
