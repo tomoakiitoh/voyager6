@@ -6,14 +6,27 @@ bodyclass: solar-page
 -->
 <div id="solar-wrap"><canvas id="solar-canvas"></canvas></div>
 
+<!-- 埋め込み時だけ出るクレジットバッジ (早見盤と同じ仕掛け)。埋め込んだ人が何もしなくても
+     CC BY-SA の帰属を満たす。押すと同じ視点の本体が開くので、帰属・送客・被リンクを兼ねる。 -->
+<a id="embed-badge" href="./" target="_blank" rel="noopener">voyager6.net</a>
+
 <div id="solar-panel">
-  <div class="row">
+  <!-- 常時見えるのはこの1行だけ。スマホでは以下がドロワーに畳まれ、軌道が主役になる。
+       (早見盤 #toolbar / #panel-body と同じ作り) -->
+  <div class="row" id="solar-toolbar">
     <span id="solar-date" class="info"></span>
     <span class="grow"></span>
-    <button id="solar-more-btn" aria-expanded="true" aria-controls="solar-more">設定</button>
+    <button id="solar-share" title="この画面へのリンクを共有・コピー">🔗 リンク</button>
     <button id="solar-vr" hidden>VRで見る</button>
     <button id="solar-now" class="primary">今</button>
+    <button id="solar-more-btn" aria-expanded="false" aria-controls="solar-more"
+            title="操作パネルを開閉">操作 ▲</button>
   </div>
+
+  <!-- スマホ・タブレットでは既定で畳む。開くときは 3D の「上に重ねて」出すので、
+       開閉しても canvas はリサイズされない (視点が飛ばない)。
+       畳んでも DOM からは消えないので、URL パラメータも VR パネルの click() もそのまま効く。 -->
+  <div id="solar-more">
   <div class="row">
     <input type="range" id="solar-time" min="-18262" max="18262" step="1" value="0">
   </div>
@@ -26,12 +39,6 @@ bodyclass: solar-page
       <option value="600">600日/秒</option>
     </select>
   </div>
-
-  <!-- ここから下は「設定」で畳める。狭い画面では既定で閉じている:
-       393px 幅ではパネルだけで 509px あり、iPhone だと肝心の3Dが80pxしか
-       残らなかった。日付・時間送りだけを残せば3Dに450px以上を返せる。
-       畳んでも中身は DOM にあるので、URL パラメータも VR パネルもそのまま効く。 -->
-  <div id="solar-more">
   <div class="row">
     <label class="info">彗星群
       <select id="comet-group">
@@ -63,6 +70,15 @@ bodyclass: solar-page
 </span></div>
   <div class="row"><span class="info">天体（惑星・探査機・彗星）を<b>ダブルクリック</b>すると乗り移って一緒に動き、<b>寄ると惑星の模様・自転・自転軸の傾き・土星の環</b>が出ます（何もない所をダブルクリック、または Esc で戻ります）。試すなら:
     <a href="?focus=saturn">土星の環</a>・<a href="?focus=jupiter">木星の縞</a>・<a href="?focus=uranus">横倒しの天王星</a>・<a href="?focus=earth">地球</a>。</span></div>
+
+  <!-- 畳むと共通フッタも隠れる画面幅があるので、出典への導線をドロワー内にも残す
+       (CC BY-SA の帰属を1タップ以内に保つ。早見盤の #sheet-credits と同じ扱い)。 -->
+  <p id="solar-credits">
+    軌道要素 <a href="https://minorplanetcenter.net/">Minor Planet Center</a> /
+    <a href="https://ssd.jpl.nasa.gov/">JPL Small-Body Database</a>
+    — <a href="../credits/">出典とライセンス</a>
+    — <a href="https://blog.voyager6.net/">ブログ</a>
+  </p>
   </div><!-- /#solar-more -->
 
   <!-- 押した天体の情報と探査機の出来事は畳まない。畳んだ中の操作の「返事」なので、
@@ -91,6 +107,23 @@ const J0 = julianDay(2000, 1, 1, 12); // 基準 (スライダー 0 = J2000)
 
 // 黄道直交 (x,y,z) → three.js (黄道面を水平・北黄極を上に)
 const toV = (h) => new THREE.Vector3(h.x, h.z, -h.y);
+
+/* ---- 埋め込みモード (早見盤と同じ仕様。Google Maps の「地図を埋め込む」に相当) ----
+   ?embed=1       … 最小クローム (太陽系だけ。ヘッダ・メニュー・操作パネルを出さない)
+   ?interactive=0 … 表示専用。指の操作を奪わない (埋め込み先のスクロール事故を防ぐ)
+   日付・彗星・探査機・focus などは既存パラメータをそのまま受ける。埋め込み専用の
+   別ページを作らないのは、住所系の一貫性 (同じ URL 仕様が埋め込みにも効く) が本体だから。
+   ?theme=white は早見盤だけの仕様。ここは軌道線も星も明るい色で描いており、
+   白地にすると軒並み見えなくなるので受けない。 */
+const embedBadge = document.getElementById("embed-badge");
+const EMBED = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get("embed") !== "1") return null;
+  const cfg = { interactive: q.get("interactive") !== "0" };
+  document.body.classList.add("embed");
+  if (!cfg.interactive) document.body.classList.add("embed-static");
+  return cfg;
+})();
 
 // ---- シーン ----
 const canvas = document.getElementById("solar-canvas");
@@ -609,6 +642,13 @@ function writeSolarUrl() {
   if (selCraft >= 0 && craftItems[selCraft]) p.set("craft", craftItems[selCraft].c.key);
   else p.delete("craft");
   if (follow && follow.urlKey) p.set("focus", follow.urlKey); else p.delete("focus");
+  if (EMBED) {
+    // 埋め込み中は他人のページの中なので履歴をいじらない。代わりにバッジの行き先を
+    // 「いま映っている太陽系」に追随させる (押すと本体で同じ画面が開く)。
+    p.delete("embed"); p.delete("interactive");
+    embedBadge.href = location.origin + location.pathname + "?" + p.toString();
+    return;
+  }
   history.replaceState(null, "", location.pathname + "?" + p.toString());
 }
 
@@ -688,20 +728,72 @@ el("solar-corotate").addEventListener("change", () => {
   update();
 });
 
-/* 操作パネルの折りたたみ。
-   開閉は「空の状態」ではなく手元の見え方なので、URL には載せない (urlstate.js の方針)。
-   初期状態は CSS のメディアクエリが決める。ここでは**それを読み取って記録するだけ**なので、
-   読み込み直後に一瞬開いてから閉じる、というちらつきが出ない。
-   3Dの描画サイズは tick() の resize() が毎フレーム canvas の実寸を見て追随するので、
-   ここで明示的に呼ぶ必要はない。 */
+/* 操作パネル (ドロワー) の開閉。
+   ?panel= は三状態: 未指定 = 画面まかせ / 1 = 開いた状態で始める /
+   0 = パネルごと出さない。0 のブックマークを作れば、プロジェクタや Quest で
+   クローム無しの画面がそのまま開く。
+
+   既定値はメディアクエリが決める。ここでは**それを読み取って data-open に写すだけ**
+   なので、読み込み直後に一瞬開いてから畳まれるちらつきが出ない。
+   ドロワーは 3D の上に重ねて開くので canvas の大きさは変わらず、開閉で視点が飛ばない。 */
 {
-  const panel = el("solar-panel"), more = el("solar-more"), btn = el("solar-more-btn");
+  const panel = el("solar-panel"), btn = el("solar-more-btn");
+  const want = new URLSearchParams(location.search).get("panel");
+  if (want === "0") document.body.classList.add("panel-off");
   const sync = (open) => {
     panel.dataset.open = open ? "1" : "0";
     btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.textContent = open ? "操作 ▼" : "操作 ▲";
   };
-  sync(getComputedStyle(more).display !== "none");
+  // メディアクエリの判定は、data-open がまだ無い状態の #solar-more の見え方で読む
+  sync(want === "1" || getComputedStyle(el("solar-more")).display !== "none");
   btn.addEventListener("click", () => sync(panel.dataset.open !== "1"));
+}
+
+/* 「この画面へのリンク」。URL は replaceState で常に同期しているので、
+   実装の本体は「いまの location.href を渡す」だけ。ただし自由カメラの角度・距離は
+   URL に載っていないので、押した瞬間だけ cam= を書き足す (常時書き込みは URL が踊る)。 */
+el("solar-share").addEventListener("click", async () => {
+  writeCamToUrl();
+  const url = location.href;
+  const done = (msg) => {
+    const note = el("follow-note");
+    const prev = note.textContent;
+    note.textContent = msg;
+    setTimeout(() => { if (note.textContent === msg) note.textContent = prev; }, 2400);
+  };
+  if (navigator.share) {
+    try { await navigator.share({ title: document.title, url }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }   // 共有シートを閉じただけ
+  }
+  try { await navigator.clipboard.writeText(url); done("🔗 リンクをコピーしました"); }
+  catch (e) { done("🔗 このページのURLがリンクです（アドレス欄をコピーしてください）"); }
+});
+
+/* カメラの向きと距離を URL に書き足す / 復元する。
+   cam=方位,仰角,距離 (度・度・AU)。追尾中は焦点からの相対、そうでなければ太陽から。
+   丸めるのは「同じ角度」を人が見て分かる長さに保つため (小数を全部載せても意味がない)。 */
+function writeCamToUrl() {
+  const d = camera.position.clone().sub(controls.target);
+  const r = d.length();
+  if (!(r > 0)) return;
+  const az = Math.atan2(d.x, d.z) / DEG;               // three.js の +Z を 0° とする方位
+  const alt = Math.asin(Math.min(1, Math.max(-1, d.y / r))) / DEG;
+  const p = new URLSearchParams(location.search);
+  p.set("cam", `${az.toFixed(1)},${alt.toFixed(1)},${r.toPrecision(3)}`);
+  history.replaceState(null, "", location.pathname + "?" + p);
+}
+function applyCamFromUrl() {
+  const v = new URLSearchParams(location.search).get("cam");
+  if (!v) return;
+  const [az, alt, r] = v.split(",").map(Number);
+  if (![az, alt, r].every(Number.isFinite) || !(r > 0)) return;
+  const ca = Math.cos(alt * DEG);
+  camera.position.set(
+    controls.target.x + r * ca * Math.sin(az * DEG),
+    controls.target.y + r * Math.sin(alt * DEG),
+    controls.target.z + r * ca * Math.cos(az * DEG));
+  controls.update();
 }
 
 // 群フィルタ。太陽際の群 (クロイツ等) は寄らないと何も見えないのでカメラも動かす
@@ -1263,6 +1355,13 @@ bindUrlState([{ id: "solar-orbits" }, { id: "solar-comets" }, { id: "solar-comet
                // urlstate.js は value をそのまま読み書きするので同じ扱いでよい。
                // key は明示する (id から自動で導くと "group" になるが、意図を残す)
                { id: "comet-group", key: "group" }]);
+/* panel= は bindUrlState に載せない。あれは真偽値しか運べないが、こちらは
+   「未指定 = 画面まかせ」「1 = 開く」「0 = パネルごと消す」の三状態が要る。
+   載せると、スマホで畳まれているだけの既定状態が毎回 panel=0 として書き出され、
+   共有した URL がどれもクローム無しの画面になってしまう。 */
+
+// 自由カメラの角度・距離。?cam= があればここで復元する (書き込みは共有ボタンのときだけ)
+applyCamFromUrl();
 
 /* ---- VR内の操作パネル (VRプラネタリウム / 地球周回3D と共有部品) ----
    状態はパネルが持たず、画面下の入力を click() するだけ。?vrpanel=1 で

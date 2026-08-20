@@ -50,6 +50,17 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><code>maglim</code></td><td>等級</td><td>等級ラベルを付ける暗い側の限界（比較星の範囲の切り替え）。星表は V≤10 まで</td><td><code>10</code></td></tr>
   </tbody>
 </table>
+
+<h3>画面の出し方（早見盤・太陽系3D 共通）</h3>
+<table>
+  <thead><tr><th>パラメータ</th><th>値</th><th>意味</th><th>例</th></tr></thead>
+  <tbody>
+    <tr><td><code>panel</code></td><td><code>0</code>／<code>1</code></td><td>操作パネル。<code>0</code>＝出さない（プロジェクタ・VR用のクリーンな画面）、<code>1</code>＝開いた状態で始める。<b>省略すると画面の広さまかせ</b>——スマホでは畳み、デスクトップでは開きます。</td><td><code>0</code></td></tr>
+    <tr><td><code>embed</code></td><td><code>1</code></td><td>埋め込みモード。ヘッダ・メニュー・操作パネルを出さず、右下に小さなクレジットバッジだけを出す。詳しくは <a href="/embed/">Webページに埋め込む</a>。</td><td><code>1</code></td></tr>
+    <tr><td><code>interactive</code></td><td><code>0</code></td><td>表示専用。指やホイールの操作を受け付けない（埋め込み先のスクロールを邪魔しない）。</td><td><code>0</code></td></tr>
+    <tr><td><code>theme</code></td><td><code>white</code></td><td>白地。明るい紙面のブログ・印刷向け。<b>早見盤のみ</b>（太陽系3Dは軌道線も星も明るい色なので白地では見えません）。</td><td><code>white</code></td></tr>
+  </tbody>
+</table>
 <p class="dim">観測星図モード（<code>target</code>）は変光星・彗星の光度観測むけの印刷チャートを作ります。
 星の等級はカタログ値（チャート用の目安）です。変光星の正式な測光・報告には
 <a href="https://www.aavso.org/vsp">AAVSO VSP</a> の較正済み比較星シーケンスをご使用ください。</p>
@@ -73,6 +84,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><code>group</code></td><td>力学群</td><td>彗星をその群だけに絞る。<code>all</code>（既定）／<code>kreutz</code>（クロイツ群）／<code>sungrazer</code>（太陽をかすめる群）／<code>jfc</code>（木星族）／<code>halley</code>（ハレー型）／<code>lp</code>（長周期）／<code>hyp</code>（双曲線・恒星間）。<code>comet-orbits=1</code> と併せるとその群の軌道線だけが残ります。<code>kreutz</code>／<code>sungrazer</code> は近日点が太陽のすぐ際なので、カメラが自動で内惑星系まで寄ります。</td><td><code>kreutz</code></td></tr>
     <tr><td><code>focus</code></td><td>惑星の英名／探査機のキー</td><td>開いた瞬間その天体まで寄って追尾する。惑星に寄ると模様・自転・自転軸の傾き・土星の環が出る。</td><td><code>saturn</code>／<code>hayabusa2</code></td></tr>
     <tr><td><code>craft</code></td><td>キー</td><td>惑星探査機の飛行経路を描いて選択。レイヤは自動でオンになる。<b>現在日までが実線、その先は減光</b>。</td><td><code>voyager1</code></td></tr>
+    <tr><td><code>cam</code></td><td>方位,仰角,距離</td><td>自由カメラの位置（度・度・AU）。<b>「この画面へのリンク」を押したときだけ書き込まれます</b>（動かすたびに書くとURLが落ち着かないため）。追尾中は追尾天体からの相対。</td><td><code>90,10,5</code></td></tr>
   </tbody>
 </table>
 <p>
@@ -141,6 +153,15 @@ AIアシスタントは、これらのパラメータでシミュレーション
 位置計算は JPL Horizons と突き合わせて検証済み（惑星 &lt;0.5°、明るい彗星・小惑星は秒角一致）。
 ライセンス・出典の詳細は <a href="/credits/">出典とライセンス</a>。
 </p>
+
+<h2>関連</h2>
+<ul class="examples">
+  <li><a href="/embed/">Webページに埋め込む</a> —
+    ここで作った URL を、そのまま <code>&lt;iframe&gt;</code> で自分のページに貼れます。
+    Google マップを記事に貼るのと同じ要領で、コピーして使える実例つき。</li>
+  <li><a href="/data/index.json">機械可読なデータ索引</a> — 配信している JSON の目録（CORS 対応）。</li>
+  <li><a href="https://blog.voyager6.net/">ブログ</a> — 使い方の記事と観測トピック。</li>
+</ul>
 
 </main>
 

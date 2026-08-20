@@ -68,6 +68,33 @@ unlisted: true
   style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
   title="1996年3月25日 百武彗星の空 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
 
+<h2>太陽系のほうも貼れます</h2>
+<p class="dim">
+  同じ書き方で <a href="/solar/">太陽系3D</a> も埋め込めます。惑星・彗星・小惑星の軌道と、
+  各国の惑星探査機25機の飛行経路。<b>読者は指で回して、時間を動かせます</b>。
+</p>
+<div class="demo">
+  <iframe src="../solar/?embed=1&amp;craft=voyager1&amp;craftlayer=1"
+          style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+          title="ボイジャー1号の飛行経路 — voyager6.net"></iframe>
+</div>
+
+<h3>探査機の飛行経路（ボイジャー1号）</h3>
+<div class="pbox"><code class="ptext">&lt;iframe src="https://voyager6.net/solar/?embed=1&amp;craft=voyager1&amp;craftlayer=1"
+  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+  title="ボイジャー1号の飛行経路 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
+
+<h3>ある彗星の軌道（ハレー彗星・2061年の回帰）</h3>
+<div class="pbox"><code class="ptext">&lt;iframe src="https://voyager6.net/solar/?embed=1&amp;date=2061-07-01&amp;comet=1P"
+  style="width:100%;aspect-ratio:4/3;border:0" loading="lazy"
+  title="2061年のハレー彗星 — voyager6.net"&gt;&lt;/iframe&gt;</code><button class="copybtn" type="button">コピー</button></div>
+
+<p class="dim">
+  太陽系3D では <code>theme=white</code> は効きません（軌道線も星も明るい色で描いているので、
+  白地にすると見えなくなるためです）。角度を指定して貼りたいときは、本体で見たい向きにしてから
+  <b>「🔗 リンク」</b>を押すと、その角度が <code>cam=</code> として URL に入ります。
+</p>
+
 <h2>AI に作らせる</h2>
 <p>
   URL の仕様を覚える必要はありません。AI にこう頼めば、埋め込みコードが返ってきます。
@@ -80,13 +107,20 @@ unlisted: true
   <tr><th>パラメータ</th><th>意味</th></tr>
   <tr><td><code>embed=1</code></td><td>埋め込みモード。ヘッダ・メニュー・操作パネルを出さず、空だけを表示します（必須）</td></tr>
   <tr><td><code>interactive=0</code></td><td>表示専用。ドラッグやピンチを受け付けません（既定は操作できる <code>1</code>）</td></tr>
-  <tr><td><code>theme=white</code></td><td>白地。明るいページに馴染ませたいときに（既定は夜空の暗い背景）</td></tr>
+  <tr><td><code>theme=white</code></td><td>白地。明るいページに馴染ませたいときに（既定は夜空の暗い背景）。<b>早見盤のみ</b></td></tr>
 </table>
 <p class="dim">
   日時 <code>t</code>・観測地 <code>lat</code>/<code>lon</code>・視野 <code>fov</code>・
   目標天体 <code>target</code>・彗星 <code>comet</code> など、
   <b>ほかのパラメータは通常の星図とまったく同じ</b>です。
   一覧は <a href="/docs/">URLパラメータ仕様</a> にあります。
+</p>
+
+<!-- TODO: 記事公開後、下の URL を実際の記事のパーマリンクに差し替える (相互参照の完成)。
+     いまはブログのトップに着地する。 -->
+<p class="dim">
+  <b>実際にブログに貼った例 → <a href="https://blog.voyager6.net/">blog.voyager6.net</a></b>
+  （記事「ブログに星空を貼る」。上の実例をそのまま貼ったものが動いています）
 </p>
 
 <h2>ご利用にあたって</h2>

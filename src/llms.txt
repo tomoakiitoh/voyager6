@@ -27,6 +27,8 @@
 - [AIに聞いてみる / Ask an AI](https://voyager6.net/ask/): URL を覚えなくても、AIにこう頼めば観測星図や星空のリンクが返る、コピペ用の文例集。
 - [URLパラメータ仕様 / URL parameter spec](https://voyager6.net/docs/): ディープリンクの全パラメータと動く例。
 - [出典とライセンス / Credits & license](https://voyager6.net/credits/)
+- [ブログ / Blog](https://blog.voyager6.net/): 使い方の記事と観測トピック。本体とは別ドメイン(WordPress)で、
+  データAPIは持たない。埋め込みの実例記事もここにある。
 
 ## Deep links (URL parameters)
 
@@ -116,6 +118,17 @@ URLを組み立てて返す**ことを想定している(=このサイトの狙�
 - 例: クロイツ群だけを軌道線つきで → `https://voyager6.net/solar/?group=kreutz&comet-orbits=1`
 - 例: 2061年のハレー彗星 → `https://voyager6.net/solar/?date=2061-07-01&comet=1P`
 - 例(通称): 百武彗星の軌道 → `https://voyager6.net/solar/?date=1996-03-25&comet=Hyakutake`
+- `cam` = 自由カメラの `方位,仰角,距離` (度・度・AU)。追尾中は追尾天体からの相対。
+  **書き込まれるのは「この画面へのリンク」を押したときだけ**(動かすたびに書くとURLが落ち着かない)
+
+### 画面の出し方 (早見盤・太陽系3D 共通)
+- `panel` = 操作パネル。`0`=出さない (プロジェクタ・VR用のクリーンな画面) / `1`=開いた状態で始める。
+  **省略すると画面の広さまかせ** (スマホは畳み、デスクトップは開く)
+- `embed=1` = 埋め込みモード。ヘッダ・メニュー・操作パネルを出さず、右下にクレジットバッジだけ出す。
+  他人のページに `<iframe>` で貼るための形。詳細と実例 → https://voyager6.net/embed/
+- `interactive=0` = 表示専用 (指やホイールの操作を受け付けない。埋め込み先のスクロールを邪魔しない)
+- `theme=white` = 白地。**早見盤のみ** (太陽系3Dは軌道線も星も明るい色なので白地では見えない)
+- 例: ブログに貼る太陽系 → `https://voyager6.net/solar/?embed=1&craft=voyager1&craftlayer=1`
 
 ### 太陽系3D の探査機レイヤ — `https://voyager6.net/solar/?craft=<キー>`
 - `craft` = 探査機のキー → 軌跡を描いて選択・追尾。レイヤは自動でオンになる

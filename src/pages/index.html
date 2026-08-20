@@ -34,6 +34,7 @@ bodyclass: sky-page
     <span id="clock" class="info"></span>
     <span class="grow"></span>
     <button id="zoom-reset" hidden title="全天図に戻す">⤢ 全天</button>
+    <button id="share" title="この画面へのリンクを共有・コピー">🔗 リンク</button>
     <button id="now" class="primary">今の空</button>
     <button id="sheet-toggle" aria-expanded="false" aria-controls="panel-body"
             title="操作パネルを開閉">操作 ▲</button>
@@ -210,6 +211,7 @@ bodyclass: sky-page
     星表 <a href="https://github.com/astronexus/HYG-Database">HYG Database</a> (CC BY-SA 2.5) /
     星座線・天の川 <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (BSD-3-Clause)
     — <a href="credits/">出典とライセンス</a>
+    — <a href="https://blog.voyager6.net/">ブログ</a>
   </p>
   </div><!-- /#panel-body -->
 </div>
@@ -3162,6 +3164,26 @@ el("btn-embed").addEventListener("click", async () => {
   setTimeout(() => { note.textContent = ""; }, 2600);
 });
 
+/* ---- 「この画面へのリンク」 ----
+   URL は replaceState で常に「いま見えている空」に同期しているので、
+   やることは location.href を渡すだけ。Google マップの「共有」に相当し、
+   「見ている状態がそのまま住所」というこのサイトの作りを UI として見せる一手でもある。 */
+el("share").addEventListener("click", async () => {
+  writeUrl();                       // 保留中の書き戻しがあれば先に確定させる
+  const url = location.href;
+  if (navigator.share) {
+    try { await navigator.share({ title: document.title, url }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }   // 共有シートを閉じただけ
+  }
+  const btn = el("share"), prev = btn.textContent;
+  const flash = (msg) => {
+    btn.textContent = msg;
+    setTimeout(() => { btn.textContent = prev; }, 2000);
+  };
+  try { await navigator.clipboard.writeText(url); flash("コピーしました"); }
+  catch (e) { flash("アドレス欄をコピー"); }
+});
+
 /* ---- 操作シートの開閉 (UI整理 F1) ----
    シートは盤面に重なるだけで #panel の高さを変えないので、開閉で resize() は起きない。 */
 const sheetBtn = el("sheet-toggle");
@@ -3173,6 +3195,16 @@ function setSheet(open) {
 sheetBtn.addEventListener("click", () => {
   setSheet(!document.body.classList.contains("sheet-open"));
 });
+/* ?panel= は三状態: 未指定 = 画面幅まかせ / 1 = シートを開いた状態で始める /
+   0 = 操作パネルごと出さない。0 のブックマークを作れば、プロジェクタや Quest で
+   クローム無しの画面がそのまま開く (デモ用途)。
+   自動では書き出さない。畳まれているのが既定の画面幅では、共有した URL が
+   どれも panel=0 になってクローム無しの画面を配ることになってしまう。 */
+{
+  const v = new URLSearchParams(location.search).get("panel");
+  if (v === "0") document.body.classList.add("panel-off");
+  else if (v === "1") setSheet(true);
+}
 // シートが開いている間に空を触ったら畳む (空が主役。天体の選択はそのまま通す)
 el("sky-wrap").addEventListener("pointerdown", () => {
   if (document.body.classList.contains("sheet-open")) setSheet(false);

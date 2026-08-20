@@ -116,20 +116,65 @@ body { display: flex; flex-direction: column; min-height: 100%; }
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   font-size: 13px;
 }
-/* 太陽系3D の操作パネルの折りたたみ。
-   既定は開いている (デスクトップは今までどおり)。**画面が狭い／低いときだけ**
-   閉じた状態で始める — 393px 幅ではパネルだけで 509px あり、iPhone では
-   3D が 80px しか残らなかった。閉じれば 450px 以上を3Dに返せる。
+/* 太陽系3D の操作パネル。既定 (広いデスクトップ) は開きっぱなしで、
+   狭い／低い画面では**軌道の上に重ねて開くドロワー**になる。
+   早見盤の #toolbar / #panel-body とまったく同じ考え方:
+   重ねて開くので canvas はリサイズされず、開閉のたびに視点が飛ばない。
 
-   既定値をメディアクエリで決め、ユーザーが「設定」を押したときだけ
-   JS が data-open を立てて上書きする。こうすると読み込み直後に
-   一瞬開いてから閉じる、というちらつきが出ない。 */
-@media (max-width: 700px), (max-height: 620px) {
-  #solar-panel:not([data-open]) #solar-more { display: none; }
-}
+   実測 (幅393px): パネルを全部開くと 543px あり、iPhone では 3D に 40px しか
+   残らなかった。ツールバー1本だけなら 3D に 550px 以上を渡せる。 */
+#solar-more-btn, #solar-credits { display: none; }
 #solar-panel[data-open="0"] #solar-more { display: none; }
-#solar-more-btn::after { content: " ▾"; }
-#solar-panel[data-open="1"] #solar-more-btn::after { content: " ▴"; }
+/* ?panel=0 は画面幅によらず操作パネルごと消す (プロジェクタ・Quest 用のクリーンな画面)。
+   帰属表示は共通フッタに残る — パネルを消しても出典への導線は絶やさない。 */
+body.panel-off #panel,
+body.panel-off #solar-panel { display: none; }
+
+@media (max-width: 700px), (max-height: 620px) {
+  #solar-more-btn { display: inline-block; }
+  #solar-panel { position: relative; }
+  #solar-toolbar {
+    /* 折り返すと3Dの高さが変わるので、はみ出す分は横スクロールで逃がす */
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 0;
+  }
+  #solar-toolbar::-webkit-scrollbar { display: none; }
+  #solar-toolbar > * { flex: 0 0 auto; }
+  #solar-date { flex: 1 1 auto; min-width: 0; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+  /* 「操作」は最後の砦。何が並んでも右端に貼り付いて必ず親指で押せる位置に残す */
+  #solar-more-btn {
+    position: sticky; right: 0; z-index: 1;
+    box-shadow: -8px 0 10px -4px var(--panel);
+  }
+  #solar-more {
+    display: none;
+    position: absolute; left: 0; right: 0; bottom: 100%;
+    max-height: 68vh; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 8px;
+    box-shadow: 0 -14px 28px rgba(0, 0, 0, 0.55);
+  }
+  #solar-panel[data-open="1"] #solar-more { display: block; }
+  /* 共通フッタは畳む。帰属表示はドロワー内の #solar-credits に残す */
+  .solar-page #site-footer { display: none; }
+  #solar-credits {
+    display: block; margin: 12px 0 0;
+    color: var(--dim); font-size: 10px; line-height: 1.7;
+  }
+  #solar-credits a { color: var(--dim); }
+}
+
+/* 横位置のスマホは下から出すと画面がほぼ埋まる。右から出す (縦=下、横=右)。 */
+@media (orientation: landscape) and (max-height: 500px) {
+  #solar-more {
+    position: fixed; top: 0; right: 0; bottom: 0; left: auto;
+    width: min(380px, 80vw); max-height: none;
+    border-top: 0; border-left: 1px solid var(--line);
+    box-shadow: -14px 0 28px rgba(0, 0, 0, 0.55);
+    padding: 10px calc(10px + env(safe-area-inset-right))
+             calc(10px + env(safe-area-inset-bottom)) 10px;
+  }
+}
 
 #panel {
   flex: 0 0 auto;
@@ -238,7 +283,8 @@ body.night { filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(5) bright
 body.embed { background: #05070d; }
 body.embed #site-header,
 body.embed #site-footer,
-body.embed #panel { display: none; }
+body.embed #panel,
+body.embed #solar-panel { display: none; }
 body.embed #sky-wrap { padding: 0; }
 body.embed #embed-badge {
   display: block; position: fixed; right: 8px; bottom: 8px; z-index: 20;
@@ -247,8 +293,10 @@ body.embed #embed-badge {
   font-size: 11px; letter-spacing: 0.03em; border: 1px solid rgba(120, 160, 220, 0.35);
 }
 body.embed #embed-badge:hover { color: #fff; border-color: var(--accent); }
-/* 表示専用: 指の操作を奪わない (埋め込み先のページスクロールが引っかからないように) */
-body.embed-static #sky { pointer-events: none; touch-action: auto; }
+/* 表示専用: 指の操作を奪わない (埋め込み先のページスクロールが引っかからないように)。
+   太陽系3Dは canvas 側で touch-action:none にしているので、ここで上書きする。 */
+body.embed-static #sky,
+body.embed-static #solar-canvas { pointer-events: none; touch-action: auto; }
 /* 白地テーマ (明るい紙面のブログ向け) */
 body.embed-white { background: #fff; }
 body.embed-white #embed-badge {
