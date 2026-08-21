@@ -139,6 +139,10 @@ body.panel-off #solar-panel { display: none; }
   }
   #solar-toolbar::-webkit-scrollbar { display: none; }
   #solar-toolbar > * { flex: 0 0 auto; }
+  /* 常時出る時間スライダーは細く。ツマミは指で掴める大きさを保つ */
+  #solar-toolbar { margin-bottom: 6px; }
+  #solar-timebar { margin-bottom: 0; }
+  #solar-timebar input[type="range"] { height: 22px; }
   #solar-date { flex: 1 1 auto; min-width: 0; overflow: hidden;
                 text-overflow: ellipsis; white-space: nowrap; }
   /* 「操作」は最後の砦。何が並んでも右端に貼り付いて必ず親指で押せる位置に残す */

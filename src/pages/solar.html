@@ -11,7 +11,7 @@ bodyclass: solar-page
 <a id="embed-badge" href="./" target="_blank" rel="noopener">voyager6.net</a>
 
 <div id="solar-panel">
-  <!-- 常時見えるのはこの1行だけ。スマホでは以下がドロワーに畳まれ、軌道が主役になる。
+  <!-- 常時見えるのはこの2行だけ。スマホでは以下がドロワーに畳まれ、軌道が主役になる。
        (早見盤 #toolbar / #panel-body と同じ作り) -->
   <div class="row" id="solar-toolbar">
     <span id="solar-date" class="info"></span>
@@ -23,13 +23,17 @@ bodyclass: solar-page
             title="操作パネルを開閉">操作 ▲</button>
   </div>
 
+  <!-- 時間スライダーだけはドロワーの外に残す。これは「設定」ではなく主役の一部で、
+       時間を動かしながら軌道を見るのがこのページの中心的な体験だから。
+       畳んだときは細いバーになる (スマホで 28px ほど)。 -->
+  <div class="row" id="solar-timebar">
+    <input type="range" id="solar-time" min="-18262" max="18262" step="1" value="0">
+  </div>
+
   <!-- スマホ・タブレットでは既定で畳む。開くときは 3D の「上に重ねて」出すので、
        開閉しても canvas はリサイズされない (視点が飛ばない)。
        畳んでも DOM からは消えないので、URL パラメータも VR パネルの click() もそのまま効く。 -->
   <div id="solar-more">
-  <div class="row">
-    <input type="range" id="solar-time" min="-18262" max="18262" step="1" value="0">
-  </div>
   <div class="row">
     <button id="solar-play" title="再生 / 停止">▶</button>
     <select id="solar-speed" title="再生速度">
