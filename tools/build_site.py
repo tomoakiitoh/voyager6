@@ -86,13 +86,16 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
 # llms.txt にも載せない — AI には短縮でなく意味のある長い URL を渡したい。
 SHORTPATHS = {
     "1": "https://voyager6.net/",
-    "2": "https://voyager6.net/solar/?craft=voyager1&craftlayer=1",
+    # comets=0: 彗星の点群を消すと、ボイジャーの航跡が一本の線としてはっきり読める
+    "2": "https://voyager6.net/solar/?craft=voyager1&craftlayer=1&comets=0",
     "3": "https://voyager6.net/?t=1996-03-25T03:00&lat=35.68&lon=139.77&comet=C/1996%20B2",
     # 指示書は focus=jupiter 付きだったが外した。寄ると木星の周りしか映らず、
     # 太陽・内惑星のラベルが重なり、肝心のトロヤ群 (L4/L5の二つの塊) が画面外に出る。
     # 既定の俯瞰のままなら、木星を止めたときに小惑星が木星の前後60°へ溜まる様子が
     # 一目で分かる。※ 印刷物は変えられないので、こうした調整は飛び先側で吸収する。
-    "4": "https://voyager6.net/solar/?corotate=1&asteroids=1",
+    # asteroids2 (全量・GPU, H≤15 の83,443個) は 10,291個の小惑星レイヤの上位互換で、
+    # 本体の帯とトロヤ群の二つの塊が桁違いに濃く出る。転送は 2.2MB。
+    "4": "https://voyager6.net/solar/?corotate=1&asteroids2=1&comets=0",
     "5": "https://voyager6.net/?target=T%20CrB&labels=mag&names=on&fov=6",
     "6": "https://voyager6.net/solar/?group=kreutz&comet-orbits=1&comets=1",
     "7": "https://voyager6.net/variables/",
