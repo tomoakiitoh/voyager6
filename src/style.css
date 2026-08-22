@@ -199,7 +199,7 @@ body.panel-off #solar-panel { display: none; }
 .info a { color: var(--accent); }
 .grow { flex: 1 1 auto; }
 
-button, select, input[type="date"], input[type="number"] {
+button, select, input[type="date"], input[type="time"], input[type="number"] {
   background: #17203a; color: var(--fg);
   border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 9px; font: inherit; font-size: 13px;
@@ -320,7 +320,7 @@ body.embed-white #embed-badge {
   #menu > nav { left: 8px; right: 8px; max-width: none; }
   #panel { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); font-size: 12px; }
   .row { gap: 6px; margin-bottom: 6px; }
-  button, select, input[type="date"] { padding: 5px 7px; font-size: 12px; min-height: 32px; }
+  button, select, input[type="date"], input[type="time"] { padding: 5px 7px; font-size: 12px; min-height: 32px; }
   .toggles label { padding: 4px 8px; font-size: 11px; }
   #clock { font-size: 14px; }
   #sky-wrap { padding: 4px; }

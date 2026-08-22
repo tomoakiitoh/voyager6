@@ -76,8 +76,12 @@ bodyclass: sky-page
     <button id="day-next" title="1日進める">日▶</button>
   </div>
 
+  <!-- 日付・時刻は手入力もできる。スライダーは「動かして眺める」ためのもので、
+       「20時ちょうど」のような狙った時刻には向かない (観測星図を作るときに要る)。
+       #time は 0〜1439分のスライダー、#time-hm は同じ時刻の hh:mm 入力。 -->
   <div class="row">
     <input type="date" id="date">
+    <input type="time" id="time-hm" step="60" title="時刻を入力（24時間制）">
     <input type="range" id="time" min="0" max="1439" step="1">
   </div>
 
@@ -2631,6 +2635,7 @@ function syncControls() {
   const t = jstParts(state.ms);
   el("date").value = `${t.y}-${p2(t.mo)}-${p2(t.d)}`;
   el("time").value = String(t.hh * 60 + t.mm);
+  el("time-hm").value = `${p2(t.hh)}:${p2(t.mm)}`;
   syncing = false;
 }
 
@@ -2646,6 +2651,19 @@ el("time").addEventListener("input", () => {
   const min = Number(el("time").value);
   const t = jstParts(state.ms);
   setTime(msFromJst(t.y, t.mo, t.d, 0, min));
+});
+
+/* 時刻の手入力。狙った時刻に一発で合わせたいとき用 (観測星図を20時ちょうどで作る等)。
+   input ではなく change で拾う: input は時・分の桁を打つたびに飛んでくるので、
+   「20」まで打った時点で 20:xx へ盤面が動いてしまう。
+   再生中に打ったら止める — 合わせた時刻がすぐ流れていくと入力した意味がない。 */
+el("time-hm").addEventListener("change", () => {
+  if (syncing || !el("time-hm").value) return;
+  const [hh, mm] = el("time-hm").value.split(":").map(Number);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return;
+  const t = jstParts(state.ms);
+  stop();
+  setTime(msFromJst(t.y, t.mo, t.d, hh, mm));
 });
 
 el("now").addEventListener("click", () => { stop(); setTime(Date.now()); });
