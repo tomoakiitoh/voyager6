@@ -1,7 +1,7 @@
 <!--
 title: 太陽系3D
 description: 彗星と惑星の軌道を3Dで見る太陽系ビュー。時間を動かして彗星がどこを回っているかを俯瞰する。
-scripts: astro.js data.js
+scripts: astro.js data.js aerith.js
 bodyclass: solar-page
 -->
 <div id="solar-wrap"><canvas id="solar-canvas"></canvas></div>
@@ -1072,8 +1072,20 @@ function updateSelectedMarker(jd) {
   selMarker.position.set(h.x, h.z, -h.y);
   const g = orbitalToRaDec(elOf(c), jd);
   const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
-  el("solar-pick").textContent =
+  const pick = el("solar-pick");
+  pick.textContent =
     `★ ${c[0]}　日心 ${g.r.toFixed(2)} AU / 地心 ${g.delta.toFixed(2)} AU / 約${mag.toFixed(1)}等`;
+  // 吉田誠一氏のカタログへ (変光星カードの AAVSO リンクと同じ扱い)。
+  // 先方に頁が無い彗星では aerithUrl が null を返すので、その行は出さない。
+  const u = aerithUrl(c[0]);
+  if (u) {
+    pick.append("　");
+    const a = document.createElement("a");
+    a.href = u; a.target = "_blank"; a.rel = "noopener";
+    a.title = "吉田誠一氏の彗星カタログ。光度の実測・観測条件・過去の出現がまとまっています";
+    a.textContent = "吉田誠一氏のページ";
+    pick.append(a);
+  }
 }
 
 /* ---- クリックで乗り移る (追尾カメラ) ----

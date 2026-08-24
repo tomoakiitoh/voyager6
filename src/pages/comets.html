@@ -1,7 +1,7 @@
 <!--
 title: 彗星カタログ
 description: 収録している彗星の一覧。符号・名前・和名で検索でき、近日点通過や周期で並べ替え。行を開くと軌道の要点と3Dビューへの導線が出る。
-scripts: astro.js
+scripts: astro.js aerith.js
 bodyclass: comets-page
 -->
 <main class="doc comets">
@@ -209,6 +209,7 @@ bodyclass: comets-page
       <div class="actions">
         <a href="../solar/?comet=${encodeURIComponent(r.key)}">軌道を3Dで見る →</a>
         <a href="../?target=${encodeURIComponent(r.key)}&labels=mag&fov=5">観測星図を出す →</a>
+        ${aerithLinkHtml(r.name)}
       </div>
     </div></td>`;
     tr.after(detail);

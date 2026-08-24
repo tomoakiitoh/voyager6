@@ -1,7 +1,7 @@
 <!--
 title: 星座早見
 description: 指定した日時・場所の空を真円の全天図で描く星座早見。
-scripts: astro.js render.js data.js sites.js stars.js
+scripts: astro.js render.js data.js sites.js stars.js aerith.js
 bodyclass: sky-page
 -->
 <script type="application/ld+json">
@@ -1047,7 +1047,7 @@ function cometPositions(jd) {
     const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
     const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
     if (!isFinite(mag) || mag > COMET_MAG_LIMIT) continue;
-    list.push({ name: c[0], ra: g.ra, dec: g.dec, mag });
+    list.push({ name: c[0], desig: c[0], ra: g.ra, dec: g.dec, mag });
   }
   // 歴史的彗星: 出現期(窓)内かつ現行に無いものだけ。長周期要素を遠い日時へ外挿しない。
   if (cometsHistoric) {
@@ -1057,7 +1057,9 @@ function cometPositions(jd) {
       const g = orbitalToRaDec({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[6] }, jd);
       const mag = cometMagnitude(c[7], c[8], g.r, g.delta);
       if (!isFinite(mag) || mag > COMET_MAG_LIMIT) continue;
-      list.push({ name: c[11] || c[0], ra: g.ra, dec: g.dec, mag });   // 和名優先
+      // 表示は和名優先。desig には符号を残す — 外部リンク (aerith.net) は
+      // 符号でしか引けず、「百武」では当たらない
+      list.push({ name: c[11] || c[0], desig: c[0], ra: g.ra, dec: g.dec, mag });
     }
   }
   cometCache = { jd, list };
@@ -2210,8 +2212,12 @@ function pickObject(px, py) {
   if (show.comets) {
     for (const c of cometPositions(jd)) {
       const desig = desigKey(c.name);
-      consider(c.name, c.mag, applySky(M, raDecToVec(c.ra, c.dec)), null, [c.ra, c.dec],
-        { href: `solar/?comet=${encodeURIComponent(desig)}`, text: "太陽系3Dで軌道を見る →" });
+      const links = [{ href: `solar/?comet=${encodeURIComponent(desig)}`, text: "太陽系3Dで軌道を見る →" }];
+      // 吉田誠一氏のカタログ (変光星カードの AAVSO リンクと同じ扱い)。
+      // 先方に頁が無い彗星では aerithUrl が null を返すので、その行は出さない。
+      const au = aerithUrl(c.desig || c.name);
+      if (au) links.push({ href: au, text: "吉田誠一氏のページ →" });
+      consider(c.name, c.mag, applySky(M, raDecToVec(c.ra, c.dec)), null, [c.ra, c.dec], links);
     }
   }
   if (show.asteroids && asteroids) {
@@ -2260,9 +2266,9 @@ function showPopup(px, py, o) {
     + (o.raDec ? `α ${fmtRa(o.raDec[0])}　δ ${fmtDec(o.raDec[1])}<br>` : "")
     + `高度 ${o.alt.toFixed(1)}°　方位 ${o.az.toFixed(0)}° (${dir})`
     + (o.extra ? `<br>${o.extra}` : "")
-    + (o.link
-      ? `<br><a href="${o.link.href}" target="_blank" rel="noopener" class="popup-link">${o.link.text}</a>`
-      : "");
+    // link は 1件でも配列でもよい (彗星は 3D軌道 + 吉田誠一氏のページの2本)
+    + [].concat(o.link || []).map((l) =>
+        `<br><a href="${l.href}" target="_blank" rel="noopener" class="popup-link">${l.text}</a>`).join("");
   popup.style.display = "block";
   const rect = canvas.getBoundingClientRect();
   const w = popup.offsetWidth, h = popup.offsetHeight;

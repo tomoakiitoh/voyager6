@@ -67,6 +67,7 @@ MENU = [
 ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "events.js", "stars.js",
           "eclipsemap.js",    # 食の地図 (等食分線・可視範囲)。/eclipses/ が使う
+          "aerith.js",        # 彗星ごとの吉田誠一氏 (aerith.net) へのリンク生成
           "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
           "svgcanvas.esm.js",  # チャートSVG出力 (F8) 用に vendoring (MIT)
           "satellite.es.js",   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
