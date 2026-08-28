@@ -3,3 +3,5 @@ dist/
 __pycache__/
 reports/
 node_modules/
+dist/stars_v1/
+tools/cache/gaia/
