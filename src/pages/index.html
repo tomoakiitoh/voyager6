@@ -58,7 +58,8 @@ bodyclass: sky-page
 
   <!-- 視野の段階切り替え。ホイール/ピンチの連続ズームはそのまま使えるので、これは併存の近道。
        刻みは Telrad の 2°/4° に合わせ、以降はおよそ倍々 (仮置き)。
-       下限が2°なのは全体の倍率上限 ZOOM_MAX=90 に対応する視野 (docs に「2〜180」と明記済み)。 -->
+       20等星図 (v1深層) を入れたので下限は 0.1°まで下がった (ZOOM_MAX=1800)。
+       段階ボタンには 0.5°/1° を足してある (それ以下はホイールで連続に)。 -->
   <div class="row" id="fov-step-row" hidden>
     <span class="info">視野</span>
     <span id="fov-steps" class="toggles"></span>
@@ -266,15 +267,18 @@ let chartView = null;          // {zoom, ra, dec, flip, roll}
 const obsChartMode = () => !!(obsTarget || showMagLabels || showDesignations);
 const isAllSky = () => state.view.zoom <= ZOOM_MIN + 1e-6;
 
-/* 段階ズームの刻み [視野の直径・度] (仮置き)。既存の値に合わせてある:
-     2 / 4 … Telrad の輪 (0.5/2/4 のうち、倍率上限 ZOOM_MAX=90 で届くのはこの2つ)
-     6     … ファインダー相当。観測星図の既定視野でもある (centerOnTarget の fov||6)
+/* 段階ズームの刻み [視野の直径・度]:
+     0.5 / 1 … Gaia 深層 (20等) が効く高倍率。Telrad の 0.5°輪もここで届くようになった
+     2 / 4   … Telrad の輪
+     6       … ファインダー相当。観測星図の既定視野でもある (centerOnTarget の fov||6)
      15 / 30 / 60 … 星座の一部〜ひと領域。全天(180°)との間を埋める */
-const FOV_STEPS = [2, 4, 6, 15, 30, 60];
+const FOV_STEPS = [0.5, 1, 2, 4, 6, 15, 30, 60];
 let starNamesIdx = null, starNamesTried = false;   // star_names.json (符号つき星)
 let variablesCat = null, variablesTried = false;   // variables.json (著名変光星)
 
-const ZOOM_MIN = 1, ZOOM_MAX = 90;
+// ZOOM_MAX は「全天180°を何倍に拡大できるか」= 180/最小視野。
+// 20等星図 (v1深層) を入れたので下限視野を 2° → 0.1° に下げた (90 → 1800)。
+const ZOOM_MIN = 1, ZOOM_MAX = 1800;
 const ZENITH_DIR = { e: 0, n: 0, u: 1 };
 const NCP_VEC = [0, 0, 1];        // 天の北極 (赤道座標の単位ベクトル)
 let ncpUp = { e: 0, n: 1, u: 0 }; // 天の北極の地平方向 (draw で M から更新。望遠鏡モードの「上」)
@@ -326,7 +330,15 @@ function normalizeView() {
     SITE.name = siteNameAt(lat, lon);
   }
   // 望遠鏡モードの視野: z=倍率, ra/dec=視野中心(J2000度), flip=向き, roll=回転(ラジアン)
-  const z = Number(q.get("z"));
+  // fov= は「視野の直径[度]」で z の代わりに使える。target 指定時は centerOnTarget が
+  // 使うが、ra/dec を直に渡す場合はここで z へ換算する (でないと fov だけ無視されていた)。
+  const fovQ = Number(q.get("fov"));
+  // Number(null) は NaN でなく 0 なので、有無は has() で見る
+  let z = q.has("z") ? Number(q.get("z")) : NaN;
+  if (!Number.isFinite(z) && Number.isFinite(fovQ) && fovQ > 0
+      && q.has("ra") && q.has("dec")) {
+    z = 180 / Math.max(0.1, Math.min(180, fovQ));
+  }
   if (Number.isFinite(z) && z > ZOOM_MIN) {
     state.view.zoom = Math.min(ZOOM_MAX, z);
     const ra = Number(q.get("ra")), dec = Number(q.get("dec"));
@@ -345,8 +357,7 @@ function normalizeView() {
   obsTargetSpec = q.get("target");
   showMagLabels = q.get("labels") === "mag";
   showDesignations = q.get("names") === "on" || q.get("names") === "1";
-  const fov = Number(q.get("fov"));      // 視野の直径[度]。z の代わりに指定できる (AIが度で考えやすい)
-  if (Number.isFinite(fov) && fov > 0) pendingFov = Math.max(2, Math.min(180, fov));
+  if (Number.isFinite(fovQ) && fovQ > 0) pendingFov = Math.max(0.1, Math.min(180, fovQ));
   const ml = Number(q.get("maglim"));    // 等級ラベルを付ける暗い側の限界 (比較星の範囲の切り替え)
   if (Number.isFinite(ml)) pendingMaglim = ml;
 })();
@@ -541,7 +552,8 @@ function draw() {
   if (show.guides) drawGuides(Mn, jd, telescope);
   if (show.constLines) drawConstLines(M);
   drawStars(M);
-  if (telescope) drawDeepStars(M); // 深い星表 (望遠鏡モードで視野が狭まったら遅延ロード)
+  if (telescope && !V1_ONLY) drawDeepStars(M); // 深い星表 (望遠鏡モードで視野が狭まったら遅延ロード)
+  if (telescope) drawDeepStarsV1(M);           // v1深層 (Gaia・10等より暗い側)
   if (show.messier) drawMessier(M);
   const dsoLabels = show.dso ? drawDSO(M) : [];
   const cometLabels = show.comets ? drawComets(M) : [];
@@ -682,6 +694,134 @@ function fetchTile(id) {
     })
     .catch(() => tileCache.set(id, "error"))
     .finally(() => { deepPending--; draw(); });
+}
+
+// ---------------- v1 深層 (20等星図: Gaia DR3 の HEALPix タイル) ----------------
+/* 上の現行深層 (AT-HYG ≤10等) は**そのまま残す**。これは 10 等より暗い側だけを持つ
+   第2経路で、現行とは原理的に重ならない (層の下限が 10 等)。
+
+   取得元は既定で data.voyager6.net。まだ配備していないので、404/不通なら
+   **黙って何もしない** — 現行と同じ流儀で、深層が無くてもサイトは壊れない。
+   ローカル検証は ?deep=stars_v1/ で dist を直接読ませる。
+
+   **manifest が正**: 層の等級範囲・nside・存在するタイルは manifest からそのまま読む。
+   JS 側で層や nside を決め打ちすると、Python と食い違ったときに黙って
+   タイルを取り違える (現行グリッドで実際にあった)。 */
+const V1_PARAMS = new URLSearchParams(location.search);
+const STARS_V1_BASE = V1_PARAMS.get("deep") || "https://data.voyager6.net/stars/v1/";
+// 検証用: 現行深層を止めて v1 だけを描く (AT-HYG ビルドは 5〜13等で現行と重なるため)
+const V1_ONLY = V1_PARAMS.get("deepv1only") === "1";
+let v1Manifest = null, v1Tried = false;
+const tileCacheV1 = new Map();   // "L4/12345" -> {n,vx,vy,vz,mag,col} | "loading" | "error"
+const V1_CACHE_MAX = 200;        // 全天配信時のメモリ対策。挿入順の LRU
+
+function loadManifestV1() {
+  if (v1Manifest || v1Tried) return;
+  v1Tried = true;
+  deepPending++;
+  fetch(STARS_V1_BASE + "manifest.json")
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((m) => { v1Manifest = m; })
+    .catch(() => { /* v1 深層なし。現行のままで動く */ })
+    .finally(() => { deepPending--; draw(); });
+}
+
+function fetchTileV1(id, layer) {
+  tileCacheV1.set(id, "loading");
+  deepPending++;
+  fetch(STARS_V1_BASE + id + ".bin")
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)))
+    .then((buf) => {
+      const d = decodeStarTileV1(buf, layer, v1Manifest);
+      // 単位ベクトルを前計算 (毎フレームの三角関数を省く。現行タイルと同じ扱い)
+      const vx = new Float32Array(d.n), vy = new Float32Array(d.n), vz = new Float32Array(d.n);
+      for (let i = 0; i < d.n; i++) {
+        const v = raDecToVec(d.ra[i], d.dec[i]);
+        vx[i] = v[0]; vy[i] = v[1]; vz[i] = v[2];
+      }
+      tileCacheV1.set(id, { n: d.n, vx, vy, vz, mag: d.mag, col: d.col });
+      // 上限を超えたら古いものから捨てる (Map は挿入順を保つ)
+      while (tileCacheV1.size > V1_CACHE_MAX) {
+        const oldest = tileCacheV1.keys().next().value;
+        if (oldest === id) break;
+        tileCacheV1.delete(oldest);
+      }
+    })
+    .catch(() => tileCacheV1.set(id, "error"))
+    .finally(() => { deepPending--; draw(); });
+}
+
+/** FOV(短辺)[度] に応じて読む層 (manifest の順番＝浅い順)。狭いほど深くまで。 */
+function v1LayersForFov(fov) {
+  const n = fov <= 0.35 ? 4 : fov <= 0.8 ? 3 : fov <= 2 ? 2 : fov <= 6 ? 1 : 0;
+  return (v1Manifest.layers || []).slice(0, n);
+}
+
+/** FOV[度] に応じた限界等級。折れ線で繋ぐ (2°→12, 1°→14, 0.5°→17, 0.25°→19.5, ≤0.15°→21)。 */
+function deepLimMagV1(fov) {
+  const pts = [[0.15, 21], [0.25, 19.5], [0.5, 17], [1, 14], [2, 12]];
+  if (fov <= pts[0][0]) return pts[0][1];
+  if (fov >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    if (fov <= x1) return y0 + (y1 - y0) * (fov - x0) / (x1 - x0);
+  }
+  return 12;
+}
+
+/** v1 深層を描く。全部 fillRect の一括 (この弾ではオフスクリーン化しない)。 */
+function drawDeepStarsV1(M) {
+  const fov = fovDeg();
+  if (!v1Manifest) { if (fov <= 6) loadManifestV1(); return; }
+  const layers = v1LayersForFov(fov);
+  if (!layers.length) return;
+
+  const [cra, cdec] = vecToRaDec(applySkyInverse(M, state.view.center));
+  // ?maglim= があればそれを優先 (観測星図モードの比較星範囲と同じパラメータで統一)
+  const limMag = Math.min(21, Number.isFinite(pendingMaglim) && pendingMaglim > 0
+    ? pendingMaglim : deepLimMagV1(fov));
+  const size = cx * 2;
+  const pts = [];
+  const m00 = M[0][0], m01 = M[0][1], m02 = M[0][2];
+  const m10 = M[1][0], m11 = M[1][1], m12 = M[1][2];
+  const m20 = M[2][0], m21 = M[2][1], m22 = M[2][2];
+
+  for (const layer of layers) {
+    if (layer.magMin >= limMag) continue;            // その層は全部切られる
+    const exist = v1Manifest.tiles[layer.id];
+    if (!exist || !exist.length) continue;
+    const have = (v1Manifest._sets || (v1Manifest._sets = {}))[layer.id]
+      || ((v1Manifest._sets[layer.id] = new Set(exist)));
+    const pix = pixelsForRegionV1(layer.nside, cra, cdec, fov * 0.75);
+    for (const p of pix) {
+      if (!have.has(p)) continue;                    // 星が無いタイル (ファイルも無い)
+      const id = layer.id + "/" + p;
+      const c = tileCacheV1.get(id);
+      if (c === undefined) { fetchTileV1(id, layer); continue; }
+      if (typeof c === "string") continue;           // loading / error
+      const { n, vx, vy, vz, mag } = c;
+      for (let i = 0; i < n; i++) {
+        if (mag[i] > limMag) break;                  // 明るい順なので前から切れる
+        const x = vx[i], y = vy[i], z = vz[i];
+        const u = m20 * x + m21 * y + m22 * z;
+        if (u <= 0 && !telescopeMode) continue;
+        const e = m00 * x + m01 * y + m02 * z;
+        const nn = m10 * x + m11 * y + m12 * z;
+        const q = projectView({ e, n: nn, u }, view);
+        if (q.behind || q.x < -4 || q.x > size + 4 || q.y < -4 || q.y > size + 4) continue;
+        pts.push(q.x, q.y, mag[i]);
+      }
+    }
+  }
+  if (!pts.length) return;
+  // 13等以深は 1px 固定。それより明るいものだけ半径を計算する (現行と同じ式の延長)
+  ctx.fillStyle = pt().starMono || "#cfd8f0";   // 印刷テーマでは黒一色
+  for (let i = 0; i < pts.length; i += 3) {
+    const mg = pts[i + 2];
+    if (mg >= 13) { ctx.fillRect(pts[i], pts[i + 1], 1, 1); continue; }
+    const r = Math.max(0.4, (0.6 + (10 - mg) * 0.24) * (R / 660));
+    ctx.fillRect(pts[i] - r, pts[i + 1] - r, r * 2, r * 2);
+  }
 }
 
 /** 深い星の描画半径 [px]。5等→約1.8px、10等→約0.6px (R でスケール)。 */

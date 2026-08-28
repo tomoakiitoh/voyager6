@@ -235,9 +235,20 @@ def main() -> int:
         print("エラー: src/data.js がない。先に build_data.py を実行すること。", file=sys.stderr)
         return 1
 
+    # dist は毎回作り直すが、**中で作るには重すぎるものは残す**。
+    # stars_v1 (20等星図の深層タイル) は全天ビルドで 10GB 級・数時間かかり、
+    # build_stars_v1.py が別に作る。ここで消すと、サイトを1回ビルドし直すたびに
+    # 作り直しになってしまう。build_stars.py の dist/stars/ も同じ理由で残す。
+    KEEP = {"stars", "stars_v1"}
     if DIST.exists():
-        shutil.rmtree(DIST)
-    (DIST / "assets").mkdir(parents=True)
+        for child in DIST.iterdir():
+            if child.name in KEEP:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+    (DIST / "assets").mkdir(parents=True, exist_ok=True)
 
     for name in ASSETS:
         f = SRC / name
