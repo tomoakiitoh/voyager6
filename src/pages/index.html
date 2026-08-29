@@ -553,6 +553,7 @@ function draw() {
   if (show.constLines) drawConstLines(M);
   drawStars(M);
   if (telescope && !V1_ONLY) drawDeepStars(M); // 深い星表 (望遠鏡モードで視野が狭まったら遅延ロード)
+  v1Credit = false;                            // 毎フレーム倒し、描けたときだけ下で立てる
   if (telescope) drawDeepStarsV1(M);           // v1深層 (Gaia・10等より暗い側)
   if (show.messier) drawMessier(M);
   const dsoLabels = show.dso ? drawDSO(M) : [];
@@ -712,6 +713,10 @@ const STARS_V1_BASE = V1_PARAMS.get("deep") || "https://data.voyager6.net/stars/
 // 検証用: 現行深層を止めて v1 だけを描く (AT-HYG ビルドは 5〜13等で現行と重なるため)
 const V1_ONLY = V1_PARAMS.get("deepv1only") === "1";
 let v1Manifest = null, v1Tried = false;
+/* このフレームで Gaia の星を**実際に1つ以上描いたか**。CC BY-NC の表示義務は
+   「データを使った成果物」に付くので、層を読んだかどうかではなく描いたかで判定する
+   (タイル未着・限界等級で全部切られた等では立たない)。印刷とSVGの但し書きが見る。 */
+let v1Credit = false;
 const tileCacheV1 = new Map();   // "L4/12345" -> {n,vx,vy,vz,mag,col} | "loading" | "error"
 const V1_CACHE_MAX = 200;        // 全天配信時のメモリ対策。挿入順の LRU
 
@@ -751,9 +756,17 @@ function fetchTileV1(id, layer) {
     .finally(() => { deepPending--; draw(); });
 }
 
+/* **ここが 2° なのはライセンスの都合**で、性能の都合ではない。Gaia DR3 は
+   CC BY-NC 3.0 IGO (非商用のみ) で、AT-HYG の CC BY-SA 4.0 とは混ぜられない。
+   Gaia を描いた図は再利用が非商用に縛られるので、いちばん印刷されて人に渡る
+   観測星図 (既定 6°) と FOV_STEPS の 2°/4°/6° は AT-HYG だけで描き、
+   Gaia は「思い切り拡大したとき」= 2°未満 (ステップでは 1°/0.5°) に限る。
+   ここを緩めるなら、印刷・SVG の但し書き (v1Credit) も合わせて考えること。 */
+const V1_GATE_FOV = 2;
+
 /** FOV(短辺)[度] に応じて読む層 (manifest の順番＝浅い順)。狭いほど深くまで。 */
 function v1LayersForFov(fov) {
-  const n = fov <= 0.35 ? 4 : fov <= 0.8 ? 3 : fov <= 2 ? 2 : fov <= 6 ? 1 : 0;
+  const n = fov <= 0.35 ? 4 : fov <= 0.8 ? 3 : fov < V1_GATE_FOV ? 2 : 0;
   return (v1Manifest.layers || []).slice(0, n);
 }
 
@@ -772,7 +785,7 @@ function deepLimMagV1(fov) {
 /** v1 深層を描く。全部 fillRect の一括 (この弾ではオフスクリーン化しない)。 */
 function drawDeepStarsV1(M) {
   const fov = fovDeg();
-  if (!v1Manifest) { if (fov <= 6) loadManifestV1(); return; }
+  if (!v1Manifest) { if (fov < V1_GATE_FOV) loadManifestV1(); return; }
   const layers = v1LayersForFov(fov);
   if (!layers.length) return;
 
@@ -814,6 +827,7 @@ function drawDeepStarsV1(M) {
     }
   }
   if (!pts.length) return;
+  v1Credit = true;                             // Gaia 由来の星がこの図に載った
   // 13等以深は 1px 固定。それより明るいものだけ半径を計算する (現行と同じ式の延長)
   ctx.fillStyle = pt().starMono || "#cfd8f0";   // 印刷テーマでは黒一色
   for (let i = 0; i < pts.length; i += 3) {
@@ -3212,8 +3226,10 @@ el("play").addEventListener("click", () => (state.playing ? stop() : play()));
 // SVG を得る (描画コードは二重化しない)。ジオメトリは画面と同じ (SVGはベクターなので
 // 印刷時に無限にスケールする)。white=true で白地の印刷テーマに切り替える (Phase2)。
 
-/** 現在の視野を SVG 文字列にする。描画先を偽contextへ差し替え、終わったら画面を戻す。 */
-async function renderChartSvg(white) {
+/** 現在の視野を SVG 文字列にする。描画先を偽contextへ差し替え、終わったら画面を戻す。
+    withNote=true のとき、Gaia を含む図には CC BY-NC の但し書きを図の中に焼き込む
+    (SVG はファイル単体で出回るので、表示義務は図そのものに載せる必要がある)。 */
+async function renderChartSvg(white, withNote = true) {
   const { Context } = await import("./assets/svgcanvas.esm.js");
   const size = Math.round(cx * 2);
   const realCtx = ctx, prevPrint = printMode;
@@ -3222,6 +3238,13 @@ async function renderChartSvg(white) {
   printMode = !!white;
   try {
     draw();
+    if (withNote && v1Credit) {
+      svg.font = "11px sans-serif";
+      svg.textAlign = "left";
+      svg.fillStyle = white ? "#444" : "#9aa7c0";
+      svg.fillText("暗い星: ESA/Gaia/DPAC (Gaia DR3, CC BY-NC 3.0 IGO) — 再利用は非商用に限る",
+        8, size - 8);
+    }
     // viewBox を付けておくと width/height を外しても縦横比が保たれる (印刷でCSS幅100%にできる)
     return svg.getSerializedSvg().replace("<svg ", `<svg viewBox="0 0 ${size} ${size}" `);
   } finally {
@@ -3274,13 +3297,22 @@ async function openPrint() {
     `<div class="pt-title">${title}</div>`
     + `<div class="pt-meta">${place}<br>${viewStr}${tgtInfo}`
     + `${showMagLabels ? "｜数字は比較星の等級(小数点省略: 84=8.4等)" : ""}</div>`;
+  /* Gaia を描いた図にだけ付く但し書き。CC は利用者を選別する仕組みではないので
+     「商用ですか」と尋ねたりはせず、**条件を正しく伝える**だけにする。逆に、
+     Gaia を含む図を CC BY-SA 4.0 と名乗ると、こちらに無い権利を配ることになる。 */
+  const gaiaNote = v1Credit
+    ? "<br>この図の暗い星は ESA/Gaia/DPAC (Gaia DR3) 由来です。"
+      + "Gaia は CC BY-NC 3.0 IGO のため、この図の再利用は<b>非商用に限られます</b>。"
+    : "";
   // F4 但し書き(必須): カタログ等級は目安。正式な変光星測光は AAVSO VSP へ送客。
-  el("print-foot").innerHTML = obs
+  el("print-foot").innerHTML = (obs
     ? "星の等級はカタログ値です（チャート用の目安）。変光星の正式な観測・報告には "
       + "AAVSO VSP（Variable Star Plotter, aavso.org/vsp）の較正済み比較星シーケンスをご使用ください。"
       + "<br>voyager6.net｜星表: AT-HYG・変光星: GCVS"
-    : "voyager6.net — 恒星の位置は JPL Horizons と照合済み。彗星・小惑星・歴史的表示は接触軌道要素による概略。";
-  const svg = await renderChartSvg(true);           // 印刷は常に白地
+    : "voyager6.net — 恒星の位置は JPL Horizons と照合済み。彗星・小惑星・歴史的表示は接触軌道要素による概略。")
+    + gaiaNote;
+  // 但し書きは print-foot 側に出すので、SVG には重ねない
+  const svg = await renderChartSvg(true, false);    // 印刷は常に白地
   const holder = el("print-chart");
   holder.innerHTML = svg;
   const s = holder.querySelector("svg");

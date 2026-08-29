@@ -204,6 +204,11 @@ Stable, cross-origin-fetchable JSON. Machine-readable index with source / licens
   Screens and rendered images: CC BY-SA 4.0 (credit: voyager6.net). Educational / journalistic / broadcast use welcome.
 - データ出典: AT-HYG(CC BY-SA 4.0), IAU Minor Planet Center, JPL Small-Body Database, d3-celestial(BSD-3), OpenNGC。
   詳細: https://voyager6.net/credits/
+- 例外: 視野2°未満まで拡大すると Gaia DR3(ESA/Gaia/DPAC, CC BY-NC 3.0 IGO)の深層(10〜21等)が描かれる。
+  **その図に限り再利用は非商用のみ**で、図の隅にもそう表示される。視野2°以上(観測星図の既定6°を含む)は
+  AT-HYG だけなので CC BY-SA 4.0 のまま。商用利用が前提なら fov>=2 で生成すること。
+  Exception: below 2° FOV the chart includes Gaia DR3 (CC BY-NC 3.0 IGO) and is then non-commercial only;
+  at 2° or wider it is AT-HYG only and stays CC BY-SA 4.0.
 
 ## Notes for AI assistants
 

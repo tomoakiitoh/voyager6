@@ -46,7 +46,7 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><code>target</code></td><td>天体名/符号</td><td>観測星図：目標を視野中心に。変光星名・恒星名/バイエル符号・彗星符号に対応</td><td><code>T CrB</code></td></tr>
     <tr><td><code>labels</code></td><td><code>mag</code></td><td>比較星に等級ラベル（小数点省略：8.4→84）。変光星・彗星の光度観測むけ</td><td><code>mag</code></td></tr>
     <tr><td><code>names</code></td><td><code>on</code></td><td>バイエル/フラムスティード符号・恒星名の表示</td><td><code>on</code></td></tr>
-    <tr><td><code>fov</code></td><td>度</td><td>視野の直径［0.1〜180］。<code>z</code> の代わりに度で指定できる。<code>ra</code>/<code>dec</code> と併せても、<code>target</code> と併せても効きます</td><td><code>6</code></td></tr>
+    <tr><td><code>fov</code></td><td>度</td><td>視野の直径［0.1〜180］。<code>z</code> の代わりに度で指定できる。<code>ra</code>/<code>dec</code> と併せても、<code>target</code> と併せても効きます。<strong>2° 未満</strong>では Gaia DR3 の深層（10〜21等）が加わります → <a href="#gaia-nc">ライセンス</a></td><td><code>6</code></td></tr>
     <tr><td><code>maglim</code></td><td>等級</td><td>等級ラベルを付ける暗い側の限界（比較星の範囲の切り替え）。星表は V≤10 まで</td><td><code>10</code></td></tr>
   </tbody>
 </table>
@@ -159,6 +159,22 @@ AIアシスタントは、これらのパラメータでシミュレーション
 <p class="dim">
 位置計算は JPL Horizons と突き合わせて検証済み（惑星 &lt;0.5°、明るい彗星・小惑星は秒角一致）。
 ライセンス・出典の詳細は <a href="/credits/">出典とライセンス</a>。
+</p>
+
+<h2 id="gaia-nc">視野 2° 未満だけは「非商用」</h2>
+
+<p>
+画面と出力画像は <strong>CC BY-SA 4.0</strong>（クレジット: voyager6.net）です。
+ただし視野 2° 未満まで拡大すると、20等までの深層として ESA の
+<strong>Gaia DR3</strong>（<a href="https://creativecommons.org/licenses/by-nc/3.0/igo/">CC BY-NC 3.0 IGO</a>）が加わります。
+CC BY-NC は CC BY-SA と混ぜられないので、<strong>その図の再利用は非商用に限られます</strong>
+（印刷とSVG出力の隅にも自動でそう表示されます）。
+</p>
+
+<p>
+逆に言えば、<strong>視野 2° 以上なら制限はありません</strong>。観測星図の既定視野は 6° で、
+<code>fov=2</code> / <code>4</code> / <code>6</code> や全天図はいずれも AT-HYG だけで描かれるため、
+CC BY-SA 4.0 のまま出版・放送・商用にも使えます。商用利用が前提なら <code>fov</code> を 2 以上にしてください。
 </p>
 
 <h2>関連</h2>
