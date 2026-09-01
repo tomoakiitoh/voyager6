@@ -4,33 +4,61 @@
 
 **分担**: SSH・DNS・証明書は本人。設定ファイルとスクリプトはこのディレクトリに用意済み。
 
-**現状 (2026-09-01 実測)**
-- `data.voyager6.net` — **A レコード設定済み・伝播済み** (8.8.8.8 / 1.1.1.1 とも解決)。手順1 完了
-- ただし 80番は **既定の vhost に吸われて `https://blog.voyager6.net/` へ 301** される。
-  この状態では certbot の webroot 認証が通らない → **落とし穴メモ (a) の順番で進めること**
-- `blog.voyager6.net` — 応答あり (nginx 稼働中)。VPS 自体は生きている
-- VPS の IP は `VPS棚卸し_確認手順_20260804.md` に記録あり
+## 状態: 手順1〜5 まで完了 (2026-09-01)
 
-**手順0 の結果 (2026-09-01)**
-- OS: **AlmaLinux 9.8**。パッケージは `dnf`。SELinux の確認が要る (落とし穴メモ b)
-- ディスク: **50G 中 42G 空き** → **Gaia 全天の深層タイル (概算 15GB) は乗る**。
-  別の置き場 (オブジェクトストレージ等) を検討する必要はなくなった
-- `python3` 3.12.13 — `build_satellites.py` は標準ライブラリのみなので追加導入なし
-- `kusanagi` ユーザは存在し、`www` グループにも入っている (配信ディレクトリの所有者にできる)
-- **未解決**: `/etc/nginx/conf.d/` が無く、`nginx -T` も空 (非 root で実行したため権限不足の可能性)。
-  KUSANAGI 9 は構成によって nginx がコンテナ側に居ることがあるので、**手順4 に進む前に
-  設定の実体がホストかコンテナかを確定する**こと:
+**`data.voyager6.net` は HTTPS で稼働中。衛星データの日次配信まで通った。**
+以下の手順1〜5は実施済み。残りは手順6 (クライアント切替) と手順7 (深層タイル)。
 
-  ```bash
-  sudo nginx -T 2>&1 | grep -nE 'include|server_name|root ' | head -30
-  which nginx; nginx -v 2>&1; ls -la /etc/nginx/ 2>&1 | head
-  sudo systemctl list-units --type=service --no-pager | grep -iE 'nginx|kusanagi|httpd'
-  sudo podman ps -a 2>/dev/null; sudo docker ps -a 2>/dev/null
-  getenforce
-  ```
+```
+https://data.voyager6.net/healthz            → ok
+https://data.voyager6.net/satellites.json    → 175機
+https://data.voyager6.net/satellites_geo.json→ 568機
+https://data.voyager6.net/satellites_starlink.json → 10,725機 (gzip 1.86MB→682KB)
+```
 
-  コンテナ側だった場合、手順4の「conf を置いて reload」はそのままでは通らない
-  (配信ディレクトリのバインドマウントか、別ポートの独立 nginx にする分岐になる)。
+### この VPS の実際の姿 (手順0 の結果)
+
+| | |
+|---|---|
+| OS | AlmaLinux 9.8 / SELinux **Disabled** (落とし穴 b は不要) |
+| nginx | **1.31.3 (KUSANAGI ビルド)** `/opt/kusanagi/nginx131/sbin/nginx` |
+| service | `nginx131.service` (**コンテナではなくホスト上**) |
+| 設定 | `/etc/opt/kusanagi/nginx/conf.d/*.conf` — **`/etc/nginx/` は存在しない** |
+| 共有 include | `ssl_listen.inc` (http2+QUIC), `ssl.inc`, `acme.inc`, `static.inc` |
+| ディスク | 50G 中 **42G 空き** → **Gaia 全天の 15GB は乗る**。別置き場は不要 |
+| python3 | 3.12.13 (`build_satellites.py` は標準ライブラリのみ) |
+| certbot | 3.1.0。blog は webroot 方式で取得済み |
+
+`nginx` は PATH に無く、`nginx -T` も素では動かない。**フルパスで叩くこと**:
+`sudo /opt/kusanagi/nginx131/sbin/nginx -t`
+
+### 設置したもの
+
+| | |
+|---|---|
+| 設定 | `/etc/opt/kusanagi/nginx/conf.d/datav6.conf` |
+| 配信 | `/home/kusanagi/data.voyager6.net/` (kusanagi 所有) |
+| リポジトリ | `/opt/voyager6` (**kusanagi 所有で clone**。落とし穴 c 回避) |
+| 証明書 | Let's Encrypt ECDSA、**2026-11-30** まで |
+| 証明書更新 | `/etc/cron.d/certbot-datav6` — 月・木 4:41 (JST)、`--cert-name` で data のみ |
+| 衛星の日次 | `/etc/cron.d/voyager6-data` — 毎日 5:17 (JST)、kusanagi ユーザ |
+| ログ | `/var/log/voyager6-data.log` + `/etc/logrotate.d/voyager6-data` (月次・6世代) |
+| nginx ログ | `/var/log/nginx/datav6_{access,error}.log` |
+| バックアップ | `/root/nginx-conf.d.before-data.20260901-2248.tar.gz` (着手前の conf 一式) |
+
+### 途中で判断を変えた2点 (設計書と違うので注意)
+
+**(1) nginx のログを `/var/log/nginx/` に出した。** blog は
+`/home/kusanagi/blogv6/log/nginx/` に出しているが、blog は root が
+`.../blogv6/DocumentRoot` なのでログはルートの外にある。こちらは配信ルートが
+`data.voyager6.net` 直下なので、同じ流儀にすると**ログが公開されてしまう**。
+
+**(2) 証明書の更新 cron を自分で足した。** certbot は「scheduled task を設定した」と
+表示するが、実際には `certbot-renew.timer` は **disabled** でタイマーは存在しなかった。
+blog は `kusanagi update cert` (日曜 3:07) で更新されており、これは KUSANAGI の
+プロファイル向けなので **data は対象外**。放置すると 2026-11-30 に失効する。
+`--cert-name data.voyager6.net` で対象を限定してあるので、KUSANAGI 側の仕組みとは
+同じ証明書を取り合わない。**blog 側の設定には触れていない。**
 
 ---
 
@@ -73,41 +101,79 @@ chown -R kusanagi:kusanagi /home/kusanagi/data.voyager6.net
 chmod 755 /home/kusanagi/data.voyager6.net
 ```
 
-## 手順 3: TLS 証明書 [本人・SSH]
+## 手順 3〜4: 証明書と nginx [済み] — 実際にやった順番
 
-DNS が通ってから。KUSANAGI の `kusanagi ssl` は WordPress プロファイル向けなので、
-独立サブドメインは certbot を直接使うほうが素直。
-
-```bash
-certbot certonly --webroot -w /var/www/html -d data.voyager6.net
-# webroot が無ければ: mkdir -p /var/www/html
-```
-
-## 手順 4: nginx [本人・SSH]
+**証明書と conf は鶏と卵**なので、80番の仮 conf → 証明書 → 本番 conf の3段で進めた
+(落とし穴メモ a)。以下は実際に通した手順そのまま。作り直すときはこれをなぞる。
 
 ```bash
-# 手順 0-(2) で確かめた include 先へ置く
-cp nginx/data.voyager6.net.conf /etc/nginx/conf.d/
-nginx -t && systemctl reload nginx
+NG=/opt/kusanagi/nginx131/sbin/nginx          # PATH に nginx は無い
+D=/etc/opt/kusanagi/nginx/conf.d              # /etc/nginx/ ではない
 
+# 0) 触る前に conf 一式を控える
+sudo tar czf /root/nginx-conf.d.before-data.$(date +%Y%m%d-%H%M).tar.gz \
+  -C /etc/opt/kusanagi/nginx conf.d
+
+# 1) 80番だけの仮 conf。https へのリダイレクトは**まだ付けない**
+#    (付けると証明書の無い https へ飛ばされ、acme 認証が通らない)
+sudo tee $D/datav6.conf >/dev/null <<'NG_CONF'
+server {
+    listen 80; listen [::]:80;
+    server_name data.voyager6.net;
+    charset UTF-8;
+    root /home/kusanagi/data.voyager6.net;
+    include conf.d/acme.inc;
+    location / { return 404; }
+}
+NG_CONF
+sudo $NG -t && sudo systemctl reload nginx131.service
+
+# 認証パスが本当に返るか、証明書を取る前に確かめる
+sudo -u kusanagi mkdir -p /home/kusanagi/data.voyager6.net/.well-known/acme-challenge
+echo ok | sudo -u kusanagi tee /home/kusanagi/data.voyager6.net/.well-known/acme-challenge/probe
+curl http://data.voyager6.net/.well-known/acme-challenge/probe    # → ok
+
+# 2) 証明書 (blog と同じ webroot 方式・ECDSA)
+sudo certbot certonly --webroot -w /home/kusanagi/data.voyager6.net \
+  -d data.voyager6.net --key-type ecdsa \
+  --deploy-hook "systemctl reload nginx131.service" --non-interactive
+
+# 3) 本番 conf へ差し替え (nginx/data.voyager6.net.conf を KUSANAGI 流儀にしたもの)
+#    ログ先が要る: sudo mkdir -p /var/log/nginx
+sudo cp /opt/voyager6/deploy/nginx/data.voyager6.net.conf $D/datav6.conf
+sudo $NG -t && sudo systemctl reload nginx131.service
 curl -I https://data.voyager6.net/healthz        # 200 ok
 ```
 
-conf の中に注意書きを入れてあるので、nginx が 1.24 以前なら `http2 on;` の扱いだけ読むこと。
-
-## 手順 5: 衛星データの cron [本人・SSH]
+**証明書の自動更新は certbot 任せにできない** (上の「判断を変えた2点」参照)。cron を1本:
 
 ```bash
-git clone https://github.com/tomoakiitoh/voyager6.git /opt/voyager6
-chmod +x /opt/voyager6/deploy/vps-update-satellites.sh
-touch /var/log/voyager6-data.log && chown kusanagi /var/log/voyager6-data.log
+sudo tee /etc/cron.d/certbot-datav6 >/dev/null <<'CRON'
+41 4 * * 1,4 root /usr/bin/certbot renew --cert-name data.voyager6.net --quiet
+CRON
+sudo certbot renew --cert-name data.voyager6.net --dry-run   # 数分かかる。気長に待つ
+```
 
-# まず手で1回流して、配信ディレクトリに3ファイル出ることを確認する
+## 手順 5: 衛星データの cron [済み]
+
+```bash
+# 落とし穴 c: root で clone すると kusanagi が git pull も src/ への書き込みもできない
+sudo mkdir -p /opt/voyager6 && sudo chown kusanagi:kusanagi /opt/voyager6
+sudo -u kusanagi git clone https://github.com/tomoakiitoh/voyager6.git /opt/voyager6
+sudo touch /var/log/voyager6-data.log && sudo chown kusanagi:kusanagi /var/log/voyager6-data.log
+
+# 手で1回流して、配信ディレクトリに3ファイル出ることを確認する
 sudo -u kusanagi /opt/voyager6/deploy/vps-update-satellites.sh
 ls -la /home/kusanagi/data.voyager6.net/
 
-# よければ crontab へ (kusanagi ユーザで)
-# 17 5 * * *  /opt/voyager6/deploy/vps-update-satellites.sh
+# cron の最小環境でも動くかを確かめておく (PATH 由来の失敗はここでしか出ない)
+sudo -u kusanagi env -i HOME=/home/kusanagi SHELL=/bin/sh PATH=/usr/bin:/bin \
+  /opt/voyager6/deploy/vps-update-satellites.sh
+
+# 登録 (crond はサーバのTZ=JST で解釈する)
+sudo tee /etc/cron.d/voyager6-data >/dev/null <<'CRON'
+17 5 * * * kusanagi /opt/voyager6/deploy/vps-update-satellites.sh
+CRON
 ```
 
 確認:
