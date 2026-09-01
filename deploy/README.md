@@ -4,10 +4,33 @@
 
 **分担**: SSH・DNS・証明書は本人。設定ファイルとスクリプトはこのディレクトリに用意済み。
 
-**現状 (2026-08-29 実測)**
-- `data.voyager6.net` — **A レコードなし。到達不可**。ここが入口の詰まり
+**現状 (2026-09-01 実測)**
+- `data.voyager6.net` — **A レコード設定済み・伝播済み** (8.8.8.8 / 1.1.1.1 とも解決)。手順1 完了
+- ただし 80番は **既定の vhost に吸われて `https://blog.voyager6.net/` へ 301** される。
+  この状態では certbot の webroot 認証が通らない → **落とし穴メモ (a) の順番で進めること**
 - `blog.voyager6.net` — 応答あり (nginx 稼働中)。VPS 自体は生きている
 - VPS の IP は `VPS棚卸し_確認手順_20260804.md` に記録あり
+
+**手順0 の結果 (2026-09-01)**
+- OS: **AlmaLinux 9.8**。パッケージは `dnf`。SELinux の確認が要る (落とし穴メモ b)
+- ディスク: **50G 中 42G 空き** → **Gaia 全天の深層タイル (概算 15GB) は乗る**。
+  別の置き場 (オブジェクトストレージ等) を検討する必要はなくなった
+- `python3` 3.12.13 — `build_satellites.py` は標準ライブラリのみなので追加導入なし
+- `kusanagi` ユーザは存在し、`www` グループにも入っている (配信ディレクトリの所有者にできる)
+- **未解決**: `/etc/nginx/conf.d/` が無く、`nginx -T` も空 (非 root で実行したため権限不足の可能性)。
+  KUSANAGI 9 は構成によって nginx がコンテナ側に居ることがあるので、**手順4 に進む前に
+  設定の実体がホストかコンテナかを確定する**こと:
+
+  ```bash
+  sudo nginx -T 2>&1 | grep -nE 'include|server_name|root ' | head -30
+  which nginx; nginx -v 2>&1; ls -la /etc/nginx/ 2>&1 | head
+  sudo systemctl list-units --type=service --no-pager | grep -iE 'nginx|kusanagi|httpd'
+  sudo podman ps -a 2>/dev/null; sudo docker ps -a 2>/dev/null
+  getenforce
+  ```
+
+  コンテナ側だった場合、手順4の「conf を置いて reload」はそのままでは通らない
+  (配信ディレクトリのバインドマウントか、別ポートの独立 nginx にする分岐になる)。
 
 ---
 
@@ -130,3 +153,56 @@ rm /etc/nginx/conf.d/data.voyager6.net.conf && nginx -t && systemctl reload ngin
 - `curl -s https://data.voyager6.net/healthz` — 生きているか
 - 配信ファイルの mtime が2日以上古くないか (cron が黙って死んでいないか)
 - `/var/log/voyager6-data.log` — 各回の結果が1行ずつ入る
+
+---
+
+## 落とし穴メモ (2026-09-01 Clara追記・手順3〜5で詰まりやすい所)
+
+**(a) 証明書と nginx conf の鶏と卵。** `nginx/data.voyager6.net.conf` の 443 ブロックは
+`/etc/letsencrypt/live/data.voyager6.net/` の証明書を参照している。証明書がまだ無い状態で
+この conf を置くと `nginx -t` が落ちる。しかも certbot の webroot 認証は「80番で data.voyager6.net の
+`/.well-known/acme-challenge/` が `/var/www/html` から返る」ことが前提で、server ブロックが無いと
+その名前のリクエストは既定の vhost (WordPress 側) に吸われて認証が通らない。**順番はこう**:
+
+```bash
+# 1) まず 80 番だけの仮 conf を置く (acme の location だけ。リダイレクトは付けない)
+cat > /etc/nginx/conf.d/data.voyager6.net.conf <<'NG'
+server {
+    listen 80; listen [::]:80;
+    server_name data.voyager6.net;
+    location /.well-known/acme-challenge/ { root /var/www/html; }
+    location / { return 404; }
+}
+NG
+mkdir -p /var/www/html && nginx -t && systemctl reload nginx
+
+# 2) 証明書を取る (更新時に nginx を reload するフックも一緒に)
+certbot certonly --webroot -w /var/www/html -d data.voyager6.net \
+  --deploy-hook "systemctl reload nginx"
+
+# 3) 本番 conf で上書き → 反映
+cp /opt/voyager6/deploy/nginx/data.voyager6.net.conf /etc/nginx/conf.d/
+nginx -t && systemctl reload nginx
+curl -I https://data.voyager6.net/healthz
+```
+
+**(b) SELinux (AlmaLinux)。** `/home/kusanagi/data.voyager6.net` を新規に作ると、コンテキストが
+`user_home_t` 系になって nginx が読めず 403/Permission denied になることがある。
+`getenforce` が Enforcing で 403 が出たら:
+
+```bash
+ls -Z /home/kusanagi/ | head            # 既存プロファイルのコンテキストと見比べる
+semanage fcontext -a -t httpd_sys_content_t "/home/kusanagi/data.voyager6.net(/.*)?"
+restorecon -Rv /home/kusanagi/data.voyager6.net
+```
+
+**(c) `/opt/voyager6` の所有者。** root で clone すると、cron を回す kusanagi ユーザが
+`git pull` できず (safe.directory + 書込不可)、`build_satellites.py` も `src/` に書けない。
+clone の直後に `chown -R kusanagi:kusanagi /opt/voyager6`、または最初から
+`sudo -u kusanagi git clone ...` にする。手順5の「まず手で1回流す」で気づける。
+
+**(d) IPv6。** VPS には IPv6 (2401:2500:102:1202:133:242:138:253) がある。AAAA を振るなら
+conf の `listen [::]` が生きる。振らないなら AAAA 無しでよい (conf はそのままで害なし)。
+
+**(e) 手順0の出力は貼って持ち帰る。** 特に `df -h /`、`nginx -v`、`getenforce`、`cat /etc/os-release | head -3`。
+この4つで手順4以降の分岐 (http2 の書き方・SELinux・Gaia 全天の置き場) が全部決まる。
