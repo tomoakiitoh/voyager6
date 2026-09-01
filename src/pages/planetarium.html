@@ -48,6 +48,7 @@ bodyclass: planetarium-page
 import * as THREE from "three";
 import { VrPanel, vrLink, vrReturnPrompt } from "../assets/vrpanel.js";
 import { bindUrlState } from "../assets/urlstate.js";
+import { fetchData } from "../assets/dataurl.js";
 // astro.js: raDecToVec / skyMatrix / applySky / skyMatrixNoPrecession / planetPosition /
 //   moonPosition / moonTopocentric / sunPosition / julianDay / jdFromDate。data.js/sites.js。
 // 星の方向は早見盤とまったく同じ (e,n,u)。VRでは (e, u, -n) 方向に置くだけ。
@@ -405,9 +406,10 @@ const satLabels = [];
 function loadSats() {
   if (satTried) return;
   satTried = true;
+  // VPS (data.voyager6.net) を先に試し、不通なら同梱のスナップショットへ落ちる
   Promise.all([
     import("../assets/satellite.es.js"),
-    fetch("../satellites.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+    fetchData("satellites.json", "../satellites.json"),
   ]).then(([lib, data]) => {
     satLib = lib;
     satRecs = [];

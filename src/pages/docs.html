@@ -153,8 +153,16 @@ AIアシスタントは、これらのパラメータでシミュレーション
     <tr><td><a href="/asteroids_neo.json"><code>/asteroids_neo.json</code></a></td><td>地球近傍小惑星（同スキーマ）</td><td>同上</td></tr>
     <tr><td><a href="/spacecraft.json"><code>/spacecraft.json</code></a></td><td>各国の惑星探査機の飛行経路25機（JPL Horizons 再構築軌道）</td><td><code>{craft:[{key, name_ja, agency, launch, status, at, events, jd[](TDB), xyz[][](AU・日心黄道J2000)}]}</code>　隣接点は最大45日なので線形補間でよい</td></tr>
     <tr><td><a href="/dso.json"><code>/dso.json</code></a></td><td>星雲・星団・銀河（OpenNGC由来）</td><td>—</td></tr>
+    <tr><td><a href="https://data.voyager6.net/satellites.json"><code>data.voyager6.net/satellites.json</code></a></td><td>人工衛星の軌道要素（TLE、日次更新）。<code>_geo</code>（静止衛星）・<code>_starlink</code> もあり</td><td><code>[名前, NORAD番号, TLE1行目, TLE2行目, 標準等級]</code></td></tr>
   </tbody>
 </table>
+
+<p class="dim">
+人工衛星だけは <code>data.voyager6.net</code> から配っています。TLE は日次で変わるうえ、
+配信元が共有CIのIPからの取得を弾くことがあるため、固定IPのサーバで取り直しているためです。
+画面側はこちらを先に読み、不通なら <a href="/satellites.json"><code>voyager6.net/satellites.json</code></a>
+（同梱のスナップショット）に落ちるので、どちらを参照しても構いません。
+</p>
 
 <p class="dim">
 位置計算は JPL Horizons と突き合わせて検証済み（惑星 &lt;0.5°、明るい彗星・小惑星は秒角一致）。

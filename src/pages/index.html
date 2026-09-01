@@ -1323,10 +1323,12 @@ async function loadSats() {
   if (satTried) return;
   satTried = true;
   try {
-    const [lib, data] = await Promise.all([
+    const [lib, { fetchData }] = await Promise.all([
       import("./assets/satellite.es.js"),
-      fetch(SAT_URL).then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
+      import("./assets/dataurl.js"),
     ]);
+    // VPS (data.voyager6.net) を先に試し、不通なら同梱のスナップショットへ落ちる
+    const data = await fetchData("satellites.json", SAT_URL);
     satLib = lib; satData = data;
     satRecs = [];
     for (const [name, norad, l1, l2, stdMag] of data) {
@@ -1627,7 +1629,8 @@ async function loadIdStarlink() {
   if (idStarlinkTried || !satLib) return;
   idStarlinkTried = true;
   try {
-    const data = await fetch("satellites_starlink.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+    const { fetchData } = await import("./assets/dataurl.js");
+    const data = await fetchData("satellites_starlink.json", "satellites_starlink.json");
     idStarlink = [];
     for (const [name, norad, l1, l2] of data) {
       const rec = satLib.twoline2satrec(l1, l2);

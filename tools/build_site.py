@@ -32,6 +32,10 @@ DIST = ROOT / "dist"
 
 SITE_NAME = "Voyager6"      # サイト名 (ヘッダに出る)
 DOMAIN = "voyager6.net"     # GitHub Pages のカスタムドメイン (dist/CNAME に書き出す)
+# cron 更新データを日次配信する VPS (データ配信VPS移設_設計_20260725.md)。
+# 静的な土台は Pages のままで、ここは「より新しい方」を出すだけの補助。
+# 取得先の既定は src/dataurl.js 側にも書いてある (画面はそちらを見る)。
+DATA_ORIGIN = "https://data.voyager6.net"
 
 # ヘッダのメニュー (UI整理 F2)。三つの動詞で束ねる。(スラッグ, 表示名)、"" はトップ。
 # 横並びのナビは 5項目でスマホのヘッダが埋まり、ページが増えるたびに構造を作り直す羽目に
@@ -68,6 +72,7 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "events.js", "stars.js",
           "eclipsemap.js",    # 食の地図 (等食分線・可視範囲)。/eclipses/ が使う
           "aerith.js",        # 彗星ごとの吉田誠一氏 (aerith.net) へのリンク生成
+          "dataurl.js",       # cron更新データを VPS 優先で取る (失敗時は committed へ)
           "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
           "svgcanvas.esm.js",  # チャートSVG出力 (F8) 用に vendoring (MIT)
           "satellite.es.js",   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
@@ -182,11 +187,21 @@ def write_data_index() -> None:
         {"name": "dso", "url": f"{origin}/dso.json",
          "description": "星雲・星団・銀河 / deep-sky objects", "format": "JSON",
          "source": "OpenNGC", "cadence": "static"},
+        # 衛星は VPS (data.voyager6.net) が最新を日次配信し、Pages 側は同内容のスナップショット。
+        # `live_url` が新しさ優先、`url` が確実さ優先。両方 CORS 開放。
         {"name": "satellites", "url": f"{origin}/satellites.json",
-         "description": "明るい人工衛星の TLE (stations + visual, 約180機) / bright satellites (TLE)",
+         "live_url": f"{DATA_ORIGIN}/satellites.json",
+         "description": ("明るい人工衛星の TLE (stations + visual, 約180機) / bright satellites (TLE). "
+                         "live_url is updated daily on a dedicated host; url is a committed snapshot (fallback)."),
          "format": "JSON array of arrays", "fields": ["name", "norad_id", "tle_line1", "tle_line2", "std_mag"],
          "source": "CelesTrak (Dr. T.S. Kelso)", "license": "no restrictions (CelesTrak)", "cadence": "daily"},
+        {"name": "satellites_geo", "url": f"{origin}/satellites_geo.json",
+         "live_url": f"{DATA_ORIGIN}/satellites_geo.json",
+         "description": "静止衛星の TLE (約570機) / geostationary satellites (TLE)",
+         "format": "JSON array of arrays", "fields": ["name", "norad_id", "tle_line1", "tle_line2"],
+         "source": "CelesTrak (Dr. T.S. Kelso)", "license": "no restrictions (CelesTrak)", "cadence": "daily"},
         {"name": "satellites_starlink", "url": f"{origin}/satellites_starlink.json",
+         "live_url": f"{DATA_ORIGIN}/satellites_starlink.json",
          "description": "Starlink 群の TLE (約1万機) / Starlink constellation (TLE)",
          "format": "JSON array of arrays", "fields": ["name", "norad_id", "tle_line1", "tle_line2"],
          "source": "CelesTrak (Dr. T.S. Kelso)", "license": "no restrictions (CelesTrak)", "cadence": "daily"},

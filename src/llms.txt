@@ -192,6 +192,10 @@ Stable, cross-origin-fetchable JSON. Machine-readable index with source / licens
 - `https://voyager6.net/dso.json` — 星雲・星団・銀河(OpenNGC由来)
 - `https://voyager6.net/satellites.json` — 明るい人工衛星のTLE(CelesTrak, 日次更新)。配列 `[name, NORAD, TLE1行目, TLE2行目, 標準等級|null]`。位置計算は SGP4 (satellite.js)
 - `https://voyager6.net/satellites_starlink.json` — Starlink群のTLE(CelesTrak, 日次)。配列 `[name, NORAD, TLE1, TLE2]`
+- 衛星TLEの**最新は `https://data.voyager6.net/` 側**(satellites.json / satellites_geo.json / satellites_starlink.json)。
+  固定IPのVPSで日次更新している(共有CIのIPだとCelesTrakに弾かれることがあるため)。voyager6.net 側は同内容の
+  スナップショットで、VPS不通時のフォールバック。**新しさが要るならVPS、確実さが要るならPages**。どちらもCORS開放。
+  Satellite TLEs are freshest at data.voyager6.net; voyager6.net serves a committed snapshot as fallback.
 - `https://voyager6.net/variables.json` — 著名な変光星(GCVS由来)。配列 `[name, ra(度), dec(度), 型, 最大光度, 最小光度, 周期(日)|null, 和名メモ]`。**23個の厳選版**(解説つき・形式は凍結)
 - `https://voyager6.net/variables_all.json` — 変光星の拡張カタログ(GCVS 5.1、3,637個)。配列 `[name, ra(度), dec(度), 型, 最大光度, 最小光度|null, 周期(日)|null, 元期(JD-2400000)|null, 上昇時間(%)|null]`。V等級で最大10等以下のものだけ(GCVSに混在する赤外/写真等級は除外済み)。
   **眼視で追える型に限る**ので、振幅が0.1等に満たない型 (ACV/DSCTC/BCEP/ACYG 等) は入れていない。

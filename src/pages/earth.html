@@ -50,6 +50,7 @@ import * as THREE from "three";
 import { OrbitControls } from "../assets/OrbitControls.js";
 import { VrPanel, vrLink, vrReturnPrompt } from "../assets/vrpanel.js";
 import { bindUrlState } from "../assets/urlstate.js";
+import { fetchData } from "../assets/dataurl.js";
 
 // astro.js のグローバル (sunPosition / raDecToVec / jdFromDate) を使う。
 // 衛星の位置は satellite.js の SGP4 (早見盤 F1 と同じ。Vallado 参照実装と照合済み)。
@@ -457,10 +458,9 @@ function regimeColor(altKm) {
 
 async function loadSats() {
   try {
-    const [lib, data] = await Promise.all([
-      import("../assets/satellite.es.js"),
-      fetch("../satellites.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status))),
-    ]);
+    const lib = await import("../assets/satellite.es.js");
+    // VPS (data.voyager6.net) を先に試し、不通なら同梱のスナップショットへ落ちる
+    const data = await fetchData("satellites.json", "../satellites.json");
     satLib = lib;
     for (const [name, norad, l1, l2, stdMag] of data) {
       const satrec = lib.twoline2satrec(l1, l2);
@@ -489,7 +489,7 @@ async function loadStarlink() {
   if (starTried || !satLib) return;
   starTried = true;
   try {
-    const data = await fetch("../satellites_starlink.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+    const data = await fetchData("satellites_starlink.json", "../satellites_starlink.json");
     const step = Math.max(1, Math.ceil(data.length / 3000));
     for (let i = 0; i < data.length; i += step) {
       const rec = satLib.twoline2satrec(data[i][2], data[i][3]);
@@ -514,7 +514,7 @@ async function loadGeo() {
   if (geoTried || !satLib) return;
   geoTried = true;
   try {
-    const data = await fetch("../satellites_geo.json").then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+    const data = await fetchData("satellites_geo.json", "../satellites_geo.json");
     for (const [name, norad, l1, l2] of data) {
       const rec = satLib.twoline2satrec(l1, l2);
       if (!rec.error) geoRecs.push({ name: name.trim(), norad, satrec: rec });
