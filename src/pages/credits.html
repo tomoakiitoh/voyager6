@@ -24,12 +24,12 @@ description: このサイトが使っている星表・星座線データの出�
       <td><a href="https://creativecommons.org/licenses/by-sa/2.5/deed.ja">CC BY-SA 2.5</a></td>
     </tr>
     <tr>
-      <td>深い星表 約33万個（実視等級 10 以下・望遠鏡モードで読み込み）<br><code>stars/</code> のタイルと <code>highpm.json</code></td>
-      <td><a href="https://codeberg.org/astronexus/athyg">AT-HYG v3.3</a>（Tycho-2 + Gaia DR3）<br>© David Nash / astronexus</td>
+      <td>深い星表 約33万個（実視等級 10 以下・望遠鏡モードで読み込み）<br><code>stars/</code> のタイルと <code>stars/highpm.json</code></td>
+      <td><a href="https://codeberg.org/astronexus/athyg">AT-HYG v4.0</a>（Tycho-2 + Gaia DR3）<br>サブセット <code>athyg_40_reduced_m10</code><br>© David Nash / astronexus</td>
       <td><a href="https://creativecommons.org/licenses/by-sa/4.0/deed.ja">CC BY-SA 4.0</a></td>
     </tr>
     <tr>
-      <td>20等星図の深層（実視等級 10〜21・<strong>視野 2° 未満でのみ</strong>読み込み）<br><code>stars/v1/</code> の HEALPix タイル</td>
+      <td>20等星図の深層（実視等級 10〜21・<strong>視野 2° 未満でのみ</strong>読み込み）<br>HEALPix タイル <code>data.voyager6.net/stars/v1/</code>（このサイト本体ではなく別サーバから配信。不通なら10等までの表示に戻る）</td>
       <td><a href="https://www.cosmos.esa.int/gaia">ESA/Gaia/DPAC</a>（Gaia DR3）</td>
       <td><a href="https://creativecommons.org/licenses/by-nc/3.0/igo/">CC BY-NC 3.0 IGO</a><br><strong>非商用のみ</strong></td>
     </tr>
@@ -67,9 +67,17 @@ description: このサイトが使っている星表・星座線データの出�
       <td>送客のみ（データは取り込まない）<br>リンクは著者の了承を得ています</td>
     </tr>
     <tr>
-      <td>彗星・小惑星の軌道要素（位置はブラウザ内で計算）<br><code>comets.json</code> / <code>asteroids.json</code><br>彗星の光度パラメータ（M1・K1）</td>
+      <td>彗星・小惑星の軌道要素（位置はブラウザ内で計算）<br>
+        彗星 <code>comets.json</code> / <code>comets_all.json</code> / <code>comets_notable.json</code><br>
+        小惑星 <code>asteroids.json</code> / <code>asteroids_catalog.json</code> / <code>asteroids_neo.json</code> / <code>asteroids_notable.json</code> / <code>asteroids_solar.json</code> / <code>asteroids_tier2.bin</code><br>
+        彗星の光度パラメータ（M1・K1）</td>
       <td><a href="https://www.minorplanetcenter.net/">Minor Planet Center</a>（IAU）<br>cometels / MPCORB<br>彗星の M1・K1 は <a href="https://ssd.jpl.nasa.gov/tools/sbdb_query.html">JPL Small-Body Database</a>（NASA/JPL）</td>
       <td>出典表示のうえ利用可</td>
+    </tr>
+    <tr>
+      <td>歴史的な肉眼彗星の出現時元期<br><code>comets_historic.json</code>（百武・ヘールボップ・ウェスト等。ハレーは1910/1986/2061の出現別）</td>
+      <td><a href="https://ssd-api.jpl.nasa.gov/doc/sbdb.html">JPL Small-Body Database</a>（単一出現の長周期彗星。要素は full-precision、光度は M1/K1）<br><a href="https://ssd.jpl.nasa.gov/horizons/">JPL Horizons</a>（ハレーなど周期彗星は出現ごとに要素が違うため、その時刻に最も近い出現の接触軌道要素を取得）<br>いずれも NASA/JPL-Caltech</td>
+      <td>パブリックドメイン</td>
     </tr>
     <tr>
       <td>日食・月食のカタログ<br><code>assets/events.js</code> の <code>ECLIPSES_SOLAR</code> / <code>ECLIPSES_LUNAR</code></td>
@@ -77,12 +85,12 @@ description: このサイトが使っている星表・星座線データの出�
       <td>パブリックドメイン</td>
     </tr>
     <tr>
-      <td>人工衛星の軌道要素（TLE。位置はブラウザ内で SGP4 計算）<br><code>satellites.json</code></td>
+      <td>人工衛星の軌道要素（TLE。位置はブラウザ内で SGP4 計算）<br><code>satellites.json</code>（明るいもの）・<code>satellites_geo.json</code>（静止衛星）・<code>satellites_starlink.json</code>（Starlink群）<br>最新版は <code>data.voyager6.net</code> からも配信</td>
       <td><a href="https://celestrak.org/">CelesTrak</a> GP data<br>© Dr. T.S. Kelso（NORAD/18 SDS 由来のデータを再配布）</td>
       <td>利用制限なし</td>
     </tr>
     <tr>
-      <td>惑星・月の表面テクスチャ<br><code>assets/mercury.jpg</code>・<code>assets/moon.jpg</code> ほか</td>
+      <td>惑星・月の表面テクスチャ<br><code>assets/</code> の <code>mercury.jpg</code>・<code>venus.jpg</code>・<code>mars.jpg</code>・<code>jupiter.jpg</code>・<code>saturn.jpg</code>・<code>saturn_ring.png</code>・<code>uranus.jpg</code>・<code>neptune.jpg</code>・<code>moon.jpg</code></td>
       <td><a href="https://www.solarsystemscope.com/textures/">Solar System Scope</a>（INOVE）<br>1024×512 に縮小して使用</td>
       <td>CC BY 4.0</td>
     </tr>
@@ -90,6 +98,11 @@ description: このサイトが使っている星表・星座線データの出�
       <td>惑星探査機の飛行経路（25機の再構築軌道）<br><code>spacecraft.json</code></td>
       <td><a href="https://ssd.jpl.nasa.gov/horizons/">JPL Horizons</a>（NASA/JPL-Caltech）</td>
       <td>パブリックドメイン</td>
+    </tr>
+    <tr>
+      <td>3D描画エンジン（太陽系3D・地球周回3D・VRプラネタリウム／WebXR）<br><code>assets/three.module.min.js</code>（r160）・<code>assets/OrbitControls.js</code></td>
+      <td><a href="https://threejs.org/">three.js</a><br>© 2010–2023 three.js authors</td>
+      <td>MIT</td>
     </tr>
     <tr>
       <td>人工衛星の軌道伝播（SGP4）<br><code>assets/satellite.es.js</code></td>
@@ -119,7 +132,7 @@ description: このサイトが使っている星表・星座線データの出�
 <p>
 恒星データは HYG Database を加工したものなので、それを含む <code>assets/data.js</code> は
 <strong>元と同じ CC BY-SA 2.5</strong> で提供します。望遠鏡モードで読み込む深い星表
-（<code>stars/</code> のタイルと <code>highpm.json</code>）は AT-HYG、星雲星団銀河（<code>dso.json</code>）は
+（<code>stars/</code> のタイルと <code>stars/highpm.json</code>）は AT-HYG、星雲星団銀河（<code>dso.json</code>）は
 OpenNGC を加工したものなので、いずれも <strong>CC BY-SA 4.0</strong> で提供します。再利用・再配布は自由ですが、
 出典の表示と、同じライセンスでの提供が条件になります。
 自作コード（MIT）とはライセンスが違う点にご注意ください。
@@ -191,6 +204,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>
   <li>月 — 地平視差を補正して 0.5° 未満</li>
   <li>惑星（水星〜土星） — 0.5° 未満</li>
 </ul>
+
+<h3>使っている計算の出典</h3>
+
+<table>
+  <thead><tr><th>対象</th><th>理論・典拠</th></tr></thead>
+  <tbody>
+    <tr><td>座標変換・歳差・恒星時</td><td>Jean Meeus <i>Astronomical Algorithms</i>（第21章ほか）</td></tr>
+    <tr><td>月の位置</td><td><b>ELP2000-82B の主要項</b>（Meeus 第47章、表47.A/47.B の経度・距離60項／緯度60項）。黄経の精度は約10″で、JPL Horizons と3秒角以内で一致。金星・木星の作用と地球の扁平による付加項も入れている</td></tr>
+    <tr><td>太陽・惑星の位置</td><td>Paul Schlyter <a href="https://www.stjarnhimlen.se/comp/ppcomp.html">“How to compute planetary positions”</a> の軌道要素。木星・土星には Meeus の主要摂動項を加えている（入れないと大接近の頃に 0.5° 近くずれる）</td></tr>
+    <tr><td>ΔT（地球自転の遅れ）</td><td>Espenak &amp; Meeus の区分多項式（NASA の日食ページが使っているもの）</td></tr>
+    <tr><td>彗星・小惑星</td><td>公表された軌道要素からケプラー運動で直接計算（摂動は入れない。近日点付近の概略）</td></tr>
+    <tr><td>人工衛星</td><td>SGP4（TLE から。<code>assets/satellite.es.js</code>）</td></tr>
+  </tbody>
+</table>
 
 <p>
 大気差（地平線ぎわで天体が浮き上がって見える効果）は星図の描画では省いています。

@@ -13,6 +13,12 @@ AIアシスタントは、これらのパラメータでシミュレーション
 機械可読なサイト説明は <a href="/llms.txt"><code>/llms.txt</code></a> にあります。
 </p>
 <p class="dim">
+  この仕様は <b>Stable 版 2026.9.x</b> のものです。
+  <a href="/llms.txt"><code>/llms.txt</code></a> と<b>このページが一次情報</b>で、
+  README やマニュアルはその要約にあたります。変更の履歴は
+  <a href="https://github.com/tomoakiitoh/voyager6/blob/main/CHANGELOG.md">CHANGELOG</a>。
+</p>
+<p class="dim">
   ※ パラメータを覚えなくても、<a href="/ask/">AIに聞いてみる</a>の文例をコピペして
   AI に頼めば、リンクを組み立てて返してくれます。まずはそちらが手軽です。
 </p>
@@ -71,6 +77,24 @@ AIアシスタントは、これらのパラメータでシミュレーション
   戻すと直前の縮尺・中心にそのまま復帰し、時刻・観測地は変わりません
   （全天へ引いている間も、URL は星図が開くままです）。
   操作パネルの「視野」の段階ボタン（2°/4°/6°/15°/30°/60°）でも切り替えられます。
+</p>
+
+<h2>変光星カタログ <code>https://voyager6.net/variables/</code></h2>
+<table>
+  <thead><tr><th>パラメータ</th><th>型・値</th><th>説明</th><th>例</th></tr></thead>
+  <tbody>
+    <tr><td><code>q</code></td><td>文字列</td><td>名前・星座の<b>部分一致</b>で絞り込み。ギリシャ文字は記号 <code>α</code>・GCVS略号 <code>alf</code>・綴り <code>alpha</code> のどれでも当たる。<b>日本語では引けません</b>。</td><td><code>Cyg</code>／<code>Mira</code></td></tr>
+    <tr><td><code>tonight</code></td><td><code>1</code></td><td>今夜見えるものだけ（観測地で高度20°以上）。<code>lat</code>/<code>lon</code> と併用する。</td><td><code>1</code></td></tr>
+    <tr><td><code>peak</code></td><td><code>1</code></td><td>極大が近いミラ型だけ（前後60日以内・誤差45日以下）。予報を出せるのはミラ型だけなので <code>type=mira</code> と実質同じ意味。</td><td><code>1</code></td></tr>
+    <tr><td><code>type</code></td><td>カンマ区切り</td><td>型で絞る。<code>mira</code>／<code>sr</code>／<code>eclipse</code>／<code>cepheid</code>／<code>rr</code>／<code>nova</code>／<code>other</code>。<code>peak=1&amp;type=eclipse</code> のような噛み合わない組み合わせは0件になります。</td><td><code>mira</code></td></tr>
+    <tr><td><code>lat</code>／<code>lon</code></td><td>度</td><td>観測地（<code>tonight=1</code> のときだけ効く）</td><td><code>35.68</code>／<code>139.77</code></td></tr>
+  </tbody>
+</table>
+<p class="dim">
+  ミラ型の極大予報は<b>元期＋周期×n の外挿</b>にすぎず、元期が古いほど誤差が積み上がります
+  （実測で R Leo は186日ずれました）。ページには必ず誤差を併記しているので、日付を断定せずに
+  誤差ごとお使いください。カードから比較星の等級つき観測星図と
+  <a href="https://www.aavso.org/vsp">AAVSO VSP</a> を開けます。
 </p>
 
 <h2>太陽系3D <code>https://voyager6.net/solar/</code></h2>
@@ -138,6 +162,52 @@ AIアシスタントは、これらのパラメータでシミュレーション
   ページの時刻は今日から前後7日までです（人工衛星のTLEが古くなると位置が嘘になるため）。
 </p>
 
+<h2>VRプラネタリウム <code>https://voyager6.net/planetarium/</code></h2>
+<p>
+  天球の内側に星空を描く没入ビュー（WebXR）。日時・観測地は早見盤と同じ
+  <code>t</code>／<code>lat</code>／<code>lon</code> で指定でき、表示レイヤは下の表のとおりです。
+  日付を変えれば1996年の百武彗星の空も見上げられます。
+</p>
+
+<h2 id="layers">表示レイヤの ON/OFF（3Dの3ページ共通）</h2>
+<p>
+  <code>/solar/</code>・<code>/earth/</code>・<code>/planetarium/</code> は、画面下のチェックボックスを
+  そのまま URL に持ちます。<code>1</code>=ON／<code>0</code>=OFF で、
+  <b>既定と同じものは URL に出ません</b>（既定のままなら書かなくてよい）。
+  同じ名前でもページによって指すものが違うので、ページごとに見てください。
+</p>
+<table>
+  <thead><tr><th>ページ</th><th>パラメータ</th><th>意味</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="8"><a href="/solar/">太陽系3D</a></td><td><code>orbits</code></td><td>惑星の軌道線</td></tr>
+    <tr><td><code>comets</code></td><td>彗星の点</td></tr>
+    <tr><td><code>comet-orbits</code></td><td>彗星の軌道線（<code>group</code> と併せると群の軌道だけが残る）</td></tr>
+    <tr><td><code>asteroids</code></td><td>小惑星（明るいもの）</td></tr>
+    <tr><td><code>asteroids2</code></td><td>小惑星 <b>全量</b>（GPU点群・数万天体。本体の帯とトロヤ群が濃く出る）</td></tr>
+    <tr><td><code>craftlayer</code></td><td>探査機レイヤの ON/OFF。<b>どの探査機を選ぶかは <code>craft</code></b></td></tr>
+    <tr><td><code>corotate</code></td><td>木星を止めた回転座標系（トロヤ群・ヒルダ群が浮かび上がる）</td></tr>
+    <tr><td><code>names</code></td><td>惑星名のラベル</td></tr>
+    <tr><td rowspan="6"><a href="/earth/">地球周回3D</a></td><td><code>line</code></td><td>線画モード（海岸線）</td></tr>
+    <tr><td><code>fixjp</code></td><td>日本を正面に固定</td></tr>
+    <tr><td><code>guides</code></td><td>静止軌道の輪・グリッド</td></tr>
+    <tr><td><code>orbit</code></td><td>選択した衛星の軌道</td></tr>
+    <tr><td><code>geo</code></td><td>静止衛星</td></tr>
+    <tr><td><code>starlink</code></td><td>Starlink 群</td></tr>
+    <tr><td rowspan="7"><a href="/planetarium/">VRプラネタリウム</a></td><td><code>deep</code></td><td>深い星表（V≤10）</td></tr>
+    <tr><td><code>lines</code></td><td>星座線</td></tr>
+    <tr><td><code>names</code></td><td><b>星座名</b>（早見盤の <code>names=on</code> とは意味が違います）</td></tr>
+    <tr><td><code>planets</code></td><td>惑星・月</td></tr>
+    <tr><td><code>mw</code></td><td>天の川</td></tr>
+    <tr><td><code>comets</code></td><td>彗星（現行＋歴史的な肉眼彗星）</td></tr>
+    <tr><td><code>sats</code></td><td>人工衛星（SGP4）</td></tr>
+  </tbody>
+</table>
+<ul class="examples">
+  <li><a href="/earth/?geo=1">静止衛星を出した地球周回3D</a></li>
+  <li><a href="/planetarium/?names=1">星座名つきのVRプラネタリウム</a></li>
+  <li><a href="/solar/?corotate=1&amp;asteroids2=1&amp;comets=0">木星固定＋小惑星全量（トロヤ群）</a></li>
+</ul>
+
 <h2>データ（安定JSON・CORS対応）</h2>
 <p>
 以下は外部オリジンから直接fetchできます（<code>Access-Control-Allow-Origin: *</code>）。
@@ -193,6 +263,12 @@ CC BY-SA 4.0 のまま出版・放送・商用にも使えます。商用利用�
   <li><a href="/data/index.json">機械可読なデータ索引</a> — 配信している JSON の目録（CORS 対応）。</li>
   <li><a href="https://blog.voyager6.net/">ブログ</a> — 使い方の記事と観測トピック。</li>
 </ul>
+
+<p class="dim">
+旧マニュアル（2026-07 の暫定版・内容は古い）は
+<a href="/voyager6-manual.pdf">voyager6-manual.pdf</a> に残してあります。
+以後 PDF は更新しません。<b>最新の仕様はこのページと <a href="/llms.txt">llms.txt</a></b> です。
+</p>
 
 </main>
 
