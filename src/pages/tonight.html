@@ -128,19 +128,6 @@ function render() {
   renderPlanets();
 }
 
-/** 月齢から呼び名を決める。 */
-function moonPhaseName(age) {
-  const a = age.age;
-  if (a < 1.5) return "新月";
-  if (a < 6.5) return "三日月ごろ";
-  if (a < 9) return "上弦";
-  if (a < 13.5) return "十日夜すぎ";
-  if (a < 16.5) return "満月";
-  if (a < 21) return "十六夜すぎ";
-  if (a < 24) return "下弦";
-  return "有明月";
-}
-
 /** 月の満ち欠けアイコン。太陽が右にあるものとして描く（向きは実際の空とは別）。 */
 function drawMoonIcon(age) {
   const c = el("moon-canvas");

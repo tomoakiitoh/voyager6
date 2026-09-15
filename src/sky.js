@@ -133,6 +133,22 @@ function moonAge(ms) {
 }
 
 /**
+ * 月齢から呼び名を決める。/tonight/ とトップ下段の今夜の空 (tonight_digest) で共有するので
+ * ここに置く — 片方だけ直すと、同じ夜の月が二つの画面で違う名前になる。
+ */
+function moonPhaseName(age) {
+  const a = age.age;
+  if (a < 1.5) return "新月";
+  if (a < 6.5) return "三日月ごろ";
+  if (a < 9) return "上弦";
+  if (a < 13.5) return "十日夜すぎ";
+  if (a < 16.5) return "満月";
+  if (a < 21) return "十六夜すぎ";
+  if (a < 24) return "下弦";
+  return "有明月";
+}
+
+/**
  * その夜に惑星が「見ごろ」になる時間帯。
  * 天文薄明の終わり〜始まり (= 完全な夜) のうち、高度が minAlt 以上にある区間を返す。
  * 夜が明るいうちしか出ていない惑星 (夕方の水星など) を取りこぼさないよう、

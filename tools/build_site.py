@@ -20,10 +20,12 @@ index.html は dist/index.html に、それ以外は dist/<名前>/index.html �
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import pathlib
 import re
 import shutil
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -75,6 +77,7 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "eclipsemap.js",    # 食の地図 (等食分線・可視範囲)。/eclipses/ が使う
           "aerith.js",        # 彗星ごとの吉田誠一氏 (aerith.net) へのリンク生成
           "dataurl.js",       # cron更新データを VPS 優先で取る (失敗時は committed へ)
+          "tonight.js",       # 今夜の空の要約 (トップ下段)。ビルドの tonight_digest.mjs と共有
           "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
           "svgcanvas.esm.js",  # チャートSVG出力 (F8) 用に vendoring (MIT)
           "satellite.es.js",   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
@@ -137,6 +140,46 @@ def write_shortpaths() -> None:
             SHORTPATH_HTML.format(esc=target.replace("&", "&amp;"), js=json.dumps(target)),
             encoding="utf-8")
     print(f"  /1 〜 /{len(SHORTPATHS)} のショートパス ({len(SHORTPATHS)} 本, noindex)")
+
+
+def asset_ver(name: str) -> str:
+    """アセットの**中身**から作る短い版番号。<script src="…?v=">・<link href="…?v="> に付ける。
+
+    GitHub Pages は HTML も JS も max-age=600 で配るので、配信直後の数分は
+    「HTML だけ新しく、JS はキャッシュの古いもの」という組み合わせが起きうる。
+    2026-09 に関数を sky.js へ移したとき、手元でこれが実際に起きて /tonight/ の月の表が空になった。
+    日付ではなく中身のハッシュにするのは、**変わったファイルだけ**取り直させるため
+    (日次ビルドのたびに全アセットを取り直させない)。"""
+    p = SRC / name
+    if not p.exists():
+        return ""
+    return hashlib.sha1(p.read_bytes()).hexdigest()[:8]
+
+
+def tonight_digest() -> tuple[str, str | None, str | None]:
+    """トップ下段「今夜の空」の HTML 断片・日替わり description・その日付を返す (Ver.1.1)。
+
+    数字も文面も tools/tonight_digest.mjs → src/tonight.js (ブラウザと共有) が作る。
+    Python で同じ計算を二重に書かないために Node を呼ぶ。CI には Node がある (tests が使う)。
+
+    **Node が無い・失敗したときもビルドは止めない。** 同梱の前回断片
+    (src/tonight_digest.fallback.html) を使い、description は各ページのメタのままにする。
+    断片の中に日付を書いているので、古い日の値が残っても嘘にはならない
+    (ブラウザは開いた瞬間に今日の値へ描き直す)。"""
+    try:
+        r = subprocess.run(
+            ["node", str(ROOT / "tools" / "tonight_digest.mjs"), "--emit", "build"],
+            capture_output=True, text=True, timeout=120, check=True)
+        j = json.loads(r.stdout)
+        print(f"  今夜の空の要約: {j['data']['date']} {j['data']['site']['name']} "
+              f"(彗星 {len(j['data']['comets'])} 件)")
+        return j["html"], j["description"], j["data"]["date"]
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            json.JSONDecodeError, KeyError) as e:
+        fb = SRC / "tonight_digest.fallback.html"
+        print(f"  ! 今夜の空の要約を作れなかったので同梱の前回断片を使う ({type(e).__name__})",
+              file=sys.stderr)
+        return (fb.read_text(encoding="utf-8") if fb.exists() else ""), None, None
 
 
 META_RE = re.compile(r"^<!--\s*\n(.*?)\n-->\s*\n", re.S)
@@ -296,10 +339,17 @@ def main() -> int:
     layout = (SRC / "layout.html").read_text(encoding="utf-8")
     origin = f"https://{DOMAIN}"
     urls = []
+    digest_html, digest_desc, digest_date = tonight_digest()
 
     for page in sorted((SRC / "pages").glob("*.html")):
         meta, content = parse_page(page)
         stem = page.stem
+        if stem == "index":
+            # トップだけ、今夜の空の断片を焼き込み、description を日替わりにする。
+            # og:description も同じ {{description}} から出るので、SNS に貼られたときも今夜の文になる
+            content = content.replace("{{tonight_digest}}", digest_html)
+            if digest_desc:
+                meta = {**meta, "description": digest_desc}
 
         if stem == "index":
             out = DIST / "index.html"
@@ -324,7 +374,7 @@ def main() -> int:
             urls.append(canonical)
 
         scripts = "\n".join(
-            f'<script src="{root}assets/{s}"></script>'
+            f'<script src="{root}assets/{s}?v={asset_ver(s)}"></script>'
             for s in meta.get("scripts", "").split()
         )
         here = "" if stem == "index" else stem
@@ -350,6 +400,7 @@ def main() -> int:
                 .replace("{{root}}", root)
                 .replace("{{canonical}}", canonical)
                 .replace("{{origin}}", origin)
+                .replace("{{style_ver}}", asset_ver("style.css"))
                 .replace("{{sitename}}", SITE_NAME)
                 .replace("{{nav}}", nav)
                 .replace("{{scripts}}", scripts)
@@ -363,8 +414,15 @@ def main() -> int:
     # sitemap.xml / robots.txt
     sitemap = ['<?xml version="1.0" encoding="UTF-8"?>',
                '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    # トップは今夜の空が毎日焼き変わるので、lastmod で「毎日更新される」ことを伝える。
+    # 他のページは内容が日々変わるわけではないので付けない (付けると lastmod 自体が信用されなくなる)。
+    # 要約を作れず前回断片で済ませた日も付けない — 中身は変わっていないので。
+    top_lastmod = digest_date
     for url in sorted(urls):
-        sitemap.append(f"  <url><loc>{url}</loc></url>")
+        if url == f"{origin}/" and top_lastmod:
+            sitemap.append(f"  <url><loc>{url}</loc><lastmod>{top_lastmod}</lastmod></url>")
+        else:
+            sitemap.append(f"  <url><loc>{url}</loc></url>")
     sitemap.append("</urlset>")
     (DIST / "sitemap.xml").write_text("\n".join(sitemap) + "\n", encoding="utf-8")
     (DIST / "robots.txt").write_text(
