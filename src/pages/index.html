@@ -1,5 +1,6 @@
 <!--
 title: 星座早見
+fulltitle: 今日の星空 — 星座早見 Voyager6
 description: 指定した日時・場所の空を真円の全天図で描く星座早見。
 scripts: astro.js render.js data.js sites.js stars.js aerith.js sky.js events.js tonight.js
 bodyclass: sky-page
@@ -65,6 +66,8 @@ bodyclass: sky-page
       </span>
     </span>
     <span id="view-info" class="info" hidden></span>
+    <!-- 現在地が取れなかったときの一行 (alert は使わない)。数秒で消える -->
+    <span id="geo-note" class="info" role="status" hidden></span>
     <span class="slot-where">
       <!-- 見えるのは地名の文字だけ。その上に透明な select を重ねてあり、押すとそのまま選択肢が開く。
            select をそのまま置かないのは、select の幅が**一番長い選択肢** (「そのほか (緯度経度を入力)」)
@@ -263,6 +266,30 @@ bodyclass: sky-page
 <!-- /screen -->
 <!-- ここより下は #screen (100dvh の一画面) の外。build_site.py がこの印で本文を分ける。 -->
 
+<!-- ---- 下段「今日の星空」(Ver.1.1) ----
+     開いた瞬間の画面は変えず、スクロールすると出てくる位置に今夜の空の文章を置く。
+     **JS なしでも HTML に文章がある** (検索エンジンと AI の巡回が読む形)。B〜D は毎日のビルドが
+     東京・その日の値で焼き込み ({{tonight_digest}})、開いたときに JS が保存済みの観測地・今日の日付で
+     同じテンプレート (tonight.js) を使って描き直す。見出しと文の骨格は変わらない。 -->
+<section id="tonight" class="doc tonight-digest">
+  <h1>今日の星空 <small>星座早見 Voyager6</small></h1>
+  <!-- 日本語の途中で改行すると、ブラウザが空白を1つ差し込む。文は一行に書く -->
+  <p class="lead">開いた瞬間に、いまの空。日時と場所を変えれば、今夜の空も、1996年に百武彗星が見えた夜の空も、同じ盤面で見られます。インストールもログインも要りません。</p>
+
+  {{tonight_digest}}
+
+  <h2>このサイトでできること</h2>
+  <ul class="tonight-can">
+    <li><a href="./?target=M31&amp;fov=6">望遠鏡ファインダー</a> — 拡大すると10等まで、視野2°未満では20等台の星まで描く星図になります</li>
+    <li><a href="./?target=T%20CrB&amp;labels=mag&amp;names=on&amp;fov=6">観測星図</a> — 変光星・彗星を中心に、比較星の等級を書き込んだ印刷用チャート</li>
+    <li><a href="solar/">太陽系3D</a> — 惑星・全既知彗星・小惑星の軌道と、各国の惑星探査機25機の飛行経路</li>
+    <li><a href="eclipses/">日食・月食</a> — 2040年までの一覧と、影が地球に落ちる様子を宇宙から見る3D</li>
+    <li><a href="ask/">AIから呼べる</a> — 「今夜の東京の空のリンクを作って」とAIに頼めば、この星図のURLが返ってきます</li>
+  </ul>
+
+  <p class="dim tonight-source">位置は JPL Horizons と突き合わせて検証しています（日の出入り・薄明は1分以内、月の出入りは3分以内）。日食の各地の予報（食分・接触時刻）は扱いません。出典とライセンスは <a href="credits/">出典とライセンス</a>。</p>
+</section>
+
 <!-- 印刷/PDF 専用エリア (画面では非表示・@media print でのみ現れる)。中身は印刷時に組み立てる。
      **#screen の外 (body 直下) に置くこと** — @media print は body 直下の #print-area 以外を全部隠す。 -->
 <div id="print-area" hidden>
@@ -309,6 +336,8 @@ let chartView = null;          // {zoom, ra, dec, flip, roll}
 let homeLeftChart = false;     // 「今の空」で星図を離れた直後か (右下に「↩ 星図に戻る」を出す)
 let slotSig = "";              // 四隅スロットを置いたときの画面形 (変わったときだけ置き直す)
 let fittingSlots = false;      // fitSlots() の再入防止 (中で resize→draw→updateInfo が呼ばれる)
+const GPS_OPTION = "gps";       // 観測地リストの「📍 現在地を使う」(最初の充填が宣言より前に走るのでここに置く)
+const round2 = (x) => Math.round(x * 100) / 100;   // 現在地は小数2桁 (約1km) に丸めてから使う
 
 /** 観測星図モードか (target か等級ラベルか符号のどれかが効いている)。 */
 const obsChartMode = () => !!(obsTarget || showMagLabels || showDesignations);
@@ -3223,11 +3252,12 @@ el("t-night").addEventListener("change", () => {
 });
 
 // 観測地: プリセットの選択と緯度経度の手入力。選んだ場所は他のページと共有する。
-fillSiteSelect(el("site"), SITE);
+fillSiteSelectTop(el("site"));
 el("lat").value = SITE.lat;
 el("lon").value = SITE.lon;
 
 function updateSite(lat, lon, name) {
+  SITE.gps = false;          // 現在地を使う場合は、呼び出し側 (useCurrentPosition) が後で立て直す
   SITE.lat = lat;
   SITE.lon = lon;
   SITE.name = name ?? siteNameAt(lat, lon);
@@ -3241,6 +3271,7 @@ function updateSite(lat, lon, name) {
 el("site").addEventListener("change", () => {
   const v = el("site").value;
   if (v === "custom") return; // 緯度経度の欄で入れてもらう
+  if (v === GPS_OPTION) { useCurrentPosition(false); return; }   // ここで初めて許可を求める
   const [lat, lon] = v.split(",").map(Number);
   updateSite(lat, lon, el("site").selectedOptions[0].textContent);
 });
@@ -3250,7 +3281,7 @@ for (const id of ["lat", "lon"]) {
     const lat = Number(el("lat").value), lon = Number(el("lon").value);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     updateSite(lat, lon);
-    fillSiteSelect(el("site"), SITE); // プリセットと一致すればその名前が選ばれる
+    fillSiteSelectTop(el("site")); // プリセットと一致すればその名前が選ばれる
   });
 }
 
@@ -3491,7 +3522,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") setDtPop(f
 function syncSiteQuick() {
   const q = el("site-quick"), s = el("site");
   if (!q || !s) return;
-  if (q.options.length !== s.options.length) fillSiteSelect(q, SITE);
+  if (q.options.length !== s.options.length) fillSiteSelectTop(q);
   if (q.value !== s.value) q.value = s.value;
   // 隅に見えるのは選ばれた項目の文字だけなので、手入力の地点では「そのほか…」でなく地名を出す
   const custom = q.querySelector('option[value="custom"]');
@@ -3597,6 +3628,14 @@ function fitSlots(force = false) {
 
 /* 今夜ミニ計器 (左下)。下段の「今夜の空」と同じ tonight.js で、観測地・今日の値を出す。
    計算は惑星の出没を走査するので、観測地か日付が変わったときだけやる。 */
+let tonightMemo = { key: "", data: null };
+/** 今夜の空のデータ (ミニ計器と下段で共有する。同じ日・同じ場所なら計算し直さない)。 */
+function tonightFor(ymd) {
+  const key = `${ymd}|${SITE.lat}|${SITE.lon}|${SITE.name}`;
+  if (tonightMemo.key !== key) tonightMemo = { key, data: tonightData(ymd, SITE) };
+  return tonightMemo.data;
+}
+
 let gaugeKey = "";
 function renderGauge() {
   const box = el("slot-sw");
@@ -3605,7 +3644,8 @@ function renderGauge() {
   const key = `${ymd}|${SITE.lat}|${SITE.lon}`;
   if (key === gaugeKey) return;
   gaugeKey = key;
-  const d = tonightData(ymd, SITE);
+  renderTonightSection(ymd);             // 下段も同じ値に揃える (二重管理しない)
+  const d = tonightFor(ymd);
   const p = tonightBestPlanet(d);
   // 一行を短く保つ (横長の画面では盤面の左右の細い帯に縦積みで入れるため)
   box.innerHTML =
@@ -3614,6 +3654,112 @@ function renderGauge() {
     + `<span>月齢 ${d.moonAge.toFixed(1)}</span>`
     + (p ? `<span>${p.name} ${tonightHM(p.from, d.date)}〜</span>` : "");
   fitSlots(true);                        // 中身の大きさが変わったので置き直す
+}
+
+/* 下段「今夜の空」を、保存済みの観測地・今日の日付で描き直す。
+   HTML には毎日のビルドが東京の値を焼いてある。**同じテンプレート (tonight.js) で描き直す**ので、
+   見出し・行の並び・日付の書式は焼いたものと同じまま、数字と地名だけが入れ替わる。
+   焼いたものと同じ日・同じ場所 (=東京) なら何もしない。 */
+function renderTonightSection(ymd) {
+  const sky = el("tonight-sky");
+  if (!sky || typeof tonightSkyHtml !== "function") return;
+  const baked = sky.dataset.date;
+  const sameSite = SITE.lat === DEFAULT_SITE.lat && SITE.lon === DEFAULT_SITE.lon && !SITE.gps;
+  if (baked === ymd && sameSite && !sky.dataset.redrawn) return;
+  const d = tonightFor(ymd);
+  sky.innerHTML = tonightSkyHtml(d);
+  sky.dataset.date = ymd;
+  sky.dataset.redrawn = "1";
+  // 1週間の現象は場所に依らない (日付だけ)。焼いた日が古いときだけ描き直す
+  const week = el("tonight-week");
+  if (week && week.dataset.date !== ymd && baked !== ymd) {
+    week.innerHTML = tonightWeekHtml(d);
+    week.dataset.date = ymd;
+  }
+}
+
+/* ---- 現在地 (Ver.1.1) ----
+   **開いた瞬間には位置情報の許可を求めない。** 観測地リストの「📍 現在地を使う」を選んだときだけ聞く。
+   取れた座標は**小数2桁 (約1km) に丸めてから**使う — 盤面の精度には影響せず、共有リンク・履歴・
+   保存に自宅の正確な位置が乗らない。名前は外部の逆ジオコーディングを使わず、最寄りのプリセットから
+   「現在地 (東京付近)」とする。次回は、許可済みのときだけ黙って取り直す。 */
+
+/** プリセットの中で大円距離がいちばん近い地名。 */
+function nearestPresetName(lat, lon) {
+  const r = Math.PI / 180;
+  let best = null, bestD = Infinity;
+  for (const [, list] of SITE_GROUPS) {
+    for (const [name, la, lo] of list) {
+      const d = Math.acos(Math.min(1, Math.sin(lat * r) * Math.sin(la * r)
+        + Math.cos(lat * r) * Math.cos(la * r) * Math.cos((lon - lo) * r)));
+      if (d < bestD) { bestD = d; best = name; }
+    }
+  }
+  return best;
+}
+
+/** #site / #site-quick に「📍 現在地を使う」を足す (他ページと共有の fillSiteSelect は変えない)。 */
+function fillSiteSelectTop(sel) {
+  fillSiteSelect(sel, SITE);
+  if (!("geolocation" in navigator)) return;
+  const o = document.createElement("option");
+  o.value = GPS_OPTION;
+  o.textContent = SITE.gps ? SITE.name : "📍 現在地を使う";
+  sel.insertBefore(o, sel.firstChild);
+  if (SITE.gps) sel.value = GPS_OPTION;
+}
+
+function showGeoNote(msg) {
+  const n = el("geo-note");
+  if (!n) return;
+  n.textContent = msg;
+  n.hidden = !msg;
+  slotSig = "";
+  fitSlots();
+  if (msg) setTimeout(() => { if (n.textContent === msg) showGeoNote(""); }, 6000);
+}
+
+/**
+ * 位置を取って観測地にする。
+ * @param {boolean} quiet  true = 次回訪問時の黙った取り直し (失敗しても何も出さない)
+ */
+function useCurrentPosition(quiet) {
+  if (!("geolocation" in navigator)) { if (!quiet) showGeoNote("位置情報が使えません"); return; }
+  if (!quiet) showGeoNote("現在地を取得中…");
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const lat = round2(pos.coords.latitude), lon = round2(pos.coords.longitude);
+    updateSite(lat, lon, `現在地（${nearestPresetName(lat, lon)}付近）`);
+    SITE.gps = true;
+    saveSite({ name: SITE.name, lat, lon, gps: true });
+    fillSiteSelectTop(el("site"));
+    fillSiteSelectTop(el("site-quick"));
+    el("site-quick").value = GPS_OPTION;
+    showGeoNote("");
+  }, () => {
+    if (!quiet) showGeoNote("位置情報が使えません（設定で許可）");
+    fillSiteSelectTop(el("site"));           // 選択を元の地点に戻す
+    fillSiteSelectTop(el("site-quick"));
+    syncSiteQuick();
+  }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60000 });
+}
+
+/* 前回「現在地」を使っていたら: 許可済みなら黙って取り直す。
+   許可がまだ・拒否なら**聞かずに東京へ戻す** (開いた瞬間にダイアログを出さない)。
+   URL で lat/lon が渡されたとき (共有リンク) はそちらを優先して何もしない。 */
+function restoreCurrentPosition() {
+  if (!SITE.gps) return;
+  const q = new URLSearchParams(location.search);
+  if (q.has("lat") && q.has("lon")) { SITE.gps = false; return; }
+  const toTokyo = () => {
+    SITE.gps = false;
+    updateSite(DEFAULT_SITE.lat, DEFAULT_SITE.lon, DEFAULT_SITE.name);
+    fillSiteSelectTop(el("site"));
+    fillSiteSelectTop(el("site-quick"));
+  };
+  if (!navigator.permissions || !navigator.permissions.query) return;   // 分からないときは保存済みの丸めた座標のまま
+  navigator.permissions.query({ name: "geolocation" })
+    .then((st) => (st.state === "granted" ? useCurrentPosition(true) : toTokyo()))
+    .catch(() => { /* 問い合わせ自体ができない環境: 保存済みの丸めた座標のまま */ });
 }
 
 /* ---- 観測星図の表示切り替え ----
@@ -3641,8 +3787,8 @@ window.addEventListener("resize", resize);
 new ResizeObserver(resize).observe(document.getElementById("sky-wrap"));
 syncControls();
 resize();
-// 今夜ミニ計器は惑星の出没を走査するぶん少し重いので、最初の盤面を描いてから計算する
-setTimeout(renderGauge, 0);
+// 今夜ミニ計器・下段は惑星の出没を走査するぶん少し重いので、最初の盤面を描いてから計算する
+setTimeout(() => { renderGauge(); restoreCurrentPosition(); }, 0);
 
 // 観測星図モード: URL に target/labels/names があればデータを読んで目標を中心化する
 if (obsTargetSpec || showMagLabels || showDesignations) initObsChart();

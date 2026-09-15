@@ -193,6 +193,13 @@ function tonightDescription(d) {
   return `${tonightDateJa(d)}の${d.site.name}: ${parts.join("、")}。開いた瞬間に今の空が出る星座早見`;
 }
 
+/**
+ * データの href (サイト絶対 "/calendar/") を、トップから辿れる相対形 ("./calendar/") にする。
+ * このサイトは file:// やサブディレクトリ配信でも動くよう参照を相対で書く方針なので、HTML にはこちらを出す。
+ * (データ=JSON のほうは他所から読まれるので絶対形のまま)
+ */
+const tonightRel = (href) => (href.startsWith("/") ? `.${href}` : href);
+
 const tonightEsc = (s) => String(s).replace(/[&<>"]/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -229,7 +236,7 @@ function tonightSkyHtml(d) {
     + rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")
     + `</tbody></table>`
     + `<h3>今夜見ごろの惑星</h3>${planets}`
-    + `<p class="tonight-more"><a href="/tonight/">別の場所・日付で見る →</a></p>`;
+    + `<p class="tonight-more"><a href="${tonightRel("/tonight/")}">別の場所・日付で見る →</a></p>`;
 }
 
 /** C節 (この先1週間の天文現象)。 */
@@ -238,7 +245,7 @@ function tonightWeekHtml(d) {
     ? "<ul class=\"tonight-week\">" + d.weekEvents.map((e) => {
       const md = `${Number(e.date.slice(5, 7))}/${Number(e.date.slice(8, 10))}`;
       return `<li><time datetime="${e.date}">${md}</time> `
-        + `<a href="${e.href}">${tonightEsc(e.text)}</a></li>`;
+        + `<a href="${tonightRel(e.href)}">${tonightEsc(e.text)}</a></li>`;
     }).join("") + "</ul>"
     : "<p>この1週間に目立った現象はありません。</p>";
   return `<h2>この先1週間の天文現象</h2>${body}`;
@@ -248,7 +255,7 @@ function tonightWeekHtml(d) {
 function tonightCometsHtml(comets) {
   if (!comets || !comets.length) return "";
   return "<h2>いま見える彗星</h2><ul class=\"tonight-comets\">"
-    + comets.map((c) => `<li><a href="${tonightEsc(c.href)}">${tonightEsc(c.name)}</a>`
+    + comets.map((c) => `<li><a href="${tonightEsc(tonightRel(c.href))}">${tonightEsc(c.name)}</a>`
       + `（予報 ${c.mag.toFixed(1)}等）`
       + (c.aerith ? ` — <a href="${tonightEsc(c.aerith)}" rel="noopener">観測情報（aerith.net）</a>` : "")
       + "</li>").join("")

@@ -408,9 +408,12 @@ def main() -> int:
             # 案K: メニューは盤面左上の「≡」に入る (中身は他ページと同じ nav)
             content = content.replace("{{nav}}", nav)
 
+        # fulltitle: があれば <title> と og:title をその文字列にする (トップの「今日の星空 — 星座早見 Voyager6」)。
+        # 無いページは従来どおり「ページ名 | Voyager6」。
+        title = meta.get("fulltitle") or (f'{meta["title"]} | {SITE_NAME}'
+                                          if stem != "index" else f'{SITE_NAME} | {meta["title"]}')
         html = (layout
-                .replace("{{title}}", f'{meta["title"]} | {SITE_NAME}'
-                         if stem != "index" else f'{SITE_NAME} | {meta["title"]}')
+                .replace("{{title}}", title)
                 .replace("{{description}}", meta.get("description", ""))
                 .replace("{{bodyclass}}", meta.get("bodyclass", ""))
                 .replace("{{root}}", root)

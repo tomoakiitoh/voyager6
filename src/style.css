@@ -551,10 +551,29 @@ body.slots-fallback .slot { display: none; }
 #slot-sw:empty { display: none; }
 #slot-sw span { white-space: nowrap; }
 
+#geo-note { font-size: 11px; color: #e6b37a; max-width: 14em; text-align: right; }
+#geo-note[hidden] { display: none; }
+
+/* 下段「今日の星空」。文書ページの .doc をそのまま使い、表と箇条書きだけ整える */
+.tonight-digest { padding-top: 32px; border-top: 1px solid var(--line); }
+.tonight-digest h1 { font-size: 22px; }
+.tonight-digest h1 small { display: block; margin-top: 4px; font-size: 13px; font-weight: 400; color: var(--dim); }
+.tonight-digest .lead { color: var(--fg); }
+.tonight-digest h3 { font-size: 14px; margin: 18px 0 6px; color: #dbe4f7; }
+.tonight-table th { width: 55%; }
+.tonight-table td { font-variant-numeric: tabular-nums; }
+.tonight-planets, .tonight-week, .tonight-comets, .tonight-can { padding-left: 1.2em; }
+.tonight-week time { display: inline-block; min-width: 3.2em; color: var(--dim); font-variant-numeric: tabular-nums; }
+.tonight-more { margin-top: 8px; }
+.tonight-source { margin-top: 28px; font-size: 12px; color: var(--dim); }
+
 /* 埋め込み・パネル無し (プロジェクタ/VR 用のクリーン画面) では、四隅も時刻バーも出さない。
    白地 (theme=white) は埋め込みでだけ効き、ブランドは既存のクレジットバッジが同じ右下で担う */
 body.embed .slot, body.embed #timebar,
 body.panel-off .slot, body.panel-off #timebar { display: none !important; }
+/* 下段の文章も出さない (他人のページに貼った空・投影の画面の下に文章が続かないように)。
+   印刷は @media print が body 直下の #print-area 以外を隠すので、ここに書かなくても出ない */
+body.embed #tonight, body.panel-off #tonight { display: none; }
 
 /* ---- 今夜の空 ---- */
 
