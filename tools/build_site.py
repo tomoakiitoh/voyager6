@@ -392,6 +392,22 @@ def main() -> int:
             groups.append(
                 f'<div class="menu-group"><h2>{gname}</h2>{"".join(links)}</div>')
         nav = "".join(groups)
+
+        # ---- トップだけ「上の一画面 (#screen) + その下の本文」に組む (Ver.1.1) ----
+        # 盤面の寸法は #sky-wrap の大きさで決まるので、ヘッダ〜フッタを 100dvh の #screen に閉じ込め、
+        # 下段 (#tonight) はその外に置いて body をスクロールさせる。他のページは3つとも空文字で、
+        # **出力はバイト単位で変わらない** (プレースホルダを改行なしで置いてある)。
+        screen_open = screen_close = after_screen = ""
+        if stem == "index":
+            screen_open, screen_close = '<div id="screen">', "</div><!-- /#screen -->"
+            # 本文は「/screen」の印で二つに分ける。印より後 (下段・印刷エリア・スクリプト) は #screen の外。
+            # 印刷エリアは必ず外に出すこと: @media print は body 直下の #print-area 以外を全部隠す。
+            marker = "<!-- /screen -->"
+            if marker in content:
+                content, after_screen = content.split(marker, 1)
+            # 案K: メニューは盤面左上の「≡」に入る (中身は他ページと同じ nav)
+            content = content.replace("{{nav}}", nav)
+
         html = (layout
                 .replace("{{title}}", f'{meta["title"]} | {SITE_NAME}'
                          if stem != "index" else f'{SITE_NAME} | {meta["title"]}')
@@ -404,7 +420,14 @@ def main() -> int:
                 .replace("{{sitename}}", SITE_NAME)
                 .replace("{{nav}}", nav)
                 .replace("{{scripts}}", scripts)
+                .replace("{{screen_open}}", screen_open)
+                .replace("{{screen_close}}", screen_close)
+                .replace("{{after_screen}}", after_screen.strip())
                 .replace("{{content}}", content.strip()))
+        if stem == "index":
+            # 案K: トップではヘッダ行を出さない (盤面を一行ぶん広げる)。ブランドは右下、メニューは左上の≡へ。
+            # hidden で残すと同じ nav が二つになり id="menu" が重複するので、要素ごと出さない。
+            html = re.sub(r'<header id="site-header">.*?</header>\s*', "", html, count=1, flags=re.S)
         if unlisted:
             html = html.replace(
                 "<head>", '<head>\n<meta name="robots" content="noindex,nofollow">', 1)

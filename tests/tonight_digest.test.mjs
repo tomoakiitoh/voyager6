@@ -132,8 +132,10 @@ test("description は「日付(曜)の東京: 日の入り…、月齢…、今�
   const s = T.tonightDescription(d);
   assert.match(s, /^9月15日\(火\)の東京: 日の入り\d\d:\d\d、月齢\d+、今夜は.+が見ごろ。/);
   assert.ok(s.endsWith("開いた瞬間に今の空が出る星座早見"));
-  // いちばん明るい惑星を選ぶ (2026-09-15 は木星 -1.6等)
-  assert.equal(T.tonightBestPlanet(d).name, "木星");
+  // 夜に見えている時間がいちばん長い惑星を選ぶ。明るさで選ぶと夜明け前に昇るだけの木星 (-1.6等) に
+  // なってしまう。指示書の例文「今夜は土星が見ごろ」も 9/15 はこちら
+  assert.equal(T.tonightBestPlanet(d).name, "土星");
+  assert.match(s, /今夜は土星が見ごろ/);
 });
 
 test("CLI: --date で任意の日を出せる", () => {

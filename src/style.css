@@ -349,6 +349,9 @@ body.embed-white #embed-badge {
   /* シートは盤面の「上に重ねて」開く。#panel 自体の高さが変わらないので、
      開閉しても星図はリサイズされない (星が飛び跳ねない)。 */
   .sky-page #panel { position: relative; }
+  /* Ver.1.1: ツールバーの部品は四隅スロットにいるので、ここに残るのはシート (重ねて開く) だけ。
+     空の帯を残さず高さを空へ返す。安全領域の余白は最下段の時刻バーが持つ。 */
+  .sky-page:not(.slots-fallback) #panel { padding: 0; border-top: 0; }
   .sky-page #panel-body {
     display: none;
     position: absolute; left: 0; right: 0; bottom: 100%;
@@ -380,13 +383,17 @@ body.embed-white #embed-badge {
    背の高い空列だけができてしまう。6/5=1.2 は iPad Pro 13 横持ち(1.33)・
    ノートPC(1.6) を含み、正方形付近(1.0)は含まない。 */
 @media (min-width: 820px) and (min-aspect-ratio: 6/5) {
-  body.sky-page {
+  /* Ver.1.1: グリッドは body でなく #screen に組む (その下に本文 #tonight が続くため)。
+     ヘッダ行は案Kで無くなり、代わりに時刻バーの行が入る。**どちらも 40px** なので
+     盤面の枠の高さは Ver.1.0 と変わらない (= 盤面の直径が変わらない)。 */
+  /* body. を付けて詳細度を上げている: 後ろにある基本形 `.sky-page #screen { display:flex }` に負けないように */
+  body.sky-page #screen {
     display: grid;
     grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 380px);
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "header header" "sky panel" "footer footer";
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-areas: "sky panel" "timebar timebar" "footer footer";
   }
-  .sky-page #site-header { grid-area: header; }
+  .sky-page #timebar { grid-area: timebar; height: 40px; padding-bottom: 0; }  /* 最下段はフッタ */
   .sky-page #sky-wrap { grid-area: sky; min-width: 0; min-height: 0; }
   .sky-page #panel {
     grid-area: panel; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
@@ -396,6 +403,9 @@ body.embed-white #embed-badge {
   /* 縦一列に積むので、時計とボタンは折り返してよい */
   .sky-page #toolbar { flex-wrap: wrap; }
   .sky-page #panel .row { flex-wrap: wrap; }
+  /* 退避したツールバーはこの形では右列の**上端**にあるので、日時の入力とメニューは下向きに開く */
+  .sky-page.slots-fallback #dt-pop { top: calc(100% + 6px); bottom: auto; left: 0; right: auto; }
+  .sky-page.slots-fallback #menu > nav { top: calc(100% + 6px); bottom: auto; }
 }
 
 /* ---- 縦長〜正方形の広い画面 (タブレット縦持ち) では操作系を畳む ----
@@ -410,6 +420,7 @@ body.embed-white #embed-badge {
 @media (min-width: 561px) and (max-aspect-ratio: 1199/1000) {
   .sky-page #sheet-toggle { display: inline-block; }
   .sky-page #panel { position: relative; }
+  .sky-page:not(.slots-fallback) #panel { padding: 0; border-top: 0; }
   .sky-page #panel-body {
     display: none;
     position: absolute; left: 0; right: 0; bottom: 100%;
@@ -429,6 +440,121 @@ body.embed-white #embed-badge {
   }
   .sky-page #sheet-credits a { color: var(--dim); }
 }
+
+/* ---- トップ (Ver.1.1): 上の一画面 #screen + 四隅スロット + 時刻バー ----
+   開いた瞬間に見える一画面は #screen (100dvh) に閉じ込め、その下に本文 (#tonight) を続けて
+   body をスクロールさせる。**盤面の寸法は #sky-wrap の枠で決まる**ので、#screen の中の
+   縦の配分 (ヘッダ行を無くし、時刻バーを足す) が Ver.1.0 と同じ高さになるよう揃えてある。 */
+body.sky-page { display: block; height: auto; }
+.sky-page #screen {
+  height: 100vh; height: 100dvh;
+  display: flex; flex-direction: column;
+}
+.sky-page #sky-wrap { position: relative; }
+
+#timebar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 8px;
+  height: calc(40px + env(safe-area-inset-bottom));
+  padding: 0 12px env(safe-area-inset-bottom);
+  background: var(--panel); border-top: 1px solid var(--line);
+}
+#timebar input[type="range"] { flex: 1 1 auto; min-width: 0; margin: 0; }
+#timebar .tb-end {
+  flex: 0 0 auto; color: var(--dim); opacity: 0.7;
+  font-size: 10px; font-variant-numeric: tabular-nums;
+}
+
+/* ツールバー行は、スロットに収まらない形 (退避) のときだけ使う */
+.sky-page:not(.slots-fallback) #toolbar { display: none; }
+
+.slot {
+  position: absolute; z-index: 6;
+  display: flex; gap: 6px;
+  pointer-events: none;                 /* 箱は盤面の操作を奪わない。中の部品だけが触れる */
+}
+.slot > * { pointer-events: auto; }
+.slot button, .slot select { min-height: 32px; }
+#slot-nw { top: 8px; left: 8px; }
+#slot-ne { top: 8px; right: 8px; }
+#slot-sw { bottom: 8px; left: 8px; }
+#slot-se { bottom: 8px; right: 8px; }
+body.slots-fallback .slot { display: none; }
+
+/* 横並び: 縦長の画面 (上下の帯が太い)・正方形に近い全天 (円の四隅が空く) */
+.slots-row #slot-nw { flex-direction: row; flex-wrap: wrap; align-items: flex-start; max-width: calc(100% - 210px); }
+.slots-row #slot-ne { flex-direction: row; align-items: flex-start; }
+.slots-row #slot-sw { flex-direction: column; }
+.slots-row #slot-se { flex-direction: column; align-items: flex-end; }
+/* 縦積み: 横長の画面 (左右の帯が細い)。文字は折り返して帯の幅に収める */
+.slots-col .slot { flex-direction: column; }
+.slots-col #slot-nw, .slots-col #slot-sw { align-items: flex-start; }
+.slots-col #slot-ne, .slots-col #slot-se { align-items: flex-end; text-align: right; }
+#clock span { white-space: nowrap; }
+.slots-col #clock { text-align: right; }
+.slots-col #clock span { display: block; }
+.slots-col #view-info { max-width: 8em; }
+.slots-col #fov-steps { max-width: 6.4em; }
+
+/* 左上: ≡ メニュー (他ページのヘッダと同じ中身)・視野段階 */
+.slot #menu > summary {
+  font-size: 18px; line-height: 1; padding: 6px 11px; color: var(--fg);
+  background: rgba(13, 18, 32, 0.6);
+}
+.sky-page #menu > summary::before { content: none; }
+#slot-nw #menu > nav { left: 0; right: auto; }
+#fov-step-row[hidden] { display: none; }
+#fov-steps { display: flex; flex-wrap: wrap; gap: 4px; }
+.slot #sheet-toggle { position: static; box-shadow: none; }
+
+/* 右下: 日時 (押すと入力)・観測地 (その場で選べる)・ブランド */
+#clock-box { position: relative; display: inline-flex; }
+.slot #clock, #toolbar #clock {
+  background: rgba(13, 18, 32, 0.55); border-color: transparent;
+  color: var(--fg); font-size: 13px; font-variant-numeric: tabular-nums;
+}
+#dt-pop {
+  position: absolute; bottom: calc(100% + 6px); right: 0; z-index: 20;
+  display: flex; gap: 6px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+}
+#dt-pop[hidden] { display: none; }
+.slots-fallback #dt-pop { left: 0; right: auto; }
+.slots-fallback #menu > nav { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; }
+#view-info { font-size: 11px; }
+#view-info[hidden] { display: none; }
+.slot-where { display: flex; align-items: center; gap: 6px; }
+.slots-col .slot-where { flex-direction: column; align-items: flex-end; gap: 2px; }
+.site-pick {
+  position: relative; display: inline-flex; align-items: center;
+  padding: 2px 4px; color: var(--dim); font-size: 12px; cursor: pointer;
+}
+.site-pick::after { content: "▾"; margin-left: 3px; font-size: 10px; opacity: 0.8; }
+/* 透明な select を地名の上に重ねる (押すとネイティブの選択肢が開く・箱の幅は地名で決まる) */
+#site-quick {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer; min-height: 0; padding: 0; border: 0;
+}
+.slot-brand {
+  color: var(--dim); text-decoration: none;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+}
+
+/* 左下: 今夜ミニ計器 (押すと下段の今夜の空へ) */
+#slot-sw {
+  pointer-events: auto;
+  padding: 4px 7px; border-radius: 6px; background: rgba(13, 18, 32, 0.45);
+  color: var(--dim); text-decoration: none;
+  font-size: 11px; line-height: 1.5; font-variant-numeric: tabular-nums;
+}
+#slot-sw:empty { display: none; }
+#slot-sw span { white-space: nowrap; }
+
+/* 埋め込み・パネル無し (プロジェクタ/VR 用のクリーン画面) では、四隅も時刻バーも出さない。
+   白地 (theme=white) は埋め込みでだけ効き、ブランドは既存のクレジットバッジが同じ右下で担う */
+body.embed .slot, body.embed #timebar,
+body.panel-off .slot, body.panel-off #timebar { display: none !important; }
 
 /* ---- 今夜の空 ---- */
 

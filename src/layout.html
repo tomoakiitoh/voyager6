@@ -23,7 +23,7 @@
      (defer や末尾配置だと、ページ内の初期化コードのほうが先に走ってしまう) -->
 {{scripts}}
 
-<header id="site-header">
+{{screen_open}}<header id="site-header">
   <a class="brand" href="{{root}}">{{sitename}}</a>
   <!-- 入口はここ一箇所 (UI整理 F2)。<details> なので JS なしでも開閉でき、
        リンクは常に DOM にあるので検索エンジンからも辿れる。 -->
@@ -43,7 +43,7 @@
   星座線・天の川 <a href="https://github.com/ofrohn/d3-celestial">d3-celestial</a> (BSD-3-Clause)
   — <a href="{{root}}credits/">出典とライセンス</a>
   — <a href="https://blog.voyager6.net/">ブログ</a>
-</footer>
+</footer>{{screen_close}}{{after_screen}}
 
 <!-- メニューは外側タップと Esc で閉じる (details 単体だと閉じないため。開閉自体は CSS/HTML で成立) -->
 <script>

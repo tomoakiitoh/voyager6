@@ -168,10 +168,19 @@ function tonightDateJa(d) {
   return `${Number(d.date.slice(5, 7))}月${Number(d.date.slice(8, 10))}日(${d.weekday})`;
 }
 
-/** 見ごろの惑星から一つ選ぶ (description と今夜ミニ計器用)。いちばん明るいもの。 */
+/**
+ * 見ごろの惑星から一つ選ぶ (description と今夜ミニ計器用)。**夜に見えている時間がいちばん長いもの**。
+ * 「いちばん明るい」で選ぶと、夜明け前に1時間だけ昇る木星が「今夜の見ごろ」になってしまう
+ * (2026-09-15: 土星 20:00〜翌05:00 に対し 木星は 翌03:47〜)。同じ長さなら明るいほう。
+ */
 function tonightBestPlanet(d) {
   if (!d.planets.length) return null;
-  return d.planets.reduce((a, b) => (a.mag <= b.mag ? a : b));
+  const span = (p) => Date.parse(p.to) - Date.parse(p.from);
+  return d.planets.reduce((a, b) => {
+    const da = span(a), db = span(b);
+    if (Math.abs(da - db) > 60000) return da > db ? a : b;
+    return a.mag <= b.mag ? a : b;
+  });
 }
 
 /** 日替わりの meta description。「9月15日(火)の東京: 日の入り17:52、月齢3、今夜は土星が見ごろ。…」 */

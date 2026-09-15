@@ -1,7 +1,7 @@
 <!--
 title: 星座早見
 description: 指定した日時・場所の空を真円の全天図で描く星座早見。
-scripts: astro.js render.js data.js sites.js stars.js aerith.js
+scripts: astro.js render.js data.js sites.js stars.js aerith.js sky.js events.js tonight.js
 bodyclass: sky-page
 -->
 <script type="application/ld+json">
@@ -21,7 +21,62 @@ bodyclass: sky-page
   "creator": { "@type": "Organization", "name": "voyager6.net", "url": "https://voyager6.net" }
 }
 </script>
-<div id="sky-wrap"><canvas id="sky"></canvas></div>
+<div id="sky-wrap">
+  <canvas id="sky"></canvas>
+
+  <!-- ---- 四隅スロット (Ver.1.1 案K) ----
+       盤面は真円なので四隅が空く。そこへ「今の空」やメニュー・日時を置き、ヘッダ行とツールバー行を無くして
+       盤面の上下を空に返す。スロットの箱自体は pointer-events を持たず、中の部品だけが触れる
+       (盤面のドラッグ・ピンチを奪わない)。部品が盤面に被る狭い形では、JS が #toolbar へ退避させる
+       (fitSlots)。どの部品も id を変えずに**移動するだけ**なので、既存のイベントはそのまま効く。 -->
+  <div id="slot-nw" class="slot">
+    <!-- メニューの中身は他ページのヘッダと同じ (build_site.py が {{nav}} を差し込む) -->
+    <details id="menu">
+      <summary aria-label="メニューを開く">≡</summary>
+      <nav>{{nav}}</nav>
+    </details>
+    <!-- 視野の段階切り替え (望遠鏡モードのときだけ)。ホイール/ピンチの連続ズームと併存する近道。
+         刻みは Telrad の 2°/4° に合わせ、以降はおよそ倍々。20等星図 (v1深層) で下限は 0.1°
+         (ZOOM_MAX=1800)。段階ボタンは 0.5°/1° まで (それ以下はホイールで連続に)。 -->
+    <div id="fov-step-row" hidden><span id="fov-steps"></span></div>
+  </div>
+
+  <div id="slot-ne" class="slot">
+    <button id="share" title="この画面へのリンクを共有・コピー" aria-label="この画面へのリンク">🔗</button>
+    <button id="now" class="primary" title="いまの日時・全天・北が上に戻す（観測地はそのまま）">今の空</button>
+    <button id="sheet-toggle" aria-expanded="false" aria-controls="panel-body"
+            title="操作パネルを開閉">操作 ▲</button>
+  </div>
+
+  <!-- 今夜ミニ計器。数字は下段「今夜の空」と同じ tonight.js から出す (二重管理しない)。
+       本文は下段のほうなので、読み上げからは外す。押すと下段へ飛ぶ (JS なしでもアンカーで効く)。 -->
+  <a id="slot-sw" class="slot" href="#tonight" aria-hidden="true" tabindex="-1"></a>
+
+  <div id="slot-se" class="slot">
+    <button id="back-to-chart" hidden title="さっきの星図に戻す（縮尺と中心はそのまま）">↩ 星図に戻る</button>
+    <span id="clock-box">
+      <button id="clock" type="button" aria-haspopup="true" aria-expanded="false"
+              aria-controls="dt-pop" title="日付・時刻を入力"></button>
+      <!-- 日付・時刻は手入力もできる。時刻バーは「動かして眺める」ためのもので、
+           「20時ちょうど」のような狙った時刻には向かない (観測星図を作るときに要る)。 -->
+      <span id="dt-pop" hidden>
+        <input type="date" id="date" aria-label="日付">
+        <input type="time" id="time-hm" step="60" title="時刻を入力（24時間制）" aria-label="時刻">
+      </span>
+    </span>
+    <span id="view-info" class="info" hidden></span>
+    <span class="slot-where">
+      <!-- 見えるのは地名の文字だけ。その上に透明な select を重ねてあり、押すとそのまま選択肢が開く。
+           select をそのまま置かないのは、select の幅が**一番長い選択肢** (「そのほか (緯度経度を入力)」)
+           で決まってしまい、「東京」でも隅から盤面へはみ出すため。 -->
+      <label class="site-pick" title="観測地を選ぶ">
+        <span id="site-name"></span>
+        <select id="site-quick" aria-label="観測地"></select>
+      </label>
+      <a class="slot-brand" href="./">voyager6</a>
+    </span>
+  </div>
+</div>
 <div id="popup"></div>
 
 <!-- 埋め込み時だけ出るクレジットバッジ。埋め込んだ人が何もしなくても CC BY-SA の帰属を
@@ -29,16 +84,9 @@ bodyclass: sky-page
      帰属・送客・被リンクを一つで兼ねる。 -->
 <a id="embed-badge" href="./" target="_blank" rel="noopener">voyager6.net</a>
 <div id="panel">
-  <!-- 常時見えるのはこの1行だけ (UI整理 F1)。スマホでは以下が畳まれ、空が主役になる。 -->
-  <div class="row" id="toolbar">
-    <span id="clock" class="info"></span>
-    <span class="grow"></span>
-    <button id="zoom-reset" hidden title="全天図に戻す">⤢ 全天</button>
-    <button id="share" title="この画面へのリンクを共有・コピー">🔗 リンク</button>
-    <button id="now" class="primary">今の空</button>
-    <button id="sheet-toggle" aria-expanded="false" aria-controls="panel-body"
-            title="操作パネルを開閉">操作 ▲</button>
-  </div>
+  <!-- ツールバー行。通常は空 (部品は四隅スロットにいる)。スロットが盤面に被る狭い形でだけ、
+       fitSlots() が部品をここへ移して従来どおりの一行に戻す (最悪でも Ver.1.0 と同じ見た目)。 -->
+  <div class="row" id="toolbar"></div>
 
   <!-- スマホでは既定で畳む。開くときは盤面の「上に重ねて」出すので、
        開閉しても星図のサイズは変わらない (再描画で星が飛び跳ねない)。 -->
@@ -56,15 +104,6 @@ bodyclass: sky-page
     <button id="rotate-mode" hidden title="ドラッグを 移動／回転 で切替">⟳ 回転</button>
   </div>
 
-  <!-- 視野の段階切り替え。ホイール/ピンチの連続ズームはそのまま使えるので、これは併存の近道。
-       刻みは Telrad の 2°/4° に合わせ、以降はおよそ倍々 (仮置き)。
-       20等星図 (v1深層) を入れたので下限は 0.1°まで下がった (ZOOM_MAX=1800)。
-       段階ボタンには 0.5°/1° を足してある (それ以下はホイールで連続に)。 -->
-  <div class="row" id="fov-step-row" hidden>
-    <span class="info">視野</span>
-    <span id="fov-steps" class="toggles"></span>
-  </div>
-
   <div class="row">
     <button id="day-prev" title="1日戻す">◀日</button>
     <button id="hour-prev" title="1時間戻す">◀時</button>
@@ -75,15 +114,6 @@ bodyclass: sky-page
     </select>
     <button id="hour-next" title="1時間進める">時▶</button>
     <button id="day-next" title="1日進める">日▶</button>
-  </div>
-
-  <!-- 日付・時刻は手入力もできる。スライダーは「動かして眺める」ためのもので、
-       「20時ちょうど」のような狙った時刻には向かない (観測星図を作るときに要る)。
-       #time は 0〜1439分のスライダー、#time-hm は同じ時刻の hh:mm 入力。 -->
-  <div class="row">
-    <input type="date" id="date">
-    <input type="time" id="time-hm" step="60" title="時刻を入力（24時間制）">
-    <input type="range" id="time" min="0" max="1439" step="1">
   </div>
 
   <div class="row toggles">
@@ -221,7 +251,20 @@ bodyclass: sky-page
   </div><!-- /#panel-body -->
 </div>
 
-<!-- 印刷/PDF 専用エリア (画面では非表示・@media print でのみ現れる)。中身は印刷時に組み立てる。 -->
+<!-- 時刻バー (Ver.1.1)。**操作シートに畳まない** — 畳むと時刻を動かす手段がシートを開く一手の奥に隠れ、
+     「使えないに近い」(本人判断 9/15)。全天でも望遠鏡でも常に指が届く最下段に置く。
+     範囲はこれまでどおり**その日の 0:00〜23:59** (0〜1439分)。両端の目盛もその通りに書く。 -->
+<div id="timebar">
+  <span class="tb-end" aria-hidden="true">0時</span>
+  <input type="range" id="time" min="0" max="1439" step="1" aria-label="時刻（その日の0時〜24時）">
+  <span class="tb-end" aria-hidden="true">24時</span>
+</div>
+
+<!-- /screen -->
+<!-- ここより下は #screen (100dvh の一画面) の外。build_site.py がこの印で本文を分ける。 -->
+
+<!-- 印刷/PDF 専用エリア (画面では非表示・@media print でのみ現れる)。中身は印刷時に組み立てる。
+     **#screen の外 (body 直下) に置くこと** — @media print は body 直下の #print-area 以外を全部隠す。 -->
 <div id="print-area" hidden>
   <div id="print-header"></div>
   <div id="print-chart"></div>
@@ -262,6 +305,10 @@ let pendingMaglim = null;      // ?maglim= 等級ラベルの暗い側の限界 
    URL には書かない (控えは変数だけ)。ただし全天へ引いている間も、URL は星図のままにする
    = 共有したリンクは「星図が開く」。下の stateParams() を参照。 */
 let chartView = null;          // {zoom, ra, dec, flip, roll}
+// ↓ updateInfo() から読むので、最初の draw() より前に宣言しておく (let の一時的死角を避ける)
+let homeLeftChart = false;     // 「今の空」で星図を離れた直後か (右下に「↩ 星図に戻る」を出す)
+let slotSig = "";              // 四隅スロットを置いたときの画面形 (変わったときだけ置き直す)
+let fittingSlots = false;      // fitSlots() の再入防止 (中で resize→draw→updateInfo が呼ばれる)
 
 /** 観測星図モードか (target か等級ラベルか符号のどれかが効いている)。 */
 const obsChartMode = () => !!(obsTarget || showMagLabels || showDesignations);
@@ -2743,26 +2790,28 @@ function updateInfo() {
   scheduleUrlWrite();
   const t = jstParts(state.ms);
   const zoomed = state.view.zoom > ZOOM_MIN + 1e-6;
-  let extra = "";
+  // 日時は右下のスロット。望遠鏡モードの視野・中心は別の行に分ける
+  // (一行に繋げると隅に収まらず、スロットが盤面へはみ出す)
+  // 日付と時刻を別の span にしておく: 縦積みの細い帯ではこの境目で2行に折る
+  // (文字任せにするとハイフンで「2026- / 09-15 / 21:00 / JST」と4行に割れる)
+  document.getElementById("clock").innerHTML =
+    `<span>${t.y}-${p2(t.mo)}-${p2(t.d)}</span> <span>${p2(t.hh)}:${p2(t.mm)} JST</span>`;
+  const vi = document.getElementById("view-info");
   if (zoomed) {
     const [ra, dec] = raDecOf(state.view.center);
-    extra = `　視野 約${fovDeg().toFixed(1)}°　中心 α${fmtRa(ra)} δ${fmtDec(dec)}`;
-    if (deepPending > 0) extra += "　深い星表を読込中…";
+    vi.textContent = `視野 約${fovDeg().toFixed(1)}°　α${fmtRa(ra)} δ${fmtDec(dec)}`
+      + (deepPending > 0 ? "　読込中…" : "");
   }
-  document.getElementById("clock").textContent =
-    `${t.y}-${p2(t.mo)}-${p2(t.d)} ${p2(t.hh)}:${p2(t.mm)} JST` + extra;
+  vi.hidden = !zoomed;
   document.getElementById("place").textContent =
     `${SITE.name} ${SITE.lat.toFixed(2)}° ${SITE.lon.toFixed(2)}°  /  ${STARS.length} 星`;
-  const rb = document.getElementById("zoom-reset");
-  if (rb) {
-    // 観測星図モードでは全天側でも出す (戻る道が要るため)。それ以外は従来どおり
-    const canReturn = obsChartMode() && (chartView || obsTarget);
-    rb.hidden = !(zoomed || canReturn);
-    const back = !zoomed && canReturn;
-    rb.textContent = back ? "🔭 星図へ" : "⤢ 全天";
-    rb.title = back ? "さっきの星図に戻す（縮尺と中心はそのまま）"
-                    : "全天図へ引く（目標と星図の範囲は枠で示します）";
-  }
+  // 「↩ 星図に戻る」: 全天にいて、戻る先の星図があるときだけ。
+  // ⤢全天ボタンは「今の空」(ホーム) に統合したので、観測星図で全天へ引いたあとの戻り道はこれだけになる。
+  if (zoomed) homeLeftChart = false;      // 自分で星図へ入り直したら、ホーム直後の戻り道は用済み
+  const bc = document.getElementById("back-to-chart");
+  if (bc) bc.hidden = !(!zoomed && (homeLeftChart || (obsChartMode() && (chartView || obsTarget))));
+  syncSiteQuick();
+  fitSlots();
   const fb = document.getElementById("flip");
   if (fb) { fb.hidden = !zoomed; fb.value = state.view.flip; }
   const fp = document.getElementById("fov-panel");
@@ -2829,7 +2878,17 @@ el("time-hm").addEventListener("change", () => {
   setTime(msFromJst(t.y, t.mo, t.d, hh, mm));
 });
 
-el("now").addEventListener("click", () => { stop(); setTime(Date.now()); });
+/* 「今の空」= ホーム (Ver.1.1)。日時→現在・視野→全天・回転→北が上。**観測地は触らない**。
+   望遠鏡・星図の視野から押したときは、その視野を chartView に控え (全天⇄星図の往復と同じ控え)、
+   右下に「↩ 星図に戻る」を出す。これまでの ⤢全天 ボタンはここに統合した。 */
+el("now").addEventListener("click", () => {
+  stop();
+  if (!isAllSky()) { toAllSky(); homeLeftChart = true; }
+  state.view.roll = 0;
+  popup.style.display = "none";
+  setTime(Date.now());
+  renderGauge();             // 日付が変わっていれば今夜ミニ計器も今日へ
+});
 
 /* 「全天 ⇄ 星図」。観測星図モードでは往復ボタン、それ以外は従来どおり片道の「全天へ」。
    ボタンを1つに統合したのは、観測星図で全天へ引いたあと戻る手段が
@@ -2854,8 +2913,9 @@ function toAllSky() {                 // 全天へ (戻れるように今の視�
   v.zoom = ZOOM_MIN;
   normalizeView();
 }
-el("zoom-reset").addEventListener("click", () => {
-  if (isAllSky()) { if (!toChartView()) return; } else toAllSky();
+el("back-to-chart").addEventListener("click", () => {
+  if (!toChartView()) return;
+  homeLeftChart = false;
   popup.style.display = "none";
   draw();
 });
@@ -2895,7 +2955,9 @@ function setFov(deg) {
 /** いま選ばれている段を光らせる (連続ズームで刻みから外れているときはどれも点かない)。 */
 function updateFovSteps() {
   const row = el("fov-step-row");
-  row.hidden = !obsChartMode();
+  // 左上スロットに出すのは望遠鏡モードのときだけ (Ver.1.1 決定)。全天では≡だけにして隅を空ける。
+  // 観測星図で全天へ引いたときの戻り道は、右下の「↩ 星図に戻る」が受け持つ。
+  row.hidden = isAllSky();
   if (row.hidden) return;
   const cur = isAllSky() ? null : fovDeg();
   for (const b of el("fov-steps").children) {
@@ -3173,6 +3235,7 @@ function updateSite(lat, lon, name) {
   el("lon").value = lon;
   saveSite({ name: SITE.name, lat, lon });
   draw();
+  renderGauge();             // 今夜ミニ計器をその場所の値に
 }
 
 el("site").addEventListener("change", () => {
@@ -3404,10 +3467,154 @@ sheetBtn.addEventListener("click", () => {
   if (v === "0") document.body.classList.add("panel-off");
   else if (v === "1") setSheet(true);
 }
-// シートが開いている間に空を触ったら畳む (空が主役。天体の選択はそのまま通す)
-el("sky-wrap").addEventListener("pointerdown", () => {
+// シートが開いている間に空を触ったら畳む (空が主役。天体の選択はそのまま通す)。
+// **四隅スロットの部品は除く** — スロットは #sky-wrap の中にあるので、除かないと「操作 ▼」で
+// 閉じようとしたとき pointerdown で一度閉じ、続く click で開き直してしまう。
+el("sky-wrap").addEventListener("pointerdown", (e) => {
+  if (e.target.closest && e.target.closest(".slot")) return;
   if (document.body.classList.contains("sheet-open")) setSheet(false);
 }, true);
+
+/* ---- 四隅スロット (Ver.1.1 案K) ---- */
+
+// 日時をタップ → 日付・時刻の入力。時刻バーは「眺める」用、こちらは「狙った時刻に合わせる」用
+function setDtPop(open) {
+  el("dt-pop").hidden = !open;
+  el("clock").setAttribute("aria-expanded", open ? "true" : "false");
+}
+el("clock").addEventListener("click", (e) => { e.stopPropagation(); setDtPop(el("dt-pop").hidden); });
+document.addEventListener("click", (e) => { if (!el("clock-box").contains(e.target)) setDtPop(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setDtPop(false); });
+
+// 観測地名 = その場で開く select。中身は #site と同じで、選んだら #site 経由で反映する
+// (観測地の処理を二本にしない)。「手入力」を選んだら緯度経度の欄がある操作シートを開く。
+function syncSiteQuick() {
+  const q = el("site-quick"), s = el("site");
+  if (!q || !s) return;
+  if (q.options.length !== s.options.length) fillSiteSelect(q, SITE);
+  if (q.value !== s.value) q.value = s.value;
+  // 隅に見えるのは選ばれた項目の文字だけなので、手入力の地点では「そのほか…」でなく地名を出す
+  const custom = q.querySelector('option[value="custom"]');
+  if (custom) custom.textContent = q.value === "custom" ? SITE.name : "そのほか (緯度経度を入力)";
+  const nm = el("site-name");
+  if (nm && nm.textContent !== SITE.name) { nm.textContent = SITE.name; slotSig = ""; }  // 幅が変わる
+}
+el("site-quick").addEventListener("change", () => {
+  const v = el("site-quick").value;
+  const s = el("site");
+  s.value = v;
+  if (v === "custom") {
+    setSheet(true);
+    const d = s.closest("details");
+    if (d) { d.open = true; d.scrollIntoView({ block: "nearest" }); }
+    el("lat").focus();
+    return;
+  }
+  s.dispatchEvent(new Event("change"));
+});
+
+/* スロットに収まらない形では、部品を #toolbar へ移して Ver.1.0 と同じ一行に戻す。
+   移すだけで id もイベントも変わらない。並びは従来のツールバーと同じ (≡ 日時 … 戻る 🔗 今の空 操作)。 */
+const SLOT_IDS = ["slot-nw", "slot-ne", "slot-sw", "slot-se"];
+const toolbarGrow = Object.assign(document.createElement("span"), { className: "grow" });
+function placePieces(where) {
+  if (where === "toolbar") {
+    el("toolbar").append(el("menu"), el("clock-box"), el("view-info"), toolbarGrow,
+      el("back-to-chart"), el("share"), el("now"), el("sheet-toggle"));
+    el("panel-body").prepend(el("fov-step-row"));
+  } else {
+    el("slot-nw").append(el("menu"), el("fov-step-row"));
+    el("slot-ne").append(el("share"), el("now"), el("sheet-toggle"));
+    el("slot-se").prepend(el("back-to-chart"), el("clock-box"), el("view-info"));
+  }
+}
+
+/** スロットが盤面 (全天=円・望遠鏡=正方形の星図) や方位ラベル、互いに重なるか。 */
+function slotsCollide() {
+  const wrap = el("sky-wrap").getBoundingClientRect();
+  const cv = canvas.getBoundingClientRect();
+  const ccx = cv.left + cx, ccy = cv.top + cy;
+  const keep = R + 6;                    // 円の縁のすぐ外に方位ラベルがあるので少し余裕を見る
+  const scope = !isAllSky();
+  const rects = [];
+  for (const id of SLOT_IDS) {
+    const b = el(id).getBoundingClientRect();
+    if (!b.width || !b.height) continue;          // 中身が空 (まだ描いていない計器など)
+    if (b.left < wrap.left - 1 || b.top < wrap.top - 1 ||
+        b.right > wrap.right + 1 || b.bottom > wrap.bottom + 1) return true;
+    if (scope) {
+      if (b.left < cv.right && b.right > cv.left && b.top < cv.bottom && b.bottom > cv.top) return true;
+    } else {
+      const nx = Math.max(b.left, Math.min(ccx, b.right));
+      const ny = Math.max(b.top, Math.min(ccy, b.bottom));
+      if (Math.hypot(nx - ccx, ny - ccy) < keep) return true;
+    }
+    rects.push(b);
+  }
+  for (let i = 0; i < rects.length; i++) {
+    for (let j = i + 1; j < rects.length; j++) {
+      const a = rects[i], c = rects[j];
+      if (a.left < c.right + 4 && a.right + 4 > c.left && a.top < c.bottom + 4 && a.bottom + 4 > c.top) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 四隅スロットを置く。横並び → 縦積み → ツールバーへ退避 の順に試して、最初に収まった形を使う。
+ * (横長の画面では盤面の左右の帯が細いので縦積みが効き、正方形に近い全天では円の四隅に横並びが入る)
+ * 画面形・全天/望遠鏡・戻るチップの有無が変わったときだけやり直す (毎フレームは測らない)。
+ */
+function fitSlots(force = false) {
+  if (fittingSlots) return;
+  const b = document.body;
+  if (b.classList.contains("embed") || b.classList.contains("panel-off")) return;
+  const sig = `${innerWidth}x${innerHeight}|${isAllSky() ? "sky" : "scope"}|`
+    + `${el("back-to-chart").hidden ? 0 : 1}`;
+  if (!force && sig === slotSig) return;
+  slotSig = sig;
+  fittingSlots = true;
+  try {
+    const wrap = el("sky-wrap");
+    placePieces("slot");
+    b.classList.remove("slots-fallback");
+    for (const mode of ["slots-row", "slots-col"]) {
+      wrap.classList.remove("slots-row", "slots-col");
+      wrap.classList.add(mode);
+      resize();                        // 退避を解いて盤面の枠が変わっていれば、ここで測り直す
+      if (!slotsCollide()) return;
+    }
+    wrap.classList.remove("slots-row", "slots-col");
+    placePieces("toolbar");
+    b.classList.add("slots-fallback");
+    resize();
+  } finally {
+    fittingSlots = false;
+  }
+}
+
+/* 今夜ミニ計器 (左下)。下段の「今夜の空」と同じ tonight.js で、観測地・今日の値を出す。
+   計算は惑星の出没を走査するので、観測地か日付が変わったときだけやる。 */
+let gaugeKey = "";
+function renderGauge() {
+  const box = el("slot-sw");
+  if (!box || typeof tonightData !== "function") return;
+  const ymd = tonightToday();
+  const key = `${ymd}|${SITE.lat}|${SITE.lon}`;
+  if (key === gaugeKey) return;
+  gaugeKey = key;
+  const d = tonightData(ymd, SITE);
+  const p = tonightBestPlanet(d);
+  // 一行を短く保つ (横長の画面では盤面の左右の細い帯に縦積みで入れるため)
+  box.innerHTML =
+    `<span>日の入 ${tonightHM(d.sunset, d.date)}</span>`
+    + `<span>月の出 ${tonightHM(d.moonrise, d.date)}</span>`
+    + `<span>月齢 ${d.moonAge.toFixed(1)}</span>`
+    + (p ? `<span>${p.name} ${tonightHM(p.from, d.date)}〜</span>` : "");
+  fitSlots(true);                        // 中身の大きさが変わったので置き直す
+}
 
 /* ---- 観測星図の表示切り替え ----
    これまで labels=mag / names=on は URL でしか変えられなかった。
@@ -3434,6 +3641,8 @@ window.addEventListener("resize", resize);
 new ResizeObserver(resize).observe(document.getElementById("sky-wrap"));
 syncControls();
 resize();
+// 今夜ミニ計器は惑星の出没を走査するぶん少し重いので、最初の盤面を描いてから計算する
+setTimeout(renderGauge, 0);
 
 // 観測星図モード: URL に target/labels/names があればデータを読んで目標を中心化する
 if (obsTargetSpec || showMagLabels || showDesignations) initObsChart();
