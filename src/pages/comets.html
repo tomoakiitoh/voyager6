@@ -45,6 +45,17 @@ bodyclass: comets-page
   .comets .controls .chk input { accent-color: var(--accent); margin: 0; }
   .comets #count { margin-left: auto; }
   .comets .tbl-wrap { overflow-x: auto; }
+  /* スマホ縦では列を落として3列に収める (UI監査 S-1)。
+     横スクロールは「切れていること」が伝わらないうえ、縦スクロールと喧嘩する。
+     落とす q と 軌道 は、行をタップしたカードの dl に出ているので情報は失われない。 */
+  @media (max-width: 480px) {
+    .comets th:nth-child(3), .comets td:nth-child(3),
+    .comets th:nth-child(4), .comets td:nth-child(4) { display: none; }
+    .comets table { font-size: 12px; }
+    .comets th, .comets td { padding: 6px 6px; }
+    /* 符号+和名が長い彗星は折り返す (ここだけ nowrap を解く) */
+    .comets td:first-child { word-break: break-word; }
+  }
   .comets table { font-size: 13px; }
   .comets th.num, .comets td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .comets td { padding: 7px 10px; }
