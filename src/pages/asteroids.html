@@ -64,6 +64,19 @@ bodyclass: aster-page
   .aster .card .note { color: var(--fg); background: #131b30; border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; }
   .aster .card .actions a { display: inline-block; background: #23407a; border: 1px solid #35589c;
     color: #e6eeff; border-radius: 6px; padding: 6px 12px; font-size: 13px; }
+  /* スマホ縦では列を落として3列に収める (UI監査 S-1)。落とした項目は行をタップした詳細に出る。
+     探査機表: 分類・a を落とす / 番号表: 仮符号・a を落とす (H は明るさの目安なので残す) */
+  @media (max-width: 480px) {
+    .aster #ntbl th:nth-child(4), .aster #ntbl td:nth-child(4),
+    .aster #ntbl th:nth-child(5), .aster #ntbl td:nth-child(5),
+    .aster #stbl th:nth-child(2), .aster #stbl td:nth-child(2),
+    .aster #stbl th:nth-child(4), .aster #stbl td:nth-child(4) { display: none; }
+    .aster table { font-size: 12px; }
+    .aster th, .aster td { padding: 6px 6px; }
+    .aster td:first-child { word-break: break-word; }
+    /* 探査機名は長い (「はやぶさ2」「OSIRIS-REx」など)。狭幅だけ折り返しを許して幅に収める */
+    .aster .craft { white-space: normal; }
+  }
 </style>
 
 <script>
@@ -86,6 +99,8 @@ bodyclass: aster-page
     const dispName = o.name_ja ? `${o.name_ja}（${o.name_en}）` : o.name_en;
     const rows = [
       ["番号", o.num != null ? `(${o.num})` : "—"],
+      // 狭幅では表から仮符号の列を落とすので、ここに必ず出す
+      o.pdes ? ["仮符号", o.pdes] : null,
       o.name_ja ? ["和名", `<span class="ja">${o.name_ja}</span>`] : null,
       o.craft ? ["探査機", o.craft] : null,
       o.year ? ["時期", o.year] : null,
