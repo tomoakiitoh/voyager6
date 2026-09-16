@@ -111,10 +111,18 @@ function render() {
       + `<td>${kindJa}</td><td>${e.type}</td><td class="where">${e.where}</td>`
       + `<td class="nowrap"><a href="#" class="mapbtn">地図</a>`
       + ` / <a href="${href}">宇宙から見る →</a></td>`;
-    tr.querySelector(".mapbtn").addEventListener("click", (ev) => {
-      ev.preventDefault(); showMap(e);
-    });
     tb.appendChild(tr);
+    // 狭幅 (スマホ縦) 用の2行目: 「見られる地域」と導線をここに折り返して出す。
+    // 広い画面では CSS で隠してあるので、表の見た目は従来どおり (UI監査 S-1)。
+    const sub = document.createElement("tr");
+    sub.className = "wrow";
+    sub.innerHTML = `<td colspan="5"><span class="sub-where">${e.where}</span>`
+      + ` <span class="sub-links"><a href="#" class="mapbtn">地図</a>`
+      + ` / <a href="${href}">宇宙から見る →</a></span></td>`;
+    tb.appendChild(sub);
+    for (const btn of [tr, sub].map((x) => x.querySelector(".mapbtn"))) {
+      btn.addEventListener("click", (ev) => { ev.preventDefault(); showMap(e); });
+    }
   }
 }
 for (const id of ["kind", "type", "future-only"]) el(id).addEventListener("change", render);
@@ -184,4 +192,18 @@ async function showMap(e) {
   #map-box .maphead { margin-bottom: 6px; font-size: 14px; }
   #map { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; display: block; }
   #map-legend { margin-top: 8px; }
+  /* 「見られる地域」と導線を持つ2行目。広い画面では出さない (従来どおり1行5列) */
+  .comets tr.wrow { display: none; }
+  /* スマホ縦では 日付・種別・種類 の3列に収め、地域と導線は行の下に回す (UI監査 S-1)。
+     地域は一覧で見たい情報なので**隠さない**。
+     ※ このページの style は末尾に置くこと — 前に書くと上の .comets ルールに負ける */
+  @media (max-width: 480px) {
+    .comets thead th:nth-child(4), .comets thead th:nth-child(5),
+    .comets tr.crow td.where, .comets tr.crow td:nth-child(5) { display: none; }
+    .comets tr.wrow { display: table-row; }
+    .comets tr.wrow td { border-top: 0; padding-top: 0; color: var(--dim); }
+    .comets tr.wrow .sub-links { white-space: nowrap; }
+    .comets table { font-size: 12px; }
+    .comets th, .comets td { padding: 7px 6px; }
+  }
 </style>
