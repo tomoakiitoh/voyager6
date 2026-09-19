@@ -291,6 +291,17 @@ def write_data_index() -> None:
 
 
 def main() -> int:
+    # --channel next … Current チャネル (next.voyager6.net) 向けの出力。
+    # 同じ src から作るが、**検索に出さない**・**どちらを見ているか画面で分かる**ようにする。
+    # 無指定 (Stable = voyager6.net) のときの出力は1バイトも変えないこと。
+    channel = ""
+    if "--channel" in sys.argv:
+        i = sys.argv.index("--channel")
+        channel = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        if channel != "next":
+            print(f"エラー: --channel は next のみ (受け取った値: {channel!r})", file=sys.stderr)
+            return 1
+
     if not (SRC / "data.js").exists():
         print("エラー: src/data.js がない。先に build_data.py を実行すること。", file=sys.stderr)
         return 1
@@ -431,7 +442,16 @@ def main() -> int:
             # 案K: トップではヘッダ行を出さない (盤面を一行ぶん広げる)。ブランドは右下、メニューは左上の≡へ。
             # hidden で残すと同じ nav が二つになり id="menu" が重複するので、要素ごと出さない。
             html = re.sub(r'<header id="site-header">.*?</header>\s*', "", html, count=1, flags=re.S)
-        if unlisted:
+        if channel == "next":
+            # Current チャネルは全ページ検索避け (VPS 側の X-Robots-Tag と二重に掛ける)。
+            # unlisted のページは下の行で同じものが入るので、ここで入れたら重ねない。
+            html = html.replace(
+                "<head>", '<head>\n<meta name="robots" content="noindex, nofollow">', 1)
+            # どちらのチャネルを見ているかが一目で分かる帯 (埋め込み・印刷・シネマでは出さない)
+            html = html.replace(
+                f'<body class="{meta.get("bodyclass", "")}">',
+                f'<body class="{meta.get("bodyclass", "")}">\n<div id="channel-tag">next</div>', 1)
+        elif unlisted:
             html = html.replace(
                 "<head>", '<head>\n<meta name="robots" content="noindex,nofollow">', 1)
         out.write_text(html, encoding="utf-8")
@@ -450,9 +470,15 @@ def main() -> int:
         else:
             sitemap.append(f"  <url><loc>{url}</loc></url>")
     sitemap.append("</urlset>")
-    (DIST / "sitemap.xml").write_text("\n".join(sitemap) + "\n", encoding="utf-8")
-    (DIST / "robots.txt").write_text(
-        f"User-agent: *\nAllow: /\nSitemap: {origin}/sitemap.xml\n", encoding="utf-8")
+    if channel == "next":
+        # Current チャネルは検索に出さないので sitemap を置かない (nginx 側も /sitemap.xml は 404)。
+        # robots.txt は**置いたうえで Disallow** にする: nginx の location が消えても
+        # ファイル単体で拒否が効くようにしておく (検索避けは二重にする)。
+        (DIST / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
+    else:
+        (DIST / "sitemap.xml").write_text("\n".join(sitemap) + "\n", encoding="utf-8")
+        (DIST / "robots.txt").write_text(
+            f"User-agent: *\nAllow: /\nSitemap: {origin}/sitemap.xml\n", encoding="utf-8")
 
     total = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file())
     print(f"\ndist/ 合計 {total:,} bytes / {total/1024:.1f} KB")

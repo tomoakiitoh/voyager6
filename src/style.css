@@ -577,6 +577,18 @@ body.panel-off .slot, body.panel-off #timebar { display: none !important; }
    印刷は @media print が body 直下の #print-area 以外を隠すので、ここに書かなくても出ない */
 body.embed #tonight, body.panel-off #tonight { display: none; }
 
+/* ---- チャネルの帯 (next.voyager6.net だけに出る) ----
+   build_site.py --channel next のときだけ <body> 直下に入る。どちらを見ているかを一目で分かるように。
+   埋め込み・印刷・シネマ撮影では出さない (他人のページ・紙・動画に映り込ませない)。 */
+#channel-tag {
+  position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+  font-size: 11px; line-height: 1.4;
+  padding: 1px 8px; background: #7a3; color: #000;
+  border-radius: 0 0 6px 6px; z-index: 99; pointer-events: none;
+}
+body.embed #channel-tag, body.cine #channel-tag { display: none; }
+@media print { #channel-tag { display: none !important; } }
+
 /* ---- 今夜の空 ---- */
 
 .tonight .controls {
