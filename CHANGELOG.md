@@ -7,6 +7,15 @@ voyager6.net の更新記録。**フォークする人・過去の判断を辿�
 
 ---
 
+## Current (next.voyager6.net)
+
+*(Stable には未投入。本人が赤青めがねで見てから)*
+
+- **太陽系3D に立体視** — `?stereo=rc`（赤青めがね・左目=赤）／`?stereo=sbs`（左右並び・平行法）。
+  眼幅は「見ている物までの距離」の 1/30、収束面はその距離。俯瞰では太陽が画面の面、
+  内惑星が手前・外惑星が奥に見える。inoz.jp の同じ仕組みの移植で、three の
+  AnaglyphEffect / StereoEffect を複製したもの（`?eyesep=` で眼幅を固定できる）
+
 ## 運用
 
 - **next.voyager6.net (Current) を追加** (2026-09-19)。`git push origin HEAD:next` で配信する。
