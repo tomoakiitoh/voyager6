@@ -1,0 +1,83 @@
+name: Deploy to next.voyager6.net
+
+# branch `next` に push すると、Current チャネル (next.voyager6.net) に配信する。
+# 号令: git push origin HEAD:next
+#
+# Stable (voyager6.net) は deploy.yml が GitHub Pages に出す。こちらは行き先だけが違い、
+# 組み立ての手順は同じ (同じ src・同じキャッシュキーから作ったものを見比べたいので、
+# ビルドの中身を変えない)。build_site.py だけ --channel next を付ける
+# = 検索避け (noindex) と画面上端の「next」の帯が入り、sitemap.xml は出ない。
+#
+# 配信は Pages ではなく VPS へ rsync over SSH。鍵は VPS 側で
+#   restrict,command="/usr/local/bin/rrsync /home/kusanagi/next.voyager6.net"
+# に縛ってあるので、この鍵でできるのは配信ルート以下への rsync だけ。
+
+on:
+  push:
+    branches: [next]
+  workflow_dispatch:
+
+# 鍵で rsync するだけ。Pages の権限 (pages / id-token) は要らない。
+permissions:
+  contents: read
+
+# Pages の group とは分ける (Stable の配信を止めない)
+concurrency:
+  group: next
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 星表 (HYG 14MB + AT-HYG深層 28MB) と食のカタログは変わらないのでキャッシュする。
+      # キーは deploy.yml と同じ (同じものを二重に持たない)
+      - name: 外部データのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: tools/cache
+          key: astro-data-v3
+
+      - name: 星表データを生成
+        run: python3 tools/build_data.py
+
+      - name: 天文現象のテーブルを生成
+        run: python3 tools/build_events.py
+
+      - name: テスト
+        run: node --test tests/*.mjs
+
+      - name: サイトを組み立て (Current チャネル)
+        run: python3 tools/build_site.py --channel next
+
+      # 深い星表 (V<=10) のタイルを dist/stars/ に生成 (build_site が dist を作り直すので後段)
+      - name: 深層星表のタイルを生成
+        run: python3 tools/build_stars.py
+
+      - name: 配信 (rsync over SSH)
+        env:
+          NEXT_HOST: ${{ secrets.NEXT_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.NEXT_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          echo "${{ secrets.NEXT_SSH_KEY }}" > ~/.ssh/next_deploy
+          chmod 600 ~/.ssh/next_deploy
+          # 宛先は "/" — 鍵に縛った rrsync が配信ルートを / に見せる。
+          # /home/kusanagi/... と書くと二重パスになって失敗する。
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/next_deploy -o StrictHostKeyChecking=yes" \
+            dist/ "kusanagi@${NEXT_HOST}:/"
+
+      - name: 後始末 (鍵を消す)
+        if: always()
+        run: rm -f ~/.ssh/next_deploy
