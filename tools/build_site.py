@@ -79,6 +79,7 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "dataurl.js",       # cron更新データを VPS 優先で取る (失敗時は committed へ)
           "tonight.js",       # 今夜の空の要約 (トップ下段)。ビルドの tonight_digest.mjs と共有
           "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
+          "stereo.js",        # 立体視 (赤青/左右並び)。three の examples を複製したもの
           "svgcanvas.esm.js",  # チャートSVG出力 (F8) 用に vendoring (MIT)
           "satellite.es.js",   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
           "vrpanel.js",        # VR内の操作パネル (三部作の3Dページで共有)
