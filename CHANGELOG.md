@@ -7,6 +7,13 @@ voyager6.net の更新記録。**フォークする人・過去の判断を辿�
 
 ---
 
+## 運用
+
+- **next.voyager6.net (Current) を追加** (2026-09-19)。`git push origin HEAD:next` で配信する。
+  Stable (`voyager6.net`・GitHub Pages) とは同じ `src/` から作り、行き先と
+  `build_site.py --channel next` (検索避け・画面上端の「next」の帯・sitemap なし) だけが違う。
+  手順と VPS 側の設置は `deploy/README.md` の末尾。
+
 ## Ver.1.1 — トップページ改修
 
 **2026-09-16 公開（同日タグ `2026.9.16`）。** 1.0 と同時に Stable として出した。
