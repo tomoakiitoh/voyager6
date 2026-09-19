@@ -4,6 +4,8 @@
 
 **分担**: SSH・DNS・証明書は本人。設定ファイルとスクリプトはこのディレクトリに用意済み。
 
+同じ VPS で動く **Current チャネル (`next.voyager6.net`)** については、この文書のいちばん下の節を参照。
+
 ## 状態: 手順1〜5 まで完了 (2026-09-01)
 
 **`data.voyager6.net` は HTTPS で稼働中。衛星データの日次配信まで通った。**
@@ -207,8 +209,9 @@ manifest.json を最後に送るようにしてあります (先に着くと、�
 VPS を止めてもサイトは動きます。急いで戻すなら:
 
 ```bash
-# nginx だけ落とす
-rm /etc/nginx/conf.d/data.voyager6.net.conf && nginx -t && systemctl reload nginx
+# nginx だけ落とす (KUSANAGI の conf.d は /etc/nginx/ ではない。バイナリもフルパスで)
+sudo rm /etc/opt/kusanagi/nginx/conf.d/datav6.conf
+sudo /opt/kusanagi/nginx131/sbin/nginx -t && sudo systemctl reload nginx131.service
 ```
 
 深層タイル (20等星図) だけは Pages にフォールバックがありません。これは「オンライン専用の層」
@@ -272,3 +275,79 @@ conf の `listen [::]` が生きる。振らないなら AAAA 無しでよい (c
 
 **(e) 手順0の出力は貼って持ち帰る。** 特に `df -h /`、`nginx -v`、`getenforce`、`cat /etc/os-release | head -3`。
 この4つで手順4以降の分岐 (http2 の書き方・SELinux・Gaia 全天の置き場) が全部決まる。
+
+---
+
+## next.voyager6.net (Current チャネル)
+
+**下書きです。** VPS 側の作業 (DNS・証明書・nginx・鍵) は本人が 2026-09-18 に通したもので、
+ここは Code が仕組み側から書き起こした控えです。**実際に通った形と食い違っていたら、この節を直してください。**
+
+Stable = `voyager6.net` (GitHub Pages)、Current = `next.voyager6.net` (この VPS)。
+同じ `src/` から作り、**行き先と `build_site.py --channel next` だけ**が違います。
+
+### 号令
+
+```bash
+git push origin HEAD:next        # いまのブランチの内容を Current へ
+```
+
+`.github/workflows/next.yml` が走り、組み立てて rsync で置きます。Stable は動きません
+(Stable を出すのは `git push origin main` → `deploy.yml`)。
+
+### VPS 側に置いてあるもの
+
+| | |
+|---|---|
+| nginx conf | `/etc/opt/kusanagi/nginx/conf.d/nextv6.conf` （リポジトリの控えは `deploy/nginx/next.voyager6.net.conf`） |
+| 配信ルート | `/home/kusanagi/next.voyager6.net` |
+| 証明書 | `next.voyager6.net`（data と同じ「80番の仮 conf → certbot webroot → 本番 conf」の3段） |
+| 証明書の更新 | `/etc/cron.d/certbot-datav6` に1行追加（木 4:43・`--cert-name next.voyager6.net`） |
+| rrsync | `/usr/share/doc/rsync/support/rrsync`（python3 版）を `/usr/local/bin` にコピーして `chmod +x` |
+| 配信用の鍵 | `~kusanagi/.ssh/authorized_keys` に `restrict,command="/usr/local/bin/rrsync /home/kusanagi/next.voyager6.net"` 付きで登録 |
+
+GitHub Secrets は3つ: `NEXT_SSH_KEY`（ed25519 秘密鍵）/ `NEXT_HOST` = `next.voyager6.net` /
+`NEXT_KNOWN_HOSTS`（`ssh-keyscan -H next.voyager6.net` の3行）。
+
+**鍵は配信ルートの中しか触れません。** `restrict` + `command=` で rsync 以外は実行できず、
+rrsync が書ける場所をそのディレクトリ以下に限っています（`kusanagi` は blog も持つユーザなので、
+鍵が漏れても next の中だけで止まる形にしてあります）。
+
+### 宛先が "/" なのはなぜか
+
+```
+rsync -az --delete -e "ssh -i ~/.ssh/next_deploy ..." dist/ kusanagi@next.voyager6.net:/
+```
+
+`command=` で縛った rrsync は、**配信ルートを `/` に見せます**。
+`/home/kusanagi/next.voyager6.net` と書くと二重パスになって失敗します。
+
+### 検索避け（三重）
+
+1. nginx が全応答に `X-Robots-Tag: noindex, nofollow`
+2. `/robots.txt` は `Disallow: /`（nginx の location と、ビルドが置くファイルの両方）
+3. `/sitemap.xml` は 404（nginx）／ビルドはそもそも書かない
+
+さらに各ページの `<head>` に `<meta name="robots" content="noindex, nofollow">` が入ります。
+画面の上端中央に緑の「next」の帯が出るので、どちらを見ているかは一目で分かります
+（埋め込み・印刷・シネマ撮影では出ません）。
+
+### 確認
+
+```bash
+curl -sI https://next.voyager6.net/ | grep -i x-robots-tag     # noindex, nofollow
+curl -s  https://next.voyager6.net/robots.txt                  # Disallow: /
+curl -s -o /dev/null -w "%{http_code}\n" https://next.voyager6.net/sitemap.xml   # 404
+curl -s  https://next.voyager6.net/ | grep -c 'id="channel-tag"'                 # 1
+# 鍵が rsync 以外を通さないこと (拒否されるのが正しい)
+ssh -i <配信用の鍵> kusanagi@next.voyager6.net ls
+```
+
+### 戻し方
+
+Current を止めても Stable には影響しません。止めるなら conf を外すだけです。
+
+```bash
+sudo rm /etc/opt/kusanagi/nginx/conf.d/nextv6.conf
+sudo /opt/kusanagi/nginx131/sbin/nginx -t && sudo systemctl reload nginx131.service
+```
