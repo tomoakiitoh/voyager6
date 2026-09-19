@@ -67,6 +67,12 @@ bodyclass: solar-page
     <label><input type="checkbox" id="solar-craft">探査機</label>
     <label><input type="checkbox" id="solar-corotate">木星固定（回転座標系）</label>
     <label><input type="checkbox" id="solar-names" checked>惑星名</label>
+    <!-- 立体視。赤青めがねがあれば軌道の奥行きが見える (左目=赤)。左右並びは平行法・Cardboard 用 -->
+    <label>立体 <select id="solar-stereo" title="立体視">
+      <option value="">なし</option>
+      <option value="rc">赤青めがね</option>
+      <option value="sbs">左右並び</option>
+    </select></label>
   </div>
   <div class="row"><span class="info"><b>探査機</b>をONにすると、各国の惑星探査機25機が飛んだ道すじが出ます（<b>今日までが実線・その先は薄い線</b>なので、いまどこまで来たかが分かります）。まずはこの3つ:
     <a href="?craft=voyager1">ボイジャー1号</a>・<a href="?craft=hayabusa2">はやぶさ2</a>・<a href="?craft=voyager2&amp;date=1986-01-24">ボイジャー2号が天王星に着いた日</a>。
@@ -100,6 +106,7 @@ import * as THREE from "three";
 import { OrbitControls } from "../assets/OrbitControls.js";
 import { VrPanel, vrLink, vrReturnPrompt } from "../assets/vrpanel.js";
 import { bindUrlState } from "../assets/urlstate.js";
+import { AnaglyphEffect, StereoEffect } from "../assets/stereo.js";
 
 // astro.js のグローバル (orbitPosition / heliocentric / PLANET_ELEMENTS / sunEclipticJ2000 /
 // julianDay / jdFromDate / schlyterDay / DEG) をそのまま使う。位置計算は望遠鏡モード(F3/F4)と
@@ -646,6 +653,9 @@ function writeSolarUrl() {
   if (selCraft >= 0 && craftItems[selCraft]) p.set("craft", craftItems[selCraft].c.key);
   else p.delete("craft");
   if (follow && follow.urlKey) p.set("focus", follow.urlKey); else p.delete("focus");
+  if (stereoMode) p.set("stereo", stereoMode); else p.delete("stereo");
+  // eyesep は明示されたときだけ載せる (自動のときは書かない = URL を散らかさない)
+  if (Number.isFinite(stereoFixedSep)) p.set("eyesep", String(stereoFixedSep));
   if (EMBED) {
     // 埋め込み中は他人のページの中なので履歴をいじらない。代わりにバッジの行き先を
     // 「いま映っている太陽系」に追随させる (押すと本体で同じ画面が開く)。
@@ -1293,12 +1303,73 @@ canvas.addEventListener("click", (ev) => {
   if (best >= 0) selectComet(best);
 });
 
+/* ---- 立体視 (赤青アナグリフ / 左右並び) ----
+   ?stereo=rc (赤青・左目=赤) / ?stereo=sbs (左右並び・左が左目) / ?eyesep= (AU・固定したいとき)。
+   **眼幅は「見ている物までの距離」で決める**: d = カメラから controls.target までの距離として
+   eyeSep = d/30、収束面 focus = d。俯瞰 (48 AU) なら眼幅 1.6 AU で太陽が画面の面、
+   内惑星が手前に飛び出し外惑星が奥に沈む「模型」の見え方になる。惑星に寄れば target ごと縮むので
+   同じ式のまま木星とガリレオ衛星の立体になる。人の眼幅 0.064m のような下限は AU では意味がない。
+   WebXR 中は素通し (ゴーグルの中では両眼が本物)。HUD は DOM のまま = 視差ゼロ = 画面の位置。 */
+let stereoMode = "", stereoEffect = null, stereoFixedSep = NaN;
+
+function stereoUpdateEyes() {
+  const d = camera.position.distanceTo(controls.target);
+  const sep = Number.isFinite(stereoFixedSep) ? stereoFixedSep : d / 30;
+  stereoEffect.stereo.eyeSep = sep;
+  camera.focus = d;
+  window.__STEREO = { mode: stereoMode, eyeSep: sep, focus: d };
+}
+
+function renderView() {
+  if (stereoMode && stereoEffect && !renderer.xr.isPresenting) {
+    stereoUpdateEyes();
+    stereoEffect.render(scene, camera);
+  } else {
+    renderer.render(scene, camera);
+  }
+}
+
+function stereoResize(w, h) {
+  if (stereoEffect) stereoEffect.setSize(w, h);
+  else renderer.setSize(w, h, false);   // 左右並びが残した右半分の viewport を全面に戻す
+}
+
+function setStereo(m) {
+  if (m !== "rc" && m !== "sbs") m = "";
+  if (stereoEffect && stereoEffect.dispose) stereoEffect.dispose();
+  stereoEffect = null;
+  stereoMode = m;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (m === "rc") stereoEffect = new AnaglyphEffect(renderer, w, h);
+  else if (m === "sbs") stereoEffect = new StereoEffect(renderer);
+  stereoResize(w, h);
+  /* **ここで aspect も入れ直す。** resize() は「バッファの寸法が変わったときだけ」aspect を直すので、
+     起動時にこちらが先に setSize してしまうと resize() が「変化なし」と判断して
+     aspect が初期値の 1 のまま残る (=立体を指定していないのに絵の写り方が変わる)。 */
+  if (w > 0 && h > 0) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  if (!m) window.__STEREO = { mode: "", eyeSep: 0, focus: 0 };
+  el("solar-stereo").value = m;
+  scheduleUrlWrite();
+}
+
+el("solar-stereo").addEventListener("change", (e) => setStereo(e.target.value));
+
+/* 起動時に一度だけ URL を読む。**effect は setPixelRatio の後に作ること** —
+   render target は pixelRatio 倍で作られるので、シネマ (setPixelRatio(2)) の後でないと
+   半分の解像度で合成される。そのため applyCine の後ろで呼んでいる。 */
+function setupStereo() {
+  const q = new URLSearchParams(location.search);
+  const sep = parseFloat(q.get("eyesep"));
+  if (Number.isFinite(sep) && sep >= 0.0001 && sep <= 100) stereoFixedSep = sep;
+  setStereo(q.get("stereo") || "");     // 未知の値は通常表示
+}
+
 // ---- 描画ループ・リサイズ ----
 function resize() {
   if (renderer.xr.isPresenting || cineMode) return;   // VR/シネマ中は固定サイズ
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (canvas.width !== w || canvas.height !== h) {
-    renderer.setSize(w, h, false);
+    stereoResize(w, h);
     camera.aspect = w / h; camera.updateProjectionMatrix();
   }
 }
@@ -1353,7 +1424,7 @@ function tick(now) {
     updatePlanetLook(curJd);                         // 見かけの大きさ判定は毎フレーム
   }
   vrPanel.update();
-  renderer.render(scene, camera);
+  renderView();
 }
 renderer.setAnimationLoop(tick);   // WebXR では requestAnimationFrame でなくこれを使う
 showAsteroidFromUrl();  // ?ael= で小惑星を軌道つき表示 (彗星は fetch 後に selectFromUrl)
@@ -1497,7 +1568,7 @@ function cineRender(p) {
   if (asteroidPoints) asteroidPoints.material.size = 3.2;
   if (tier2Mat) tier2Mat.uniforms.uSize.value = 3.6;
   update();
-  renderer.render(scene, camera);
+  renderView();
 }
 (function applyCine() {
   const q = new URLSearchParams(location.search);
@@ -1513,4 +1584,5 @@ function cineRender(p) {
   window.cineRender = cineRender;      // ツールが毎フレーム呼ぶ
   cineRender(Object.fromEntries(q));
 })();
+setupStereo();   // **applyCine の後**: render target は setPixelRatio 後の倍率で作られる
 </script>

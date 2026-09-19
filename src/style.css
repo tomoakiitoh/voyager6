@@ -124,6 +124,13 @@ body { display: flex; flex-direction: column; min-height: 100%; }
    実測 (幅393px): パネルを全部開くと 543px あり、iPhone では 3D に 40px しか
    残らなかった。ツールバー1本だけなら 3D に 550px 以上を渡せる。 */
 #solar-more-btn, #solar-credits { display: none; }
+/* 立体視の選択。表示チェックの chip と**同じ行の高さ**に収める —
+   select の既定 (min-height 34px) のままだと行が 30px→46px に伸び、
+   そのぶん盤面 (canvas) が縮んで「立体を使っていない人の見え方」まで変わってしまう。 */
+#solar-stereo {
+  min-height: 18px; padding: 0 2px; font-size: 12px;
+  border: 0; background: transparent; color: var(--fg);
+}
 #solar-panel[data-open="0"] #solar-more { display: none; }
 /* ?panel=0 は画面幅によらず操作パネルごと消す (プロジェクタ・Quest 用のクリーンな画面)。
    帰属表示は共通フッタに残る — パネルを消しても出典への導線は絶やさない。 */
