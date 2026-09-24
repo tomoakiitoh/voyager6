@@ -80,6 +80,10 @@ ASSETS = ["style.css", "astro.js", "render.js", "data.js", "sky.js", "sites.js",
           "tonight.js",       # 今夜の空の要約 (トップ下段)。ビルドの tonight_digest.mjs と共有
           "three.module.min.js", "OrbitControls.js",  # 太陽系3D (three.js) 用に vendoring
           "stereo.js",        # 立体視 (赤青/左右並び)。three の examples を複製したもの
+          # 立体視のときだけ動的に読む太線 (three の examples を複製)。
+          # 通常表示の /solar/ では取りに行かないので、開くだけの人には転送されない。
+          "Line2.js", "LineGeometry.js", "LineMaterial.js",
+          "LineSegments2.js", "LineSegmentsGeometry.js",
           "svgcanvas.esm.js",  # チャートSVG出力 (F8) 用に vendoring (MIT)
           "satellite.es.js",   # 人工衛星の SGP4 計算 (PLAN6 F1) 用に vendoring (MIT)
           "vrpanel.js",        # VR内の操作パネル (三部作の3Dページで共有)

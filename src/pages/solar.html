@@ -526,7 +526,7 @@ selAstMarker.visible = false; orbitingGroup.add(selAstMarker);
 
 function showAsteroid(el, name) {
   selAst = { el, name };
-  if (selAstOrbit) { orbitingGroup.remove(selAstOrbit); selAstOrbit.geometry.dispose(); }
+  if (selAstOrbit) { disposeFat(selAstOrbit); orbitingGroup.remove(selAstOrbit); selAstOrbit.geometry.dispose(); }
   const pts = [];  // M を一周させて軌道を描く (形は時刻に依らない)
   for (let M = 0; M <= 360; M += 2) {
     pts.push(toV(heliocentric({ N: el[3], i: el[2], w: el[4], a: el[0], e: el[1], M })));
@@ -534,6 +534,7 @@ function showAsteroid(el, name) {
   selAstOrbit = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({ color: 0x2fd6a6 }));
   orbitingGroup.add(selAstOrbit);
+  fatRefresh();
   selAstMarker.visible = true;
   updateAsteroidMarker(curJd);
 }
@@ -719,7 +720,7 @@ el("solar-now").addEventListener("click", () => {
   el("solar-time").value = Math.round(curJd - J0);
   update();
 });
-el("solar-orbits").addEventListener("change", () => orbitLines.forEach((l) => (l.visible = el("solar-orbits").checked)));
+el("solar-orbits").addEventListener("change", syncOrbitVisibility);
 el("solar-names").addEventListener("change", () => planetLabels.forEach((l) => (l.visible = el("solar-names").checked)));
 el("solar-comets").addEventListener("change", () => { if (cometPoints) cometPoints.visible = el("solar-comets").checked; });
 function updateOrbitVis() {   // 軌道線: トグルON かつ 群フィルタに一致するものだけ表示
@@ -915,6 +916,7 @@ function loadCraft() {
       sel.appendChild(o);
     }
     updateCraft(curJd);
+    fatRefresh();
     if (wantCraftKey) selectCraftByKey(wantCraftKey);
   }).catch(() => { el("solar-pick").textContent = "探査機データを読み込めませんでした"; });
 }
@@ -943,6 +945,7 @@ function updateCraft(jd) {
     const dim = selCraft >= 0 && i !== selCraft;
     it.past.material.opacity = dim ? 0.18 : 0.9;
     it.future.material.opacity = dim ? 0.05 : 0.2;
+    if (it.fatPast) craftFatUpdate(it, n, fs, dim);
     const h = craftHelio(c, jd);
     if (h) {
       it.marker.visible = true;
@@ -1062,7 +1065,7 @@ const elOf = (c) => ({ e: c[1], q: c[2], i: c[3], node: c[4], peri: c[5], tp: c[
 
 function selectComet(idx) {
   selectedIndex = idx;
-  if (selectedOrbitLine) { orbitingGroup.remove(selectedOrbitLine); selectedOrbitLine.geometry.dispose(); selectedOrbitLine = null; }
+  if (selectedOrbitLine) { disposeFat(selectedOrbitLine); orbitingGroup.remove(selectedOrbitLine); selectedOrbitLine.geometry.dispose(); selectedOrbitLine = null; }
   if (idx < 0) { selMarker.visible = false; el("solar-pick").textContent = ""; return; }
   const e2 = elOf(comets[idx]);
   const pts = [], span = e2.e < 0.98 ? [0, 360] : [-170, 170];
@@ -1071,6 +1074,7 @@ function selectComet(idx) {
     selectedOrbitLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
       new THREE.LineBasicMaterial({ color: 0xffe066 }));
     orbitingGroup.add(selectedOrbitLine);
+    fatRefresh();
   }
   selMarker.visible = true;
   updateSelectedMarker(curJd);
@@ -1303,6 +1307,165 @@ canvas.addEventListener("click", (ev) => {
   if (best >= 0) selectComet(best);
 });
 
+/* ---- 立体視のときだけ使う太線 (2026-09-24 実機所見) ----
+   WebGL では LineBasicMaterial の `linewidth` が効かず、線は**常に1物理ピクセル**で描かれる。
+   iPhone は pixelRatio 2 なので CSS 換算 0.5px、しかも軌道線は半透明。赤青めがねでは
+   片目に届く色が1チャンネルだけになるのでさらに細く暗く、**立体感を運ぶはずの「奥へ続く線」が
+   読めない**状態だった。three の examples の Line2 (線を三角形の帯で描く) に差し替えて太くする。
+
+   元の細い線は**消さずに持っておき**、立体視を切ったら戻す (通常表示は1pxも変えない)。
+   クラスは立体視を入れたときに初めて読む (開くだけの人に 30KB を転送しない)。
+   「全彗星の軌道線」(数百本) は重いので対象外。 */
+const FAT_WIDTH = 2.5;          // CSS px。LineMaterial.resolution を CSS サイズで渡すので単位も CSS px
+const FAT_OPACITY_PLANET = 0.6, FAT_OPACITY_PICK = 0.7;
+const STEREO_COMET_SIZE = 2.0, STEREO_AST_SIZE = 1.2;   // 立体視中の点の大きさ (通常は 4.0 / 1.6)
+let fatMod = null, fatLoading = null, fatOn = false;
+let fatWidth = FAT_WIDTH, stereoCometSize = STEREO_COMET_SIZE;
+const fatMaterials = [];        // resolution をまとめて更新するため
+const fatSize = new THREE.Vector2();
+
+/** 太線のクラスを読む。読めなくても立体視そのものは動く (細い線のまま)。 */
+function ensureFatLines() {
+  if (fatMod) return Promise.resolve(fatMod);
+  if (!fatLoading) {
+    fatLoading = Promise.all([
+      import("../assets/Line2.js"),
+      import("../assets/LineGeometry.js"),
+      import("../assets/LineMaterial.js"),
+    ]).then(([a, b, c]) => (fatMod = { Line2: a.Line2, LineGeometry: b.LineGeometry, LineMaterial: c.LineMaterial }))
+      .catch(() => null);
+  }
+  return fatLoading;
+}
+
+/** LineMaterial は線幅を px で持つので、描画サイズを教える必要がある。
+    渡すのは **CSS サイズ** (three の examples と同じ約束) — こうすると linewidth も CSS px になり、
+    pixelRatio 2 の端末でも見かけの太さが変わらない。アナグリフの render target は
+    pixelRatio 倍だが、シェーダは NDC で計算するので同じ指定で合う。 */
+function fatResolutionUpdate() {
+  if (!fatMaterials.length) return;
+  renderer.getSize(fatSize);
+  // 左右並びは画面の半分ずつに描くので、横方向だけ縮尺が倍になる。
+  // resolution.x を半分にしておかないと、左右並びのときだけ線が細く見える。
+  const rx = stereoMode === "sbs" ? fatSize.x / 2 : fatSize.x;
+  for (const m of fatMaterials) m.resolution.set(rx, fatSize.y);
+}
+
+/** 細い線と同じ頂点で太線を作る。loop=true は最後に始点を足して閉じる (LineLoop の代わり)。 */
+function makeFat(src, color, opacity, loop, start = 0, count = -1) {
+  const n = count < 0 ? src.length / 3 - start : count;
+  if (n < 2) return null;
+  const arr = new Float32Array((loop ? n + 1 : n) * 3);
+  arr.set(src.subarray(start * 3, (start + n) * 3));
+  if (loop) arr.set(src.subarray(0, 3), n * 3);
+  const geo = new fatMod.LineGeometry();
+  geo.setPositions(arr);
+  const mat = new fatMod.LineMaterial({ color, transparent: true, opacity, linewidth: fatWidth });
+  fatMaterials.push(mat);
+  fatResolutionUpdate();
+  const line = new fatMod.Line2(geo, mat);
+  line.computeLineDistances();
+  return line;
+}
+
+/** 細い線 thin に太線の相方を付ける (同じ親・同じ位置に並べる)。 */
+function attachFat(thin, opacity, loop) {
+  if (!fatMod || !thin || thin.userData.fat) return;
+  const f = makeFat(thin.geometry.attributes.position.array, thin.material.color.getHex(), opacity, loop);
+  if (!f) return;
+  f.visible = fatOn && thin.visible;
+  thin.parent.add(f);
+  thin.userData.fat = f;
+}
+
+function disposeFat(thin) {
+  const f = thin && thin.userData && thin.userData.fat;
+  if (!f) return;
+  f.parent.remove(f);
+  f.geometry.dispose();
+  const i = fatMaterials.indexOf(f.material);
+  if (i >= 0) fatMaterials.splice(i, 1);
+  f.material.dispose();
+  thin.userData.fat = null;
+}
+
+/** 惑星の軌道線の見え方 (チェックボックスと太線の切替をひとつにまとめる)。 */
+function syncOrbitVisibility() {
+  const want = el("solar-orbits").checked;
+  for (const l of orbitLines) {
+    const f = l.userData.fat;
+    l.visible = want && !(fatOn && f);
+    if (f) f.visible = want && fatOn;
+  }
+}
+
+/** 探査機の軌跡。Line2 は drawRange が使えないので、実線/減光の境目が動いたら作り直す。 */
+function attachCraftFat() {
+  if (!fatMod || !craftGroup) return;
+  for (const it of craftItems) {
+    if (it.fatPast) continue;
+    const src = it.past.geometry.attributes.position.array, color = it.past.material.color.getHex();
+    it.fatPast = makeFat(src, color, 0.9, false, 0, 2);      // 頂点は updateCraft が入れ直す
+    it.fatFuture = makeFat(src, color, 0.2, false, 0, 2);
+    if (!it.fatPast || !it.fatFuture) { it.fatPast = it.fatFuture = null; return; }
+    craftGroup.add(it.fatPast); craftGroup.add(it.fatFuture);
+    it.fatN = -1;
+  }
+}
+
+function fatSetPositions(line, src, start, count) {
+  if (count < 2) { line.visible = false; return; }
+  line.geometry.setPositions(new Float32Array(src.subarray(start * 3, (start + count) * 3)));
+  line.computeLineDistances();
+}
+
+/** updateCraft の末尾から呼ぶ。細い線と太い線のどちらを見せるかもここで決める。 */
+function craftFatUpdate(it, n, fs, dim) {
+  if (!fatOn) { it.fatPast.visible = false; it.fatFuture.visible = false; return; }
+  it.past.visible = false; it.future.visible = false;
+  const src = it.past.geometry.attributes.position.array, len = src.length / 3;
+  if (it.fatN !== n) {
+    fatSetPositions(it.fatPast, src, 0, n);
+    fatSetPositions(it.fatFuture, src, fs, len - fs);
+    it.fatN = n;
+  }
+  it.fatPast.visible = n > 1;
+  it.fatFuture.visible = n < len;
+  it.fatPast.material.opacity = dim ? 0.18 : 0.9;
+  it.fatFuture.material.opacity = dim ? 0.05 : 0.2;
+}
+
+function syncCraftFat() {
+  if (!craftItems.length) return;
+  for (const it of craftItems) if (it.fatPast) { it.fatPast.visible = false; it.fatFuture.visible = false; it.fatN = -1; }
+  if (craftGroup && craftGroup.visible) updateCraft(curJd);
+}
+
+/** 線を作り直した (彗星を選んだ・探査機を読んだ) ときに、太線側を追随させる。 */
+function fatRefresh() {
+  if (!stereoMode) return;
+  ensureFatLines().then(() => applyFat(!!stereoMode));
+}
+
+/** 立体視の ON/OFF に合わせて、太線と点の大きさを切り替える。 */
+function applyFat(on) {
+  fatOn = on && !!fatMod;
+  if (fatMod) {
+    for (const l of orbitLines) attachFat(l, FAT_OPACITY_PLANET, true);
+    attachFat(selectedOrbitLine, FAT_OPACITY_PICK, false);
+    attachFat(selAstOrbit, FAT_OPACITY_PICK, true);
+    attachCraftFat();
+  }
+  syncOrbitVisibility();
+  for (const thin of [selectedOrbitLine, selAstOrbit]) {
+    if (thin && thin.userData.fat) { thin.visible = !fatOn; thin.userData.fat.visible = fatOn; }
+  }
+  syncCraftFat();
+  // 点は小さく。線より点が目立つと、奥行きを運ぶ線が負けてしまう
+  if (cometPoints) cometPoints.material.size = on ? stereoCometSize : 4.0;
+  if (asteroidPoints) asteroidPoints.material.size = on ? STEREO_AST_SIZE : 1.6;
+}
+
 /* ---- 立体視 (赤青アナグリフ / 左右並び) ----
    ?stereo=rc (赤青・左目=赤) / ?stereo=sbs (左右並び・左が左目) / ?eyesep= (AU・固定したいとき)。
    **眼幅は「見ている物までの距離」で決める**: d = カメラから controls.target までの距離として
@@ -1332,6 +1495,7 @@ function renderView() {
 function stereoResize(w, h) {
   if (stereoEffect) stereoEffect.setSize(w, h);
   else renderer.setSize(w, h, false);   // 左右並びが残した右半分の viewport を全面に戻す
+  fatResolutionUpdate();                // 太線の幅は描画サイズを知らないと決まらない
 }
 
 function setStereo(m) {
@@ -1349,6 +1513,9 @@ function setStereo(m) {
   if (w > 0 && h > 0) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
   if (!m) window.__STEREO = { mode: "", eyeSep: 0, focus: 0 };
   el("solar-stereo").value = m;
+  // 太線は立体視のときだけ。クラスを読んでから差し替える (読み終わるまでは細い線のまま)
+  if (m) ensureFatLines().then(() => applyFat(!!stereoMode));
+  else applyFat(false);
   scheduleUrlWrite();
 }
 
@@ -1361,6 +1528,11 @@ function setupStereo() {
   const q = new URLSearchParams(location.search);
   const sep = parseFloat(q.get("eyesep"));
   if (Number.isFinite(sep) && sep >= 0.0001 && sep <= 100) stereoFixedSep = sep;
+  // 実機で詰めるための調整つまみ (docs には載せない)。?lw= 線の太さ[px] / ?ps= 彗星の点の大きさ
+  const lw = parseFloat(q.get("lw"));
+  if (Number.isFinite(lw) && lw >= 0.5 && lw <= 12) fatWidth = lw;
+  const ps = parseFloat(q.get("ps"));
+  if (Number.isFinite(ps) && ps >= 0.5 && ps <= 12) stereoCometSize = ps;
   setStereo(q.get("stereo") || "");     // 未知の値は通常表示
 }
 
@@ -1577,6 +1749,7 @@ function cineRender(p) {
   renderer.setPixelRatio(2);                 // 2倍で描いて後で縮小 (SSAA=点のチラつき対策)
   renderer.setSize(1280, 720, true);         // 論理1280×720 → 描画バッファ2560×1440
   camera.aspect = 1280 / 720; camera.updateProjectionMatrix();
+  fatResolutionUpdate();                     // 太線が既にあれば幅の基準も入れ替える
   const s = document.createElement("style");
   s.textContent = "body.cine #solar-panel,body.cine #site-header,body.cine #site-footer{display:none!important}body.cine{overflow:hidden}";
   document.head.appendChild(s);
