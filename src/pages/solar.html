@@ -67,12 +67,9 @@ bodyclass: solar-page
     <label><input type="checkbox" id="solar-craft">探査機</label>
     <label><input type="checkbox" id="solar-corotate">木星固定（回転座標系）</label>
     <label><input type="checkbox" id="solar-names" checked>惑星名</label>
-    <!-- 立体視。赤青めがねがあれば軌道の奥行きが見える (左目=赤)。左右並びは平行法・Cardboard 用 -->
-    <label>立体 <select id="solar-stereo" title="立体視">
-      <option value="">なし</option>
-      <option value="rc">赤青めがね</option>
-      <option value="sbs">左右並び</option>
-    </select></label>
+    <!-- 立体視。赤青めがねがあれば軌道の奥行きが見える (左目=赤)。1タップで入れるよう他と同じ chip にした。
+         左右並び (平行法・Cardboard) は ?stereo=sbs でだけ入る。そのときも ON 表示になり、外すと通常表示 -->
+    <label title="赤青めがね（左目=赤）で立体視"><input type="checkbox" id="solar-stereo">🔴🔵 立体</label>
   </div>
   <div class="row"><span class="info"><b>探査機</b>をONにすると、各国の惑星探査機25機が飛んだ道すじが出ます（<b>今日までが実線・その先は薄い線</b>なので、いまどこまで来たかが分かります）。まずはこの3つ:
     <a href="?craft=voyager1">ボイジャー1号</a>・<a href="?craft=hayabusa2">はやぶさ2</a>・<a href="?craft=voyager2&amp;date=1986-01-24">ボイジャー2号が天王星に着いた日</a>。
@@ -1512,14 +1509,14 @@ function setStereo(m) {
      aspect が初期値の 1 のまま残る (=立体を指定していないのに絵の写り方が変わる)。 */
   if (w > 0 && h > 0) { camera.aspect = w / h; camera.updateProjectionMatrix(); }
   if (!m) window.__STEREO = { mode: "", eyeSep: 0, focus: 0 };
-  el("solar-stereo").value = m;
+  el("solar-stereo").checked = !!m;
   // 太線は立体視のときだけ。クラスを読んでから差し替える (読み終わるまでは細い線のまま)
   if (m) ensureFatLines().then(() => applyFat(!!stereoMode));
   else applyFat(false);
   scheduleUrlWrite();
 }
 
-el("solar-stereo").addEventListener("change", (e) => setStereo(e.target.value));
+el("solar-stereo").addEventListener("change", (e) => setStereo(e.target.checked ? "rc" : ""));
 
 /* 起動時に一度だけ URL を読む。**effect は setPixelRatio の後に作ること** —
    render target は pixelRatio 倍で作られるので、シネマ (setPixelRatio(2)) の後でないと
