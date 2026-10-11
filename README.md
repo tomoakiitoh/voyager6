@@ -73,6 +73,11 @@ CI では回さず、生成物 `src/og.png` / `src/favicon.svg` をコミット�
 全天ビルドは数百GBのダウンロードを伴うので手元で流し、`deploy/rsync-stars.sh` で配信サーバへ送ります。
 配信サーバ（`data.voyager6.net`）の構築手順は [`deploy/README.md`](deploy/README.md)。
 
+`tools/check_health.py` は更新系が止まっていないかを外側から確かめます（帰宅後チェック用、手元で実行）。
+TLE の鮮度・VPS の `/healthz`・証明書の残日数・軌道要素の最終コミット・Actions の直近結果を見て、
+問題が無ければ1行で終わります（`-v` で全項目）。どの系統も取得失敗を静かに見送る設計なので、
+「止まったこと」に気づくための仕組みです。
+
 ## 構成
 
 ```
